@@ -1,0 +1,82 @@
+diff --git a/FFmpeg/WriteFFmpeg.cpp b/FFmpeg/WriteFFmpeg.cpp
+index d6d9f34..7ded1ed 100644
+--- a/FFmpeg/WriteFFmpeg.cpp
++++ b/FFmpeg/WriteFFmpeg.cpp
+@@ -75,6 +75,24 @@ extern "C" {
+ #include <libavutil/opt.h>
+ #include <libswscale/swscale.h>
+ }
++
++// Compat: AVCodec::pix_fmts was removed in FFmpeg 8 (deprecated since libavcodec 61.13);
++// use avcodec_get_supported_config() when available. Returns a list terminated by
++// AV_PIX_FMT_NONE, or nullptr if the supported formats are unknown.
++static const AVPixelFormat*
++ofxCodecPixFmts(const AVCodec* codec)
++{
++#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 13, 100)
++    const void* configs = nullptr;
++    int numConfigs = 0;
++    if (!codec || avcodec_get_supported_config(nullptr, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &configs, &numConfigs) < 0) {
++        return nullptr;
++    }
++    return static_cast<const AVPixelFormat*>(configs);
++#else
++    return codec ? codec->pix_fmts : nullptr;
++#endif
++}
+ #include "IOUtility.h"
+ #include "ofxsFileOpen.h"
+ #include "ofxsMacros.h"
+@@ -1706,10 +1724,10 @@ WriteFFmpegPlugin::getPixelFormats(const AVCodec* videoCodec,
+         } else {
+             outTargetPixelFormat = AV_PIX_FMT_YUV422P;
+         }
+-    } else if (videoCodec->pix_fmts != nullptr) {
++    } else if (ofxCodecPixFmts(videoCodec) != nullptr) {
+         // This is the most frequent path, where we can guess best pix format using ffmpeg.
+         // find highest bit depth pix fmt.
+-        const AVPixelFormat* currPixFormat = videoCodec->pix_fmts;
++        const AVPixelFormat* currPixFormat = ofxCodecPixFmts(videoCodec);
+ 
+         int prefBPP = FFmpeg::pixelFormatBPPFromSpec(prefPixelCoding, prefBitDepth, prefAlpha);
+ 
+@@ -1791,7 +1809,7 @@ WriteFFmpegPlugin::getPixelFormats(const AVCodec* videoCodec,
+         } else {
+             // gather the formats that have the target BPP (avcodec_find_best_pix_fmt_of_list doesn't do the best job: it prefers yuv422p over yuv422p10)
+             vector<AVPixelFormat> bestFormats;
+-            currPixFormat = videoCodec->pix_fmts;
++            currPixFormat = ofxCodecPixFmts(videoCodec);
+             while (*currPixFormat != -1) {
+                 int currBPP = FFmpeg::pixelFormatBPP(*currPixFormat);
+                 if (currBPP == selectedBPP) {
+@@ -1806,7 +1824,7 @@ WriteFFmpegPlugin::getPixelFormats(const AVCodec* videoCodec,
+             // (the loss of first format is used a a mask for the second, etc) so that if the first pixel format
+             // loses resolution, resolution loss is not considered for other formats.
+             // If we pass NULL, the considered loss is ~0 for all formats
+-            outTargetPixelFormat = avcodec_find_best_pix_fmt_of_list(/*videoCodec->pix_fmts*/ &bestFormats[0], outRgbBufferPixelFormat, hasAlphaInt, nullptr);
++            outTargetPixelFormat = avcodec_find_best_pix_fmt_of_list(/*ofxCodecPixFmts(videoCodec)*/ &bestFormats[0], outRgbBufferPixelFormat, hasAlphaInt, nullptr);
+         }
+ 
+ #ifdef DEBUG
+@@ -1854,7 +1872,7 @@ WriteFFmpegPlugin::getPixelFormats(const AVCodec* videoCodec,
+                 // supported by the QT RLE codec and force the output pixel
+                 // format.
+                 //
+-                currPixFormat = videoCodec->pix_fmts;
++                currPixFormat = ofxCodecPixFmts(videoCodec);
+                 while (*currPixFormat != -1) {
+                     AVPixelFormat avPixelFormat = *currPixFormat++;
+                     if ((AV_PIX_FMT_ARGB == avPixelFormat) || (AV_PIX_FMT_RGBA == avPixelFormat) || (AV_PIX_FMT_ABGR == avPixelFormat) || (AV_PIX_FMT_BGRA == avPixelFormat)) {
+@@ -4580,10 +4598,10 @@ WriteFFmpegPlugin::availPixelFormats()
+     ret += avOutputFormat->name;
+     ret += ":\n";
+ 
+-    if (videoCodec->pix_fmts == nullptr || *videoCodec->pix_fmts == -1) {
++    if (ofxCodecPixFmts(videoCodec) == nullptr || *ofxCodecPixFmts(videoCodec) == -1) {
+         ret += "none";
+     } else {
+-        const AVPixelFormat* currPixFormat = videoCodec->pix_fmts;
++        const AVPixelFormat* currPixFormat = ofxCodecPixFmts(videoCodec);
+         bool comma = false;
+         while (*currPixFormat != -1) {
+             if (comma) {

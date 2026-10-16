@@ -324,9 +324,9 @@ if [ "$PKGOS" = "Windows" ]; then
         elif [ -d "$CUSTOM_BUILDS_PATH/ffmpeg-gpl2" ]; then
             FFMPEG_PATH="$CUSTOM_BUILDS_PATH/ffmpeg-gpl2"
         else
-            (>&2 echo "Warning: FFmpeg cannot be found in $SDK_HOME/ffmpeg-gpl or $SDK_HOME/ffmpeg-gpl2")
-            (>&2 echo "Info: Setting FFMPEG_PATH=$SDK_HOME/ffmpeg-gpl2")
-            FFMPEG_PATH="$SDK_HOME/ffmpeg-gpl2"
+            # No private FFmpeg build: use the environment's own (GPL) FFmpeg package.
+            (>&2 echo "Info: no private FFmpeg in $SDK_HOME/ffmpeg-gpl[2], using FFMPEG_PATH=$SDK_HOME")
+            FFMPEG_PATH="$SDK_HOME"
         fi
         LIBRAW_PATH="$CUSTOM_BUILDS_PATH/libraw-gpl2"        
     elif [ -z "${NATRON_LICENSE+x}" ] || [ "${NATRON_LICENSE:-}" = "COMMERCIAL" ]; then

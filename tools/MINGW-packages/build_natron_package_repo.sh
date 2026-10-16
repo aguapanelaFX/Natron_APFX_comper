@@ -11,8 +11,6 @@ mingw-w64-libraw-gpl2
 mingw-w64-opencolorio2-git
 mingw-w64-openimageio
 mingw-w64-seexpr-git
-mingw-w64-x264-git
-mingw-w64-ffmpeg-gpl2
 mingw-w64-sox
 mingw-w64-poppler
 mingw-w64-imagemagick
@@ -48,6 +46,8 @@ echo "Building Natron package repo for ${MSYSTEM} (prefix ${PKG_PREFIX})"
 FAILED_PKGS=""
 # Packages (re)built during this run; packages depending on them are rebuilt too.
 REBUILT_PKGS=" "
+# Packages that belong in the repo; anything else left over from earlier runs is removed.
+EXPECTED_PKGS=" "
 
 # A package already in the repo is reused only if its recipe (the git-tracked
 # files of its directory) is unchanged since it was built and none of its
@@ -86,6 +86,7 @@ for pkg_dir in ${PKGS}; do
     continue
   fi
 
+  EXPECTED_PKGS="${EXPECTED_PKGS}${PACKAGE_NAME} "
   RECIPE_HASH="$(recipe_hash .)"
   HASH_FILE="${RECIPE_HASH_DIR}/${PACKAGE_NAME}.sha256"
   REASON=""
@@ -140,6 +141,15 @@ for pkg_dir in ${PKGS}; do
   echo -e "Leaving package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}"
 done
+
+# Remove packages that are no longer part of the repo (e.g. dropped recipes).
+for old_pkg in $(pacman -Sl natron 2>/dev/null | awk '{print $2}'); do
+  if [[ "${EXPECTED_PKGS}" != *" ${old_pkg} "* ]]; then
+    echo "Removing ${old_pkg} from package repo (no longer built)."
+    (cd "${NATRON_REPO_DIR}" && repo-remove natron.db.tar.gz "${old_pkg}" && rm -f "${old_pkg}"-[0-9]*-any.pkg.tar.* ".recipes/${old_pkg}.sha256")
+  fi
+done
+pacman -Sy
 
 if [[ -n "${FAILED_PKGS}" ]]; then
   echo -e "\n\nERROR: the following packages failed to build:${FAILED_PKGS}"

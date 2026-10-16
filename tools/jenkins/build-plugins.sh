@@ -292,6 +292,21 @@ if [ "$BUILD_IO" = "1" ] && [ -d "$TMP_PATH/openfx-io" ]; then
     printStatusMessage "Building openfx-io..."
     cd "$TMP_PATH/openfx-io"
 
+    # Apply local patches (e.g. compatibility with newer FFmpeg). A patch that is
+    # already part of upstream (reverse-applies cleanly) is skipped.
+    for patch in "$INC_PATH"/patches/openfx-io/*.patch; do
+        [ -f "$patch" ] || continue
+        if git apply --check "$patch" 2>/dev/null; then
+            echo "Info: applying $(basename "$patch") to openfx-io"
+            git apply "$patch"
+        elif git apply --check --reverse "$patch" 2>/dev/null; then
+            echo "Info: $(basename "$patch") already applied to openfx-io, skipping"
+        else
+            echo "Error: $(basename "$patch") does not apply to openfx-io"
+            exit 1
+        fi
+    done
+
     #Always bump git commit, it is only used to version-stamp binaries
 
     if [ "$CMAKE_PLUGINS" = "1" ] && [ -f CMakeLists.txt ] && [ -d openfx/cmake ]; then
