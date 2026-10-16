@@ -4,7 +4,7 @@ _realname=sox
 pkgbase=mingw-w64-natron_${_realname}
 pkgname="${MINGW_PACKAGE_PREFIX}-natron_${_realname}"
 pkgver=14.4.2
-pkgrel=99.1
+pkgrel=99.2
 pkgdesc="Swiss Army Knife of sound processing utilities (mingw-w64)"
 arch=('any')
 mingw_arch=('mingw64' 'ucrt64')
@@ -27,6 +27,14 @@ prepare() {
 
   patch -Np1 -i "${srcdir}/remove-libssp-detection.patch"
   patch -Np1 -i "${srcdir}/include-math-header.patch"
+
+  # UCRT's FILE struct is opaque, so rewinding a pipe by poking FILE internals
+  # (fp->_ptr/_base) is impossible. Like MSYS2's own sox package, disable pipe
+  # rewinding there (only used to auto-detect the format of piped input).
+  if [[ "${MSYSTEM}" == "UCRT64" || "${MINGW_PACKAGE_PREFIX}" == *ucrt* ]]; then
+    sed -i -E '/^#elif .*_MSC_VER.*_WIN32/i #elif defined _UCRT\n  return -1; /* UCRT: FILE is opaque, cannot rewind pipe */' src/formats.c
+    grep -q "defined _UCRT" src/formats.c || { echo "sox: UCRT rewind_pipe patch did not apply"; exit 1; }
+  fi
 
   autoreconf -fiv
 }

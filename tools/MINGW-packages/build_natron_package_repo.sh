@@ -43,6 +43,10 @@ PKG_PREFIX="${MINGW_PACKAGE_PREFIX:-mingw-w64-x86_64}"
 export MINGW_ARCH="${MSYSTEM,,}"
 echo "Building Natron package repo for ${MSYSTEM} (prefix ${PKG_PREFIX})"
 
+# Keep building the remaining packages when one fails, so all failures show up
+# in a single run; the script still exits with an error at the end.
+FAILED_PKGS=""
+
 for pkg_dir in ${PKGS}; do
   echo -e "\n\nEntering package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}/${pkg_dir}"
@@ -69,7 +73,12 @@ for pkg_dir in ${PKGS}; do
 
       # Remove any package files from previous builds.
       rm -f ${PKG_PREFIX}-*-any.pkg.tar.*
-      time MAKEFLAGS="-j$(nproc)" makepkg-mingw -LfCcsr --needed --noconfirm
+      if ! time MAKEFLAGS="-j$(nproc)" makepkg-mingw -LfCcsr --needed --noconfirm; then
+        echo "ERROR: building ${PACKAGE_NAME} failed, continuing with the next package."
+        FAILED_PKGS="${FAILED_PKGS} ${PACKAGE_NAME}"
+        cd "${BUILD_SCRIPT_DIR}"
+        continue
+      fi
 
       echo "Build complete."
     fi
@@ -85,3 +94,9 @@ for pkg_dir in ${PKGS}; do
   echo -e "Leaving package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}"
 done
+
+if [[ -n "${FAILED_PKGS}" ]]; then
+  echo -e "\n\nERROR: the following packages failed to build:${FAILED_PKGS}"
+  exit 1
+fi
+echo -e "\n\nAll packages built successfully."
