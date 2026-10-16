@@ -6,7 +6,12 @@ name: Build pacman repo
 # "Build Installer" workflow downloads them from.
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: 'Ignore the cache and rebuild every package'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'tools/MINGW-packages/**'
@@ -24,7 +29,7 @@ permissions:
   contents: write
 
 env:
-  cache-name: cache-natron-repo-ucrt64
+  cache-name: cache-natron-repo-ucrt64-v2
   REPO_RELEASE_TAG: windows-ucrt64-package-repo
   REPO_ZIP: natron_package_repo-ucrt64.zip
 
@@ -50,19 +55,17 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup
         shell: pwsh
-      - name: Prep package version list
-        run: |
-          pacman -Sl ucrt64 msys > mingw-package-version-list.txt
       - name: Restore natron repo directory from cache
         id: restore-natron-repo-cache
+        # Only packages whose recipe (or a rebuilt dependency) changed get rebuilt;
+        # see tools/MINGW-packages/build_natron_package_repo.sh.
+        if: ${{ !inputs.clean }}
         uses: actions/cache/restore@v4
         with:
           path: natron_repo
-          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-${{ github.run_id }}
-          # Reuse packages from earlier (even partial) runs against the same MSYS2
-          # package set; already-built packages are skipped.
+          key: ${{ env.cache-name }}-${{ github.run_id }}
           restore-keys: |
-            ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-
+            ${{ env.cache-name }}-
       - name: Build natron package repo
         id: build-package-repo
         # Allow continuing after error so cache gets updated and makes reruns faster.
@@ -76,7 +79,7 @@ jobs:
         if: always()
         with:
           path: natron_repo
-          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-${{ github.run_id }}
+          key: ${{ env.cache-name }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Check on failures
         if: steps.build-package-repo.outcome != 'success'
         run: exit 1
@@ -84,7 +87,7 @@ jobs:
         run: |
           cd natron_repo
           rm -f "../${REPO_ZIP}"
-          zip -r "../${REPO_ZIP}" .
+          zip -r "../${REPO_ZIP}" . -x '.recipes/*'
       - name: Upload natron_package_repo artifact
         uses: actions/upload-artifact@v4.3.1
         with:
