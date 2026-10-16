@@ -11,9 +11,17 @@ PYTEMP=${PYTEMP:-${PYDIR}/zip_tmp}
 PYVER=${PYVER:-3.10}
 PYVERNODOT=${PYVERNODOT:-`echo ${PYVER} | sed -e 's/\.//g'`}
 
-PY_PKG=`pacman -Q mingw-w64-x86_64-python | awk '{print $2}'`
-PY_PKG_FILE="mingw-w64-x86_64-python-${PY_PKG}-any.pkg.tar.zst"
-PY_PKG_URL="https://repo.msys2.org/mingw/x86_64/${PY_PKG_FILE}"
+MINGW_PKG_PREFIX="${MINGW_PACKAGE_PREFIX:-mingw-w64-x86_64}"
+MINGW_ENV_DIR="${MSYSTEM_PREFIX:-/mingw64}"
+MINGW_ENV_DIR="${MINGW_ENV_DIR#/}"
+if [ "${MINGW_ENV_DIR}" = "mingw64" ]; then
+    MINGW_REPO_DIR="x86_64"
+else
+    MINGW_REPO_DIR="${MINGW_ENV_DIR}"
+fi
+PY_PKG=`pacman -Q ${MINGW_PKG_PREFIX}-python | awk '{print $2}'`
+PY_PKG_FILE="${MINGW_PKG_PREFIX}-python-${PY_PKG}-any.pkg.tar.zst"
+PY_PKG_URL="https://repo.msys2.org/mingw/${MINGW_REPO_DIR}/${PY_PKG_FILE}"
 PACMAN_CACHE="/var/cache/pacman/pkg"
 
 PYDIRS="
@@ -47,7 +55,7 @@ zoneinfo
 "
 
 EMBED="${PYTEMP}/python${PYVERNODOT}"
-SRC="${PYTEMP}/mingw64/lib/python${PYVER}"
+SRC="${PYTEMP}/${MINGW_ENV_DIR}/lib/python${PYVER}"
 
 mkdir -p "${EMBED}"
 
@@ -62,7 +70,19 @@ if [ ! -d "${SRC}" ]; then
 fi
 
 for dir in ${PYDIRS}; do
-    cp -a "${SRC}/${dir}" "${EMBED}/"
+    # Some modules were removed in newer Python versions (lib2to3, msilib in 3.13).
+    if [ -d "${SRC}/${dir}" ]; then
+        cp -a "${SRC}/${dir}" "${EMBED}/"
+    fi
+done
+# Newer Python versions turn more stdlib modules into packages (e.g. pathlib in 3.13),
+# so also copy any other stdlib package not explicitly excluded.
+PYDIRS_EXCLUDE=" site-packages lib-dynload test tests idlelib tkinter turtledemo ensurepip venv config-${PYVER} "
+for path in "${SRC}"/*/; do
+    dir=$(basename "${path}")
+    if [ -f "${path}/__init__.py" ] && [ ! -d "${EMBED}/${dir}" ] && [[ "${PYDIRS_EXCLUDE}" != *" ${dir} "* ]]; then
+        cp -a "${SRC}/${dir}" "${EMBED}/"
+    fi
 done
 
 mkdir -p "${EMBED}/site-packages"

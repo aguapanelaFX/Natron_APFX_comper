@@ -146,7 +146,7 @@ if ! which ${MT_BIN}; then
 fi
 
 if ! which binarycreator.exe && [ ! -f "/Setup.exe" ]; then
-    pacman -S mingw-w64-x86_64-qt-installer-framework
+    pacman -S --noconfirm "${MINGW_PACKAGE_PREFIX:-mingw-w64-x86_64}-qt-installer-framework"
 
     if ! which binarycreator.exe; then
         echo "Failed to find binarycreator.exe"

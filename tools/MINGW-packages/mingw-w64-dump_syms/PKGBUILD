@@ -8,6 +8,7 @@ pkgver=2159.aa833ca8
 pkgrel=1
 pkgdesc="Dump win32 dwarf symbols"
 arch=('any')
+mingw_arch=('mingw64' 'ucrt64')
 url="https://github.com/NatronGitHub/breakpad"
 license=('BSD')
 provides=("${MINGW_PACKAGE_PREFIX}-dump_syms")
@@ -15,7 +16,7 @@ conflicts=("${MINGW_PACKAGE_PREFIX}-dump_syms")
 makedepends=("git"
              "${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-pkg-config")
-depends=("mingw-w64-x86_64-libzip")
+depends=("${MINGW_PACKAGE_PREFIX}-libzip")
 options=('strip')
 source=("${_realname}"::"git+https://github.com/NatronGitHub/breakpad#commit=${gitcommit}")
 sha256sums=('SKIP')

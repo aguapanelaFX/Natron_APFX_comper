@@ -162,7 +162,11 @@ elif [ "$PKGOS" = "Windows" ]; then
         SDK_HOME="/mingw32"
         ARCH=i386
     elif [ "$BITS" = "64" ]; then
-        SDK_HOME="/mingw64"
+        # Use the active MSYS2 environment prefix (/ucrt64, /clang64, ...), default /mingw64.
+        case "${MSYSTEM_PREFIX:-}" in
+            /ucrt64|/clang64|/mingw64) SDK_HOME="${MSYSTEM_PREFIX}" ;;
+            *) SDK_HOME="/mingw64" ;;
+        esac
         ARCH=x86_64
     else
         (>&2 echo "Error: Unsupported BITS=$BITS")

@@ -8,6 +8,7 @@ pkgver=27.e17245d
 pkgrel=1
 pkgdesc="A library (and tools) for parsing Google Breakpad crash dumps (mingw-w64)"
 arch=('any')
+mingw_arch=('mingw64' 'ucrt64')
 url="https://github.com/rodlie/breakdown"
 license=('BSD')
 provides=("${MINGW_PACKAGE_PREFIX}-${_realname}")

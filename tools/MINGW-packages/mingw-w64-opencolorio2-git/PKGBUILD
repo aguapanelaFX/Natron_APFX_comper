@@ -8,6 +8,7 @@ pkgver=1356.66b7b7d5
 pkgrel=99.1
 pkgdesc="A color management framework for visual effects and animation (mingw-w64)"
 arch=('any')
+mingw_arch=('mingw64' 'ucrt64')
 url="http://opencolorio.org"
 license=('BSD')
 provides=("${MINGW_PACKAGE_PREFIX}-${_realname}")

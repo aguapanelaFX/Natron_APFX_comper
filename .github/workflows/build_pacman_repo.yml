@@ -1,5 +1,10 @@
 name: Build pacman repo
 
+# Builds Natron's own MSYS2 dependency packages (OpenImageIO, FFmpeg, OCIO, ...)
+# for the UCRT64 environment and publishes them as the release asset
+# "natron_package_repo-ucrt64.zip" under the tag below, where the
+# "Build Installer" workflow downloads them from.
+
 on:
   workflow_dispatch: {}
   pull_request:
@@ -15,13 +20,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 env:
-  cache-name: cache-natron-repo
+  cache-name: cache-natron-repo-ucrt64
+  REPO_RELEASE_TAG: windows-ucrt64-package-repo
+  REPO_ZIP: natron_package_repo-ucrt64.zip
 
 jobs:
   build_repo:
-    name: Build pacman repo
+    name: Build pacman repo (UCRT64)
     runs-on: windows-2022
+    timeout-minutes: 360
     defaults:
       run:
         shell: msys2 {0}
@@ -30,33 +41,34 @@ jobs:
         uses: actions/checkout@v4.1.1
         with:
           submodules: recursive
-      - name: Setup MinGW environment
+      - name: Setup MSYS2 UCRT64 environment
         uses: msys2/setup-msys2@v2
         with:
-          msystem: mingw64
+          msystem: ucrt64
           update: true
-          install: git base-devel
+          install: git base-devel zip
       - name: Install Inno Setup
         run: choco install innosetup
         shell: pwsh
-      - name: Prep MinGW package version list
+      - name: Prep package version list
         run: |
-          pacman -Sl mingw64 msys > mingw-package-version-list.txt
+          pacman -Sl ucrt64 msys > mingw-package-version-list.txt
       - name: Restore natron repo directory from cache
         id: restore-natron-repo-cache
         uses: actions/cache/restore@v4
         with:
           path: natron_repo
-          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}
+          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-${{ github.run_id }}
+          # Reuse packages from earlier (even partial) runs against the same MSYS2
+          # package set; already-built packages are skipped.
+          restore-keys: |
+            ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-
       - name: Build natron package repo
         id: build-package-repo
         # Allow continuing after error so cache gets updated and makes reruns faster.
         continue-on-error: true
         run: |
           tools/MINGW-packages/build_natron_package_repo.sh natron_repo
-
-          REPO_VERSION=`cat ${GITHUB_WORKSPACE}/tools/MINGW-packages/windows_pacman_repo_version.txt`
-          echo "REPO_VERSION=${REPO_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Save natron repo directory to cache
         id: save-natron-repo-cache
         uses: actions/cache/save@v4
@@ -64,12 +76,30 @@ jobs:
         if: always()
         with:
           path: natron_repo
-          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}
-      - name: Upload natron_package_repo artifacts
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: natron_package_repo-${{ steps.build-package-repo.outputs.REPO_VERSION }}
-          path: natron_repo
+          key: ${{ env.cache-name }}-${{ hashFiles('mingw-package-version-list.txt', 'tools/MINGW-packages/**/PKGBUILD') }}-${{ github.run_id }}
       - name: Check on failures
         if: steps.build-package-repo.outcome != 'success'
         run: exit 1
+      - name: Zip natron package repo
+        run: |
+          cd natron_repo
+          rm -f "../${REPO_ZIP}"
+          zip -r "../${REPO_ZIP}" .
+      - name: Upload natron_package_repo artifact
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          name: natron_package_repo-ucrt64
+          path: ${{ env.REPO_ZIP }}
+      - name: Publish natron package repo release asset
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${REPO_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            gh release create "${REPO_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" --prerelease \
+              --title "Natron UCRT64 dependency package repo" \
+              --notes "MSYS2 UCRT64 packages used to build Natron on Windows. Updated by the 'Build pacman repo' workflow."
+          fi
+          gh release upload "${REPO_RELEASE_TAG}" "${REPO_ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber

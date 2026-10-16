@@ -142,26 +142,47 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
 
     cd "$TMP_PATH/openfx-misc"
 
-    llvmversion="$(${LLVM_PATH}/bin/llvm-config --version)"
-    case "$llvmversion" in
-        2.*)
-            llvmsystemlibs=""
-            ;;
-        3.[0-4]*)
-            llvmsystemlibs=""
-            ;;
-        *)
-            llvmsystemlibs="--system-libs"
-            ;;
-    esac
-    LLVM_LIB="$(${LLVM_PATH}/bin/llvm-config --ldflags --libs engine mcjit mcdisassembler ${llvmsystemlibs}| tr '\n' ' ')"
+    # OSMesa (CPU OpenGL fallback for Shadertoy) is optional: it is only available
+    # as a prebuilt package for MINGW64. Without it, Shadertoy renders on the GPU only.
+    HAVE_OSMESA_LIB=0
+    if [ -x "${LLVM_PATH}/bin/llvm-config" ] && ls "${OSMESA_PATH}"/lib/lib*OSMesa* >/dev/null 2>&1; then
+        HAVE_OSMESA_LIB=1
+    fi
+    LLVM_LIB=""
     MESALIB=""
     GLULIB=""
-    MESALIB="-lOSMesa"
-    if [ -s "$OSMESA_PATH/lib/libMangledOSMesa32.a" ]; then
-        MESALIB="-lMangledOSMesa32"
+    if [ "$HAVE_OSMESA_LIB" = "1" ]; then
+        llvmversion="$(${LLVM_PATH}/bin/llvm-config --version)"
+        case "$llvmversion" in
+            2.*)
+                llvmsystemlibs=""
+                ;;
+            3.[0-4]*)
+                llvmsystemlibs=""
+                ;;
+            *)
+                llvmsystemlibs="--system-libs"
+                ;;
+        esac
+        LLVM_LIB="$(${LLVM_PATH}/bin/llvm-config --ldflags --libs engine mcjit mcdisassembler ${llvmsystemlibs}| tr '\n' ' ')"
+        MESALIB=""
+        GLULIB=""
+        MESALIB="-lOSMesa"
+        if [ -s "$OSMESA_PATH/lib/libMangledOSMesa32.a" ]; then
+            MESALIB="-lMangledOSMesa32"
+        fi
+        GLULIB="-lMangledGLU"
+        CXXFLAGS_MESA_OFXMISC="-I${OSMESA_PATH}/include"
+        LDFLAGS_MESA_OFXMISC="-L${OSMESA_PATH}/lib ${GLULIB} ${MESALIB} -L${SDK_HOME}/lib -lz -L${LLVM_PATH}/lib ${LLVM_LIB}"
+        CXXFLAGS_EXTRA_OFXMISC="-DHAVE_OSMESA ${CXXFLAGS_EXTRA:-}"
+        OSMESA_PATH_OFXMISC="${OSMESA_PATH}"
+    else
+        echo "Info: OSMesa not found, building openfx-misc without OSMesa support."
+        CXXFLAGS_MESA_OFXMISC=""
+        LDFLAGS_MESA_OFXMISC=""
+        CXXFLAGS_EXTRA_OFXMISC="${CXXFLAGS_EXTRA:-}"
+        OSMESA_PATH_OFXMISC=""
     fi
-    GLULIB="-lMangledGLU"
 
     # Build static on Windows so that openfx-misc are usable on other hosts without DLL's and manifests (note Shadertoy will require osmesa dll)
     # Could/Should also be done on OSX?
@@ -185,7 +206,7 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
         fi
         rm ../DenoiseSharpen/DenoiseWavelet.cpp || true
         set -x
-        env CXX="$CXX" LDFLAGS="$CMAKE_LDFLAGS" cmake .. ${MSYS:-} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$SDK_HOME" -DBITS="${BITS}" -DUSE_OSMESA=1 -DOSMESA_INCLUDES="${OSMESA_PATH}/include" -DOSMESA_LIBRARIES="-L${OSMESA_PATH}/lib -L${LLVM_PATH}/lib ${GLULIB} ${MESALIB} $LLVM_LIB" ${UNIVERSAL:-}
+        env CXX="$CXX" LDFLAGS="$CMAKE_LDFLAGS" cmake .. ${MSYS:-} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$SDK_HOME" -DBITS="${BITS}" -DUSE_OSMESA=${HAVE_OSMESA_LIB} -DOSMESA_INCLUDES="${OSMESA_PATH}/include" -DOSMESA_LIBRARIES="-L${OSMESA_PATH}/lib -L${LLVM_PATH}/lib ${GLULIB} ${MESALIB} $LLVM_LIB" ${UNIVERSAL:-}
         make -j"${MKJOBS}"
         make install
         set +x
@@ -201,10 +222,10 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
 
         set -x
         env \
-            OSMESA_PATH="${OSMESA_PATH}" \
+            OSMESA_PATH="${OSMESA_PATH_OFXMISC}" \
             LLVM_PATH="${LLVM_PATH}" \
-            CXXFLAGS_MESA="-I${OSMESA_PATH}/include" \
-            LDFLAGS_MESA="-L${OSMESA_PATH}/lib ${GLULIB} ${MESALIB} -L${SDK_HOME}/lib -lz -L${LLVM_PATH}/lib ${LLVM_LIB}" \
+            CXXFLAGS_MESA="${CXXFLAGS_MESA_OFXMISC}" \
+            LDFLAGS_MESA="${LDFLAGS_MESA_OFXMISC}" \
             CXX="$CXX" \
             CONFIG="${COMPILE_TYPE}" \
             OPTFLAG="${OPTFLAG}" \
@@ -212,7 +233,7 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
             LDFLAGS_ADD="${BUILDID:-} ${EXTRA_LDFLAGS_OFXMISC:-}" \
             HAVE_CIMG=0 \
             ${OMP} \
-            CXXFLAGS_EXTRA="-DHAVE_OSMESA ${CXXFLAGS_EXTRA}" \
+            CXXFLAGS_EXTRA="${CXXFLAGS_EXTRA_OFXMISC}" \
             make -j"${MKJOBS}" ${MAKEFLAGS_VERBOSE:-}
         set +x
 

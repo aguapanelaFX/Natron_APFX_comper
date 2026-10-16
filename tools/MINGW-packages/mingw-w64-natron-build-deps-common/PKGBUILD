@@ -2,10 +2,11 @@
 
 pkgname="${MINGW_PACKAGE_PREFIX}-natron-build-deps-common"
 pkgver=2025.5
-pkgrel=1
+pkgrel=2
 pkgdesc="Minimal package set for building Natron installer for any version of Qt"
 url="https://natrongithub.github.io/"
 arch=("any")
+mingw_arch=('mingw64' 'ucrt64')
 license=("GPL")
 depends=(
   "git"
@@ -15,8 +16,6 @@ depends=(
   "${MINGW_PACKAGE_PREFIX}-boost"
   "${MINGW_PACKAGE_PREFIX}-cairo"
 
-  # openfx-misc deps
-  "${MINGW_PACKAGE_PREFIX}-osmesa"
   # openfx-io deps
   "${MINGW_PACKAGE_PREFIX}-natron_openimageio"
   "${MINGW_PACKAGE_PREFIX}-natron_seexpr-git"
@@ -42,6 +41,12 @@ depends=(
   "${MINGW_PACKAGE_PREFIX}-natron-setup"
   "${MINGW_PACKAGE_PREFIX}-natron_dump_syms"
 )
+
+# OSMesa (CPU OpenGL fallback for openfx-misc Shadertoy) only exists as a
+# prebuilt MINGW64 package; other environments build openfx-misc without it.
+if [[ "${MINGW_PACKAGE_PREFIX}" == "mingw-w64-x86_64" ]]; then
+  depends+=("${MINGW_PACKAGE_PREFIX}-osmesa")
+fi
 
 # these should be empty, but saneman in CI complains, so we keep them here
 # until that is fixed:

@@ -10,6 +10,7 @@ pkgver=0.18.13
 pkgrel=6
 pkgdesc="Library for reading RAW files obtained from digital photo cameras (mingw-w64)"
 arch=('any')
+mingw_arch=('mingw64' 'ucrt64')
 url="https://www.libraw.org/"
 license=("LGPL")
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"

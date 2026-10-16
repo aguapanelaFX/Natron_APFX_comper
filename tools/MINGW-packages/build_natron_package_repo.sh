@@ -37,6 +37,12 @@ fi
 
 natron_repo_init ${NATRON_REPO_DIR}
 
+# Package prefix of the current MSYS2 environment (mingw-w64-x86_64 for MINGW64,
+# mingw-w64-ucrt-x86_64 for UCRT64, ...). Build only for this environment.
+PKG_PREFIX="${MINGW_PACKAGE_PREFIX:-mingw-w64-x86_64}"
+export MINGW_ARCH="${MSYSTEM,,}"
+echo "Building Natron package repo for ${MSYSTEM} (prefix ${PKG_PREFIX})"
+
 for pkg_dir in ${PKGS}; do
   echo -e "\n\nEntering package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}/${pkg_dir}"
@@ -45,7 +51,11 @@ for pkg_dir in ${PKGS}; do
 
   # Check to see if the package is already available
   if [[ -z $(pacman -Ssq ${PACKAGE_NAME}) ]]; then
-    if [[ ${PACKAGE_NAME} == 'mingw-w64-x86_64-osmesa' ]]; then
+    if [[ ${PACKAGE_NAME} == *-osmesa && ${PKG_PREFIX} != 'mingw-w64-x86_64' ]]; then
+      echo "Skipping ${PACKAGE_NAME}: only available as a prebuilt MINGW64 package."
+      cd "${BUILD_SCRIPT_DIR}"
+      continue
+    elif [[ ${PACKAGE_NAME} == 'mingw-w64-x86_64-osmesa' ]]; then
       echo "Fetching prebuilt ${PACKAGE_NAME} ..."
       # Can't build osmesa right now so use previously built package.
       OSMESA_PKG_FILENAME=mingw-w64-x86_64-osmesa-111.471db69.17.1.10.3.9.1-2-any.pkg.tar.xz
@@ -58,13 +68,13 @@ for pkg_dir in ${PKGS}; do
       df -h
 
       # Remove any package files from previous builds.
-      rm -f mingw-w64-x86_64-*-any.pkg.tar.*
+      rm -f ${PKG_PREFIX}-*-any.pkg.tar.*
       time MAKEFLAGS="-j$(nproc)" makepkg-mingw -LfCcsr --needed --noconfirm
 
       echo "Build complete."
     fi
 
-    for pkg_file in `find . -name 'mingw-w64-x86_64-*-any.pkg.tar.*'`; do
+    for pkg_file in `find . -name "${PKG_PREFIX}-*-any.pkg.tar.*"`; do
       echo "Adding ${pkg_file} to package repo ..."
       natron_repo_add_package ${pkg_file}
     done
