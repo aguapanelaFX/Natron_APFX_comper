@@ -2,6 +2,8 @@
 #include "Global/Macros.h"
 
 IDI_ICON1 ICON DISCARDABLE "Gui/Resources/Images/natronIcon256_windows.ico"
+// SOLVFX project file icon (icon index 1, used for .solv files)
+IDI_ICON2 ICON DISCARDABLE "Gui/Resources/Images/natronProjectIcon_windows.ico"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     NATRON_VERSION_MAJOR,NATRON_VERSION_MINOR,NATRON_VERSION_REVISION,0

@@ -330,6 +330,9 @@ win32 {
 
   # taskbar support
   LIBS += -lole32
+
+  # SHChangeNotify (refresh Explorer icons after registering .solv)
+  LIBS += -lshell32
 }
 
 win32-g++ {

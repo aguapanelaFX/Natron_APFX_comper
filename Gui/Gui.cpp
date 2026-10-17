@@ -39,6 +39,10 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QUndoGroup>
 #include <QDesktopServices>
 #include <QUrl>
+#ifdef __NATRON_WIN32
+#include <windows.h>
+#include <shlobj.h> // SHChangeNotify
+#endif
 
 #include "Engine/Node.h"
 #include "Engine/Project.h"
@@ -87,13 +91,16 @@ Gui::Gui(const GuiAppInstancePtr& app,
 {
 #ifdef __NATRON_WIN32
     //Register file types
-    registerFileType(NATRON_PROJECT_FILE_MIME_TYPE, NATRON_APPLICATION_NAME " Project file", "." NATRON_PROJECT_FILE_EXT, 0, true);
+    // SOLVFX: own file type with the project icon (index 1 in Natron.rc)
+    registerFileType(SOLVFX_PROJECT_FILE_PROGID, NATRON_APPLICATION_NAME " Project file", "." NATRON_PROJECT_FILE_EXT, 1, true);
     std::map<std::string, std::string> formats;
     appPTR->getCurrentSettings()->getFileFormatsForReadingAndReader(&formats);
     for (std::map<std::string, std::string>::iterator it = formats.begin(); it != formats.end(); ++it) {
         registerFileType(QString("image/") + QString( it->first.c_str() ), it->first.c_str(), QString(".") + QString( it->first.c_str() ), 0, true);
     }
     enableShellOpen();
+    // tell Explorer that file associations changed, so the .solv icon shows up
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 #endif
 
     QObject::connect( this, SIGNAL(doDialog(int,QString,QString,bool,StandardButtons,int)), this,

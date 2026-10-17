@@ -174,7 +174,10 @@ DocumentWindow::registerFileType(const QString& documentId,
                                     &lSize);
     QString temp = QString::fromUtf16( (unsigned short*)szTempBuffer );
 
-    if ( (lResult != ERROR_SUCCESS) || temp.isEmpty() || (temp == documentId) ) {
+    // SOLVFX: also take over .solv associations made by earlier SOLVFX builds
+    // (they used the Natron mime type as file type id)
+    if ( (lResult != ERROR_SUCCESS) || temp.isEmpty() || (temp == documentId) ||
+         ( documentId.startsWith( QString::fromUtf8("SOLVFX.") ) && temp.startsWith( QString::fromUtf8("application/vnd.natron") ) ) ) {
         // no association for that suffix
         if ( !SetHkcrUserRegKey(fileExtension, documentId) ) {
             return;

@@ -107,6 +107,8 @@ namespace Python { }
 // Natron project files: still opened (and handled exactly like .solv files)
 #define NATRON_PROJECT_FILE_EXT_LEGACY "ntp"
 #define NATRON_PROJECT_FILE_MIME_TYPE "application/vnd.natron.project"
+// Windows file type (ProgID) for .solv project files
+#define SOLVFX_PROJECT_FILE_PROGID "SOLVFX.Project"
 #define NATRON_PROJECT_UNTITLED "Untitled." NATRON_PROJECT_FILE_EXT
 #define NATRON_CACHE_FILE_EXT "ntc"
 #define NATRON_LAYOUT_FILE_EXT "nl"
