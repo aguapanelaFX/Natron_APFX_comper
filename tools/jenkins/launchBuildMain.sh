@@ -662,8 +662,25 @@ dumpBuildOptions
 
 
 # Build plug-ins
+# REUSE_PLUGINS_DIR: directory with prebuilt *.ofx.bundle from an earlier build; if it
+#   contains plugins, they are reused instead of being rebuilt (fast test builds).
+# SAVE_PLUGINS_DIR: if set, the freshly built plugin bundles are copied there.
 if $BUILD_2 && [ "$FAIL" = "0" ]; then
-    bash "build-plugins.sh" || FAIL=$?
+    PLUGINS_DEPLOY_DIR="${TMP_PATH}/tmp_deploy/OFX/Plugins"
+    if [ -n "${REUSE_PLUGINS_DIR:-}" ] && ls -d "${REUSE_PLUGINS_DIR}"/*.ofx.bundle >/dev/null 2>&1; then
+        printStatusMessage "Reusing prebuilt plug-ins from ${REUSE_PLUGINS_DIR}..."
+        mkdir -p "${PLUGINS_DEPLOY_DIR}"
+        cp -a "${REUSE_PLUGINS_DIR}"/*.ofx.bundle "${PLUGINS_DEPLOY_DIR}/"
+        ls "${PLUGINS_DEPLOY_DIR}"
+    else
+        bash "build-plugins.sh" || FAIL=$?
+        if [ "$FAIL" = "0" ] && [ -n "${SAVE_PLUGINS_DIR:-}" ]; then
+            echo "Saving built plug-ins to ${SAVE_PLUGINS_DIR}"
+            rm -rf "${SAVE_PLUGINS_DIR}"
+            mkdir -p "${SAVE_PLUGINS_DIR}"
+            cp -a "${PLUGINS_DEPLOY_DIR}"/*.ofx.bundle "${SAVE_PLUGINS_DIR}/"
+        fi
+    fi
 fi
 if [ "$FAIL" -ne "0" ]; then
     echo "build-plugins.sh failed with status $FAIL"

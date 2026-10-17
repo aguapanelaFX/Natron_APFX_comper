@@ -1,7 +1,12 @@
 name: Build Installer
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_build:
+        description: 'Fast test build: reuse plugins from the last full build, skip Breakpad job, unit tests and docs'
+        type: boolean
+        default: false
   push:
     paths-ignore:
       - 'tools/MINGW-packages/**'
@@ -9,7 +14,10 @@ on:
 
 env:
   NATRON_BUILD_WORKSPACE: 'D:/nbw'
+  PLUGINS_CACHE_DIR: 'D:/nbw_plugins'
+  PLUGINS_CACHE_KEY: 'natron-plugins-ucrt64'
   CI: 'True'
+  TEST_BUILD: ${{ inputs.test_build && '1' || '0' }}
 
 jobs:
   win-installer:
@@ -41,15 +49,34 @@ jobs:
           if [ ! -x ${MSYSTEM_PREFIX}/bin/python3.exe ] && [ -x ${MSYSTEM_PREFIX}/bin/python.exe ]; then cp ${MSYSTEM_PREFIX}/bin/python.exe ${MSYSTEM_PREFIX}/bin/python3.exe; fi
           which python3 && python3 --version
 
+      - name: Restore prebuilt plugins (test build)
+        id: restore-plugins
+        if: ${{ inputs.test_build }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PLUGINS_CACHE_DIR }}
+          key: ${{ env.PLUGINS_CACHE_KEY }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ env.PLUGINS_CACHE_KEY }}-
+
       - name: Build
         id: build
         run: |
           NATRON_BUILD_WORKSPACE_UNIX=$(cygpath -u ${NATRON_BUILD_WORKSPACE})
           mkdir ${NATRON_BUILD_WORKSPACE_UNIX}
+          PLUGINS_CACHE_DIR_UNIX=$(cygpath -u ${PLUGINS_CACHE_DIR})
 
           cd tools/jenkins
 
-          PYV=3 WORKSPACE=${NATRON_BUILD_WORKSPACE_UNIX} BUILD_NAME=natron BUILD_NUMBER=1 BITS=64 NATRON_LICENSE=GPL GIT_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git GIT_URL_IS_NATRON=1 SNAPSHOT_BRANCH=${GITHUB_REF_NAME} QT_VERSION_MAJOR=5 DISABLE_BREAKPAD=1 NOUPDATE=1 MKJOBS=$(nproc) MINIMIZE_DISK_USAGE=1 UNIT_TESTS=true ./launchBuildMain.sh
+          if [ "${TEST_BUILD}" = "1" ]; then
+            # Fast test build: reuse plugins (rebuilt only if no cache), no unit tests, no docs.
+            echo "*** Fast test build"
+            BUILD_MODE_ENV="REUSE_PLUGINS_DIR=${PLUGINS_CACHE_DIR_UNIX} SAVE_PLUGINS_DIR=${PLUGINS_CACHE_DIR_UNIX} UNIT_TESTS=false SKIP_DOCS=1"
+          else
+            BUILD_MODE_ENV="SAVE_PLUGINS_DIR=${PLUGINS_CACHE_DIR_UNIX} UNIT_TESTS=true"
+          fi
+
+          env ${BUILD_MODE_ENV} PYV=3 WORKSPACE=${NATRON_BUILD_WORKSPACE_UNIX} BUILD_NAME=natron BUILD_NUMBER=1 BITS=64 NATRON_LICENSE=GPL GIT_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git GIT_URL_IS_NATRON=1 SNAPSHOT_BRANCH=${GITHUB_REF_NAME} QT_VERSION_MAJOR=5 DISABLE_BREAKPAD=1 NOUPDATE=1 MKJOBS=$(nproc) MINIMIZE_DISK_USAGE=1 ./launchBuildMain.sh
 
           ARCHIVE_DIR=${NATRON_BUILD_WORKSPACE_UNIX}/builds_archive/natron/1
           INSTALLER_ZIP_UNIX=$(ls ${ARCHIVE_DIR}/Natron*Windows-x86_64.zip)
@@ -75,6 +102,14 @@ jobs:
           echo "TEST_FAILURES_NAME=${TEST_FAILURES_NAME}" >> $GITHUB_OUTPUT
           echo "TEST_FAILURES_DIR=$(cygpath -m ${TEST_FAILURES_DIR})" >> $GITHUB_OUTPUT
 
+      - name: Save built plugins for test builds
+        # Full builds always refresh the cache; a test build saves only if it had to build them.
+        if: ${{ !inputs.test_build || steps.restore-plugins.outputs.cache-matched-key == '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PLUGINS_CACHE_DIR }}
+          key: ${{ env.PLUGINS_CACHE_KEY }}-${{ github.run_id }}
+
       - name: Build verify_plugin_loads binary
         run: |
           g++ -DWINDOWS -o verify_plugin_loads .github/workflows/verify_plugin_loads.cpp libs/OpenFX/HostSupport/src/ofxhBinary.cpp libs/OpenFX/HostSupport/src/ofxhUtilities.cpp -I libs/OpenFX/HostSupport/include/ -I libs/OpenFX/include/
@@ -90,12 +125,14 @@ jobs:
           path:  ${{ steps.build.outputs.INSTALLER_DIR }}
 
       - name: Upload test results
+        if: ${{ !inputs.test_build }}
         uses: actions/upload-artifact@v4.3.1
         with:
           name:  ${{ steps.build.outputs.TEST_RESULTS_NAME }}
           path:  ${{ steps.build.outputs.TEST_RESULTS_FILE }}
 
       - name: Upload test failures
+        if: ${{ !inputs.test_build }}
         uses: actions/upload-artifact@v4.3.1
         with:
           name:  ${{ steps.build.outputs.TEST_FAILURES_NAME }}
@@ -111,6 +148,7 @@ jobs:
 
       - name: Verify passing tests match 2.5.0 release
         # Informational only: the toolchain differs from the 2.5.0 release build.
+        if: ${{ !inputs.test_build }}
         continue-on-error: true
         run: |
           wget https://github.com/NatronGitHub/Natron/releases/download/v2.5.0/Natron-2.5.0-Windows-x86_64-tests.txt
@@ -123,6 +161,7 @@ jobs:
 
   win-installer-breakpad:
     name: Windows Installer (with Breakpad crash reporting)
+    if: ${{ !inputs.test_build }}
     runs-on: windows-2022
     defaults:
       run:

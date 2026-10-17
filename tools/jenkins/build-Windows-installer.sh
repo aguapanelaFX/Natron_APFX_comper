@@ -523,7 +523,12 @@ cp "$SRC_PATH/natron-windows-mesa/win${BITS}/opengl32.dll" "${TMP_PORTABLE_DIR}/
 
 # Generate documentation
 # The HTML documentation is optional: don't fail the build if Sphinx can't build it.
-bash "$CWD"/gen-natron-doc.sh || echo "Warning: documentation generation failed, continuing without it"
+# SKIP_DOCS=1 skips it entirely (fast test builds).
+if [ "${SKIP_DOCS:-}" = "1" ]; then
+    echo "Info: SKIP_DOCS=1, not generating documentation"
+else
+    bash "$CWD"/gen-natron-doc.sh || echo "Warning: documentation generation failed, continuing without it"
+fi
 
 # Copy documentation installed in the portable dir to installer package
 if [ -d "$NATRON_PACKAGE_PATH/data/Resources/docs" ]; then
