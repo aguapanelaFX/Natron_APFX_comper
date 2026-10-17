@@ -826,7 +826,9 @@ NodeGui::removeSettingsPanel()
 void
 NodeGui::refreshSize()
 {
-    QRectF bbox = boundingRect();
+    // SOLVFX: use the item rect, not boundingRect() (which includes the pen width
+    // and made the node grow every time it was refreshed, e.g. during playback)
+    QRectF bbox = _boundingBox->rect();
 
     QString& label = _nodeLabel;
     resize( bbox.width(), bbox.height(), false, !label.isEmpty() );
@@ -3139,7 +3141,7 @@ NodeGui::setNameItemHtml(const QString & name,
     _nameItem->adjustSize();
 
 
-    QRectF bbox = boundingRect();
+    QRectF bbox = _boundingBox->rect(); // SOLVFX: see refreshSize()
     resize( bbox.width(), bbox.height(), false, !label.isEmpty() );
 } // setNameItemHtml
 

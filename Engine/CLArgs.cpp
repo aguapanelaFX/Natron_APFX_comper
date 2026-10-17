@@ -1142,6 +1142,7 @@ CLArgsPrivate::parse()
             QRegExp re( QString::fromUtf8("[0-9\\-,]*") ); // Matches frame ranges.
             if (!it->endsWith(QString::fromUtf8(".py"), Qt::CaseInsensitive) &&
                 !it->endsWith(QString::fromUtf8(".ntp"), Qt::CaseInsensitive) &&
+                !it->endsWith(QString::fromUtf8("." NATRON_PROJECT_FILE_EXT), Qt::CaseInsensitive) &&
                 !re.exactMatch(*it)) {
                 w.filename = *it;
 #ifdef __NATRON_UNIX__
@@ -1266,6 +1267,10 @@ CLArgsPrivate::parse()
 
     {
         QStringList::iterator it = findFileNameWithExtension( QString::fromUtf8(NATRON_PROJECT_FILE_EXT) );
+        if ( it == args.end() ) {
+            // Natron project files are accepted too
+            it = findFileNameWithExtension( QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) );
+        }
         if ( it == args.end() ) {
             it = findFileNameWithExtension( QString::fromUtf8("py") );
             if (it != args.end()) {

@@ -74,13 +74,24 @@ namespace Python { }
 #define NATRON_NAMESPACE_ANONYMOUS_ENTER namespace {
 #define NATRON_NAMESPACE_ANONYMOUS_EXIT }
 
-#define NATRON_APPLICATION_DESCRIPTION "Open-source, cross-platform, nodal video compositing software."
-#define NATRON_COPYRIGHT "(C) 2018-2023 The Natron developers. (C) 2013-2018 INRIA and Alexandre Gauthier-Foichat."
-#define NATRON_ORGANIZATION_NAME "INRIA"
+// SOLVFX branding. SOLVFX is based on Natron (GPL): the user-visible name is SOLVFX,
+// while NATRON_COMPAT_APPLICATION_NAME keeps "Natron" wherever it is part of a file
+// format or of the OpenFX host identity, so projects, PyPlugs and plugins stay compatible.
+#define SOLVFX_ORGANIZATION_DISPLAY_NAME "AGUAPANELA FX"
+#define SOLVFX_TAGLINE "Many elements. One image."
+#define SOLVFX_SUBTITLE "Node-based compositing software"
+#define SOLVFX_REPOSITORY_URL "https://github.com/aguapanelaFX/Natron_APFX_comper"
+#define NATRON_COMPAT_APPLICATION_NAME "Natron"
+
+#define NATRON_APPLICATION_DESCRIPTION "Node-based compositing software."
+#define NATRON_COPYRIGHT "SOLVFX by AGUAPANELA FX. Based on Natron: (C) 2018-2023 The Natron developers. (C) 2013-2018 INRIA and Alexandre Gauthier-Foichat."
+#define NATRON_ORGANIZATION_NAME "AguapanelaFX"
+// The organization domain is part of the OpenFX host name (fr.inria.Natron), which
+// plugins check to enable Natron-specific features: keep it.
 #define NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "fr"
 #define NATRON_ORGANIZATION_DOMAIN_SUB "inria"
 #define NATRON_ORGANIZATION_DOMAIN NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_ORGANIZATION_DOMAIN_TOPLEVEL
-#define NATRON_APPLICATION_NAME "Natron"
+#define NATRON_APPLICATION_NAME "SOLVFX"
 #define NATRON_WEBSITE_URL "http://natrongithub.github.io"
 #define NATRON_FORUM_URL "https://discuss.pixls.us/c/software/natron"
 #define NATRON_ISSUE_TRACKER_URL "https://github.com/NatronGitHub/Natron/issues"
@@ -92,7 +103,9 @@ namespace Python { }
 // these MIME types are also used in:
 // - NatronInfo.plist (for OSX)
 // - tools/linux/include/qs/natron.qs
-#define NATRON_PROJECT_FILE_EXT "ntp"
+#define NATRON_PROJECT_FILE_EXT "solv"
+// Natron project files: still opened (and handled exactly like .solv files)
+#define NATRON_PROJECT_FILE_EXT_LEGACY "ntp"
 #define NATRON_PROJECT_FILE_MIME_TYPE "application/vnd.natron.project"
 #define NATRON_PROJECT_UNTITLED "Untitled." NATRON_PROJECT_FILE_EXT
 #define NATRON_CACHE_FILE_EXT "ntc"
@@ -109,8 +122,9 @@ namespace Python { }
 
 #define NATRON_PROJECT_ENV_VAR_MAX_RECURSION 100
 #define NATRON_MAX_CACHE_FILES_OPENED 20000
-#define NATRON_CUSTOM_HTML_TAG_START "<" NATRON_APPLICATION_NAME ">"
-#define NATRON_CUSTOM_HTML_TAG_END "</" NATRON_APPLICATION_NAME ">"
+// Stored inside node labels in project files: must stay "Natron"
+#define NATRON_CUSTOM_HTML_TAG_START "<" NATRON_COMPAT_APPLICATION_NAME ">"
+#define NATRON_CUSTOM_HTML_TAG_END "</" NATRON_COMPAT_APPLICATION_NAME ">"
 
 
 #define NATRON_FILE_DIALOG_PREVIEW_READER_NAME "Natron_File_Dialog_Preview_Provider_Reader"

@@ -87,7 +87,7 @@ Gui::Gui(const GuiAppInstancePtr& app,
 {
 #ifdef __NATRON_WIN32
     //Register file types
-    registerFileType(NATRON_PROJECT_FILE_MIME_TYPE, "Natron Project file", "." NATRON_PROJECT_FILE_EXT, 0, true);
+    registerFileType(NATRON_PROJECT_FILE_MIME_TYPE, NATRON_APPLICATION_NAME " Project file", "." NATRON_PROJECT_FILE_EXT, 0, true);
     std::map<std::string, std::string> formats;
     appPTR->getCurrentSettings()->getFileFormatsForReadingAndReader(&formats);
     for (std::map<std::string, std::string>::iterator it = formats.begin(); it != formats.end(); ++it) {

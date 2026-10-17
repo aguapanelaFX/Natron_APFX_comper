@@ -118,7 +118,7 @@ generateGUIUserName()
 static std::string
 generateUserFriendlyNatronVersionName()
 {
-    std::string ret(NATRON_APPLICATION_NAME);
+    std::string ret(NATRON_COMPAT_APPLICATION_NAME); // stored in project files
 
     ret.append(" v");
     ret.append(NATRON_VERSION_STRING);

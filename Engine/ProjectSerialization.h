@@ -225,7 +225,7 @@ public:
         if (version >= PROJECT_SERIALIZATION_INTRODUCES_NATRON_VERSION && version < PROJECT_SERIALIZATION_CHANGE_VERSION_SERIALIZATION) {
             std::string natronVersion;
             ar & ::boost::serialization::make_nvp("NatronVersion", natronVersion);
-            std::string toFind(NATRON_APPLICATION_NAME " v");
+            std::string toFind(NATRON_COMPAT_APPLICATION_NAME " v");
             std::size_t foundV = natronVersion.find(toFind);
             if (foundV != std::string::npos) {
                 foundV += toFind.size();

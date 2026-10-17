@@ -602,7 +602,7 @@ AppInstance::loadInternal(const CLArgs& cl,
         std::list<AppInstance::RenderWork> writersWork;
 
 
-        if ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ) {
+        if ( ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ) || ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ) ) {
             ///Load the project
             if ( !_imp->_currentProject->loadProject( info.path(), info.fileName() ) ) {
                 throw std::invalid_argument( tr("Project file loading failed.").toStdString() );
@@ -611,7 +611,7 @@ AppInstance::loadInternal(const CLArgs& cl,
             ///Load the python script
             loadPythonScript(info);
         } else {
-            throw std::invalid_argument( tr("%1 only accepts python scripts or .ntp project files.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ).toStdString() );
+            throw std::invalid_argument( tr("%1 only accepts python scripts or .%2 / .%3 project files.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ).toStdString() );
         }
 
         // exec the python script specified via --onload
@@ -668,7 +668,7 @@ AppInstance::loadInternal(const CLArgs& cl,
         if ( info.exists() ) {
             if ( info.suffix() == QString::fromUtf8("py") ) {
                 loadPythonScript(info);
-            } else if ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ) {
+            } else if ( ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ) || ( info.suffix() == QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ) ) {
                 if ( !_imp->_currentProject->loadProject( info.path(), info.fileName() ) ) {
                     throw std::invalid_argument( tr("Project file loading failed.").toStdString() );
                 }

@@ -218,7 +218,7 @@ Settings::initializeKnobsGeneral()
     _knownHostNames.clear();
     std::vector<ChoiceOption> visibleHostEntries;
     assert(visibleHostEntries.size() == (int)eKnownHostNameNatron);
-    visibleHostEntries.push_back(ChoiceOption(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_APPLICATION_NAME, NATRON_APPLICATION_NAME, ""));
+    visibleHostEntries.push_back(ChoiceOption(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_COMPAT_APPLICATION_NAME, NATRON_COMPAT_APPLICATION_NAME, ""));
     assert(visibleHostEntries.size() == (int)eKnownHostNameNuke);
     visibleHostEntries.push_back(ChoiceOption("uk.co.thefoundry.nuke", "Nuke", ""));
     assert(visibleHostEntries.size() == (int)eKnownHostNameFusion);
@@ -280,7 +280,7 @@ Settings::initializeKnobsGeneral()
                                         "this to its default value, unless a specific plugin refuses to load or run. "
                                         "Changing this takes effect upon the next application launch, and requires clearing "
                                         "the OpenFX plugins cache from the Cache menu. "
-                                        "The default host name is: \n%1").arg( QString::fromUtf8(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_APPLICATION_NAME) ) );
+                                        "The default host name is: \n%1").arg( QString::fromUtf8(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_COMPAT_APPLICATION_NAME) ) );
     _customHostName->setSecretByDefault(true);
     _generalTab->addKnob(_customHostName);
 } // Settings::initializeKnobsGeneral
@@ -1470,7 +1470,7 @@ Settings::setDefaultValues()
     _autoSaveDelay->setDefaultValue(5, 0);
     _saveVersions->setDefaultValue(1);
     _hostName->setDefaultValue(0);
-    _customHostName->setDefaultValue(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_APPLICATION_NAME);
+    _customHostName->setDefaultValue(NATRON_ORGANIZATION_DOMAIN_TOPLEVEL "." NATRON_ORGANIZATION_DOMAIN_SUB "." NATRON_COMPAT_APPLICATION_NAME);
 
     // General/Threading
     _numberOfThreads->setDefaultValue(0, 0);

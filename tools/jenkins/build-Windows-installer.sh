@@ -283,11 +283,13 @@ for location in "${COPY_LOCATIONS[@]}"; do
     if [ "${DISABLE_BREAKPAD:-}" != "1" ]; then
         cp "${TMP_BINARIES_PATH}/bin/Natron.exe" "$location/bin/Natron-bin.exe"
         cp "${TMP_BINARIES_PATH}/bin/NatronRenderer.exe" "$location/bin/NatronRenderer-bin.exe"
-        cp "${TMP_BINARIES_PATH}/bin/NatronCrashReporter.exe" "$location/bin/Natron.exe"
-        cp "${TMP_BINARIES_PATH}/bin/NatronRendererCrashReporter.exe" "$location/bin/NatronRenderer.exe"
+        # SOLVFX: the crash reporter wrappers carry the product name, the real
+        # binaries keep the Natron-bin names the crash reporter launches.
+        cp "${TMP_BINARIES_PATH}/bin/NatronCrashReporter.exe" "$location/bin/SOLVFX.exe"
+        cp "${TMP_BINARIES_PATH}/bin/NatronRendererCrashReporter.exe" "$location/bin/SOLVFXRenderer.exe"
     else
-        cp "${TMP_BINARIES_PATH}/bin/Natron.exe" "$location/bin/Natron.exe"
-        cp "${TMP_BINARIES_PATH}/bin/NatronRenderer.exe" "$location/bin/NatronRenderer.exe"
+        cp "${TMP_BINARIES_PATH}/bin/Natron.exe" "$location/bin/SOLVFX.exe"
+        cp "${TMP_BINARIES_PATH}/bin/NatronRenderer.exe" "$location/bin/SOLVFXRenderer.exe"
     fi
 
     if [ -f "${TMP_BINARIES_PATH}/bin/NatronProjectConverter.exe" ]; then
@@ -577,12 +579,9 @@ if [ ! -f "/Setup.exe" ]; then
     "$SDK_HOME/bin/binarycreator" -v -f -p "$INSTALLER_PATH/packages" -c "$INSTALLER_PATH/config/config.xml" -i "${PACKAGES}" "${BUILD_ARCHIVE_DIRECTORY}/$BUNDLED_INSTALL_DIR/${INSTALLER_BASENAME}.exe"
 fi
 
-# Portable zip (+ setup if found)
+# Portable zip
 if [ "$DISABLE_PORTABLE_ARCHIVE" != "1" ]; then
     mkdir -p "${BUILD_ARCHIVE_DIRECTORY}/$ZIP_INSTALL_DIR"
-    if [ -f "/Setup.exe" ]; then
-        cp -a /Setup.exe "${TMP_BINARIES_PATH}/${PORTABLE_DIRNAME}/"
-    fi
     (cd "${TMP_BINARIES_PATH}" && zip -9 -q -r "${PORTABLE_DIRNAME}.zip" "${PORTABLE_DIRNAME}"; mv "${PORTABLE_DIRNAME}.zip" "${BUILD_ARCHIVE_DIRECTORY}/$ZIP_INSTALL_DIR/${PORTABLE_DIRNAME}.zip")
 fi
 

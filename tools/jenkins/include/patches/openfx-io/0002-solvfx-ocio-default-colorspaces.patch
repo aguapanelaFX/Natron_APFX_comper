@@ -1,0 +1,202 @@
+diff --git a/IOSupport/GenericOCIO.cpp b/IOSupport/GenericOCIO.cpp
+index 30ffb3b..4865eae 100644
+--- a/IOSupport/GenericOCIO.cpp
++++ b/IOSupport/GenericOCIO.cpp
+@@ -24,6 +24,8 @@
+ 
+ #include "GenericOCIO.h"
+ 
++#include <algorithm> // std::transform
++
+ /*
+    http://opencolorio.org/userguide/config_syntax.html#roles
+ 
+@@ -106,13 +108,31 @@ whitespacify(string str)
+ }
+ 
+ #ifdef OFX_IO_USING_OCIO
++// SOLVFX: return the name of the first colorspace (or role) from the list that exists in the config
++static const char*
++firstExistingColorSpace(OCIO::ConstConfigRcPtr config,
++                        const char* const* names)
++{
++    for (; *names; ++names) {
++        OCIO::ConstColorSpaceRcPtr cs = config->getColorSpace(*names);
++        if (cs) {
++            return cs->getName();
++        }
++    }
++
++    return NULL;
++}
++
+ static const char*
+ colorSpaceName(OCIO::ConstConfigRcPtr config,
+                const char* colorSpaceNameDefault)
+ {
+     OCIO::ConstColorSpaceRcPtr cs;
+     if (!strcmp(colorSpaceNameDefault, "sRGB") || !strcmp(colorSpaceNameDefault, "srgb")) {
+-        if ((cs = config->getColorSpace("sRGB"))) {
++        if ((cs = config->getColorSpace(OCIO::ROLE_MATTE_PAINT))) {
++            // SOLVFX: like Nuke, 8-bit display-referred images use the matte_paint role when defined
++            return cs->getName();
++        } else if ((cs = config->getColorSpace("sRGB"))) {
+             // nuke-default, blender, natron
+             return cs->getName();
+         } else if ((cs = config->getColorSpace("sRGB D65"))) {
+@@ -139,6 +159,19 @@ colorSpaceName(OCIO::ConstConfigRcPtr config,
+         } else if ((cs = config->getColorSpace("VD16"))) {
+             // VD16 in blender
+             return cs->getName();
++        } else {
++            // SOLVFX: ACES 1.x and OCIO v2 (ACES studio/cg) configs, then the role Nuke uses for 8-bit files
++            static const char* const names[] = {
++                "Utility - sRGB - Texture", // aces 1.0.3 - 1.3
++                "sRGB - Texture", // OCIO v2 ACES cg/studio configs
++                "sRGB Encoded Rec.709 (sRGB)",
++                OCIO::ROLE_MATTE_PAINT,
++                OCIO::ROLE_COLOR_PICKING,
++                NULL
++            };
++            if (const char* name = firstExistingColorSpace(config, names)) {
++                return name;
++            }
+         }
+     } else if (!strcmp(colorSpaceNameDefault, "AdobeRGB") || !strcmp(colorSpaceNameDefault, "adobergb")) {
+         if ((cs = config->getColorSpace("AdobeRGB"))) {
+@@ -167,9 +200,25 @@ colorSpaceName(OCIO::ConstConfigRcPtr config,
+         } else if ((cs = config->getColorSpace("hd10"))) {
+             // hd10 in spi-anim and spi-vfx
+             return cs->getName();
++        } else {
++            // SOLVFX: Rec.709 video in ACES 1.x and OCIO v2 (ACES studio/cg) configs
++            static const char* const names[] = {
++                "Rec 709 Curve", // natron
++                "Output - Rec.709", // aces 1.0.3 - 1.3 (inverse output transform)
++                "Rec.1886 Rec.709 - Display", // OCIO v2 ACES cg/studio configs
++                OCIO::ROLE_MATTE_PAINT,
++                OCIO::ROLE_COLOR_PICKING,
++                NULL
++            };
++            if (const char* name = firstExistingColorSpace(config, names)) {
++                return name;
++            }
+         }
+     } else if (!strcmp(colorSpaceNameDefault, "KodakLog") || !strcmp(colorSpaceNameDefault, "kodaklog")) {
+-        if ((cs = config->getColorSpace("Cineon"))) {
++        if ((cs = config->getColorSpace(OCIO::ROLE_COMPOSITING_LOG))) {
++            // SOLVFX: like Nuke, log files use the compositing_log role when defined
++            return cs->getName();
++        } else if ((cs = config->getColorSpace("Cineon"))) {
+             // Cineon in nuke-default
+             return cs->getName();
+         } else if ((cs = config->getColorSpace("REDlogFilm"))) {
+@@ -198,7 +247,19 @@ colorSpaceName(OCIO::ConstConfigRcPtr config,
+         return cs->getName();
+     }
+ 
+-    // unlucky
++    // SOLVFX: unlucky. Never return a name that is not in the config (that shows a broken
++    // text field in the Read node): fall back to the config's roles.
++    {
++        static const char* const names[] = {
++            OCIO::ROLE_DEFAULT,
++            OCIO::ROLE_SCENE_LINEAR,
++            NULL
++        };
++        if (const char* name = firstExistingColorSpace(config, names)) {
++            return name;
++        }
++    }
++
+     return colorSpaceNameDefault;
+ } // colorSpaceName
+ 
+@@ -1275,6 +1336,61 @@ GenericOCIO::hasColorspace(const char* name) const
+ #endif
+ }
+ 
++// SOLVFX: map a colorspace name guessed by a reader (e.g. "sRGB", "rec709", "Gamma2.2",
++// "KodakLog", "linear") to a colorspace that exists in the current config.
++string
++GenericOCIO::resolveInputColorspace(const char* name) const
++{
++#ifdef OFX_IO_USING_OCIO
++    if (!_config || !name || !*name) {
++        return name ? string(name) : string();
++    }
++    string n(name);
++    std::transform(n.begin(), n.end(), n.begin(), ::tolower);
++    // display-referred 8-bit encodings (sRGB and gamma curves, including legacy ACES names)
++    static const char* const srgbFamily[] = {
++        "srgb", "srgb8", "srgb d65", "srgb (d60 sim.)", "out_srgbd60sim", "rrt_srgb", "rrt_gamma2.2",
++        "gamma2.2", "gamma1.8", "vd16", "adobergb", NULL
++    };
++    static const char* const rec709Family[] = { "rec709", "rec.709", NULL };
++    static const char* const logFamily[] = { "kodaklog", "cineon", "log", "adx10", "redlogfilm", "lg10", "lm10", NULL };
++    static const char* const linearFamily[] = { "linear", "scene_linear", NULL };
++    struct Family { const char* const* names; const char* category; const char* role; };
++    const Family families[] = {
++        { srgbFamily, "sRGB", OCIO::ROLE_MATTE_PAINT },
++        { rec709Family, "rec709", NULL },
++        { logFamily, "KodakLog", OCIO::ROLE_COMPOSITING_LOG },
++        { linearFamily, "linear", OCIO::ROLE_SCENE_LINEAR },
++    };
++    for (size_t f = 0; f < sizeof(families) / sizeof(families[0]); ++f) {
++        for (const char* const* it = families[f].names; *it; ++it) {
++            if (n == *it) {
++                // Like Nuke: use the config's role for this kind of file when the config defines it
++                if (families[f].role) {
++                    OCIO::ConstColorSpaceRcPtr cs = _config->getColorSpace(families[f].role);
++                    if (cs) {
++                        return string( cs->getName() );
++                    }
++                }
++                if ( hasColorspace(name) ) {
++                    return string(name);
++                }
++
++                return string( colorSpaceName(_config, families[f].category) );
++            }
++        }
++    }
++    if ( hasColorspace(name) ) {
++        return string(name);
++    }
++
++    return string( colorSpaceName(_config, name) );
++#else
++
++    return name ? string(name) : string();
++#endif
++}
++
+ void
+ GenericOCIO::setInputColorspace(const char* name)
+ {
+diff --git a/IOSupport/GenericOCIO.h b/IOSupport/GenericOCIO.h
+index 44666bb..b6bd0a7 100644
+--- a/IOSupport/GenericOCIO.h
++++ b/IOSupport/GenericOCIO.h
+@@ -150,6 +150,7 @@ public:
+     void getOutputColorspace(std::string& v) const;
+     void getOutputColorspaceAtTime(double time, std::string& v) const;
+     bool hasColorspace(const char* name) const;
++    std::string resolveInputColorspace(const char* name) const;
+     void setInputColorspace(const char* name);
+     void setOutputColorspace(const char* name);
+ #ifdef OFX_IO_USING_OCIO
+diff --git a/IOSupport/GenericReader.cpp b/IOSupport/GenericReader.cpp
+index 0092560..b40e26d 100644
+--- a/IOSupport/GenericReader.cpp
++++ b/IOSupport/GenericReader.cpp
+@@ -2051,7 +2051,8 @@ GenericReaderPlugin::changedFilename(const InstanceChangedArgs& args)
+                 setColorSpace = false;
+             }
+             if (setColorSpace) {
+-                _ocio->setInputColorspace(colorspace.c_str());
++                // SOLVFX: make sure the guessed name exists in the current config (e.g. ACES)
++                _ocio->setInputColorspace( _ocio->resolveInputColorspace( colorspace.c_str() ).c_str() );
+             }
+         }
+ 

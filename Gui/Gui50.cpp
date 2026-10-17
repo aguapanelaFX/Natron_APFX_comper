@@ -1147,6 +1147,7 @@ Gui::fileSequencesFromUrls(const QList<QUrl>& urls,
 
     QStringList supportedExtensions;
     supportedExtensions.push_back( QString::fromLatin1(NATRON_PROJECT_FILE_EXT) );
+    supportedExtensions.push_back( QString::fromLatin1(NATRON_PROJECT_FILE_EXT_LEGACY) );
     supportedExtensions.push_back( QString::fromLatin1("py") );
 
     std::vector<std::string> readersFormat;
@@ -1240,7 +1241,7 @@ Gui::handleOpenFilesFromUrls(const QList<QUrl>& urls,
         //std::string ext = sequence->fileExtension();
         std::string extLower = sequence->fileExtension();
         std::transform(extLower.begin(), extLower.end(), extLower.begin(), [](char c) { return std::tolower(c, std::locale()); });
-        if (extLower == NATRON_PROJECT_FILE_EXT) {
+        if ( (extLower == NATRON_PROJECT_FILE_EXT) || (extLower == NATRON_PROJECT_FILE_EXT_LEGACY) ) {
             const std::map<int, SequenceParsing::FileNameContent>& content = sequence->getFrameIndexes();
             assert( !content.empty() );
             AppInstancePtr appInstance = openProject( content.begin()->second.absoluteFileName() );

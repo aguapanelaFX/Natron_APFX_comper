@@ -13,7 +13,7 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",        NATRON_ORGANIZATION_NAME
+            VALUE "CompanyName",        SOLVFX_ORGANIZATION_DISPLAY_NAME
             VALUE "FileDescription",    NATRON_APPLICATION_NAME
             VALUE "FileVersion",        NATRON_VERSION_STRING
             VALUE "InternalName",       NATRON_APPLICATION_NAME

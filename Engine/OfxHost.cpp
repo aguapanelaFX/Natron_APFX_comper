@@ -250,7 +250,7 @@ OfxHost::setProperties()
 
     _properties.setStringProperty( kOfxPropName, appPTR->getCurrentSettings()->getHostName() );
     _properties.setGetHook(kOfxPropName, this);
-    _properties.setStringProperty(kOfxPropLabel, NATRON_APPLICATION_NAME); // "nuke" //< use this to pass for nuke
+    _properties.setStringProperty(kOfxPropLabel, NATRON_COMPAT_APPLICATION_NAME); // keep the Natron host identity for plugins // "nuke" //< use this to pass for nuke
     _properties.setIntProperty(kOfxPropAPIVersion, 1, 0);  //OpenFX API v1.4
     _properties.setIntProperty(kOfxPropAPIVersion, 4, 1);
     _properties.setIntProperty(kOfxPropVersion, NATRON_VERSION_MAJOR, 0);
@@ -868,13 +868,13 @@ OfxHost::loadOFXPlugins(IOPluginsMap* readersMap,
     OFX::Host::PluginCache* pluginCache = OFX::Host::PluginCache::getPluginCache();
     assert(pluginCache);
     /// set the version label in the global cache
-    pluginCache->setCacheVersion(NATRON_APPLICATION_NAME "OFXCachev1");
+    pluginCache->setCacheVersion(NATRON_COMPAT_APPLICATION_NAME "OFXCachev1");
 
     /// register the image effect cache with the global plugin cache
     _imp->imageEffectPluginCache->registerInCache( *pluginCache );
 
     if (useStdOFXPluginsLocation) {
-        pluginCache->setPluginHostPath(NATRON_APPLICATION_NAME);
+        pluginCache->setPluginHostPath(NATRON_COMPAT_APPLICATION_NAME); // plugins installed for Natron
         pluginCache->setPluginHostPath("Nuke"); // most Nuke OFX plugins are compatible
     }
     std::list<std::string> extraPluginsSearchPaths;
@@ -889,7 +889,7 @@ OfxHost::loadOFXPlugins(IOPluginsMap* readersMap,
     // if Natron is /usr/bin/Natron, /usr/bin/../OFX/Natron points to Natron-specific plugins
     QDir dir( QCoreApplication::applicationDirPath() );
     dir.cdUp();
-    std::string natronBundledPluginsPath = QString( dir.absolutePath() +  QString::fromUtf8("/Plugins/OFX/") + QString::fromUtf8(NATRON_APPLICATION_NAME) ).toStdString();
+    std::string natronBundledPluginsPath = QString( dir.absolutePath() +  QString::fromUtf8("/Plugins/OFX/") + QString::fromUtf8(NATRON_COMPAT_APPLICATION_NAME) ).toStdString(); // bundled plugins folder
     try {
         if ( settings->loadBundledPlugins() ) {
             if ( settings->preferBundledPlugins() ) {

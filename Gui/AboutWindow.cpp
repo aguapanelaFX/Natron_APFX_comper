@@ -69,7 +69,16 @@ AboutWindow::AboutWindow(QWidget* parent)
     setLayout(_mainLayout);
 
     _iconLabel = new Label(this);
-    _iconLabel->setPixmap( QPixmap( QString::fromUtf8(NATRON_APPLICATION_ICON_PATH) ).scaled(128 * _scale, 128 * _scale) );
+    {
+        // SOLVFX wordmark (2000x500 source), shown at 400x100 logical pixels
+        QPixmap wordmark( QString::fromUtf8(":/Resources/Images/solvfx_wordmark.png") );
+        if ( wordmark.isNull() ) {
+            wordmark = QPixmap( QString::fromUtf8(NATRON_APPLICATION_ICON_PATH) ).scaled(128 * _scale, 128 * _scale);
+        } else {
+            wordmark = wordmark.scaled(400 * _scale, 100 * _scale, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+        _iconLabel->setPixmap(wordmark);
+    }
     _mainLayout->addWidget(_iconLabel);
 
     _tabWidget = new QTabWidget(this);
@@ -108,7 +117,10 @@ AboutWindow::AboutWindow(QWidget* parent)
 #endif
 #endif
         } else {
-            aboutText = QString::fromUtf8("<p>%1 version %2 %3%4.</p>")
+            aboutText = QString::fromUtf8("<p><b>" NATRON_APPLICATION_NAME "</b> by " SOLVFX_ORGANIZATION_DISPLAY_NAME "<br/>"
+                                          "<i>" SOLVFX_TAGLINE "</i><br/>"
+                                          SOLVFX_SUBTITLE "</p>"
+                                          "<p>%1 version %2 %3%4, based on <a href=\"https://github.com/NatronGitHub/Natron\">" NATRON_COMPAT_APPLICATION_NAME "</a>.</p>")
                         .arg( QString::fromUtf8(NATRON_APPLICATION_NAME) )
                         .arg( QString::fromUtf8(NATRON_VERSION_STRING) )
                         .arg( QString::fromUtf8(NATRON_DEVELOPMENT_STATUS) )
@@ -133,14 +145,16 @@ AboutWindow::AboutWindow(QWidget* parent)
         aboutText.append(licenseStr);
     }
     {
-        QString endAbout = QString::fromUtf8("<p>%1</p>").arg( tr("See the <a href=\"%2\">%1 website</a> "
-                                                                  "for more information on this software.")
+        QString endAbout = QString::fromUtf8("<p>%1</p>").arg( tr("%1 source code: <a href=\"%2\">%2</a>. "
+                                                                  "See the <a href=\"%4\">%3 website</a> for more information on the original software.")
                              .arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) // %1
-                             .arg( QString::fromUtf8(NATRON_WEBSITE_URL) ) ); // %2
+                             .arg( QString::fromUtf8(SOLVFX_REPOSITORY_URL) ) // %2
+                             .arg( QString::fromUtf8(NATRON_COMPAT_APPLICATION_NAME) ) // %3
+                             .arg( QString::fromUtf8(NATRON_WEBSITE_URL) ) ); // %4
         aboutText.append(endAbout);
     }
     {
-        QString argStr = ( QString::fromUtf8("<a href=\"https://github.com/NatronGitHub/Natron/tree/" GIT_COMMIT "\">")
+        QString argStr = ( QString::fromUtf8("<a href=\"" SOLVFX_REPOSITORY_URL "/tree/" GIT_COMMIT "\">")
                            + QString::fromUtf8(GIT_COMMIT).mid(0, 7)
                            + QString::fromUtf8("</a>") );
 #ifdef _OPENMP
@@ -357,7 +371,7 @@ AboutWindow::AboutWindow(QWidget* parent)
         }
         QString gitStr = QString::fromUtf8("<p>%1</p>").arg(tr("This software was compiled from the source "
                                                                "code branch %1 at version %2 using %3 targeting %4 for %5.")
-                                                            .arg( QString::fromUtf8("<a href=\"https://github.com/NatronGitHub/Natron/tree/" GIT_BRANCH "\">" GIT_BRANCH "</a>") ) // %1
+                                                            .arg( QString::fromUtf8("<a href=\"" SOLVFX_REPOSITORY_URL "/tree/" GIT_BRANCH "\">" GIT_BRANCH "</a>") ) // %1
                                                             .arg(argStr) // %2
                                                             .arg( QString::fromUtf8(BOOST_COMPILER OPENMP_STRING) ) // %3
                                                             .arg( QString::fromUtf8(BOOST_ARCH_NAME) ) // %4

@@ -1030,6 +1030,7 @@ Gui::openProject()
     std::vector<std::string> filters;
 
     filters.push_back(NATRON_PROJECT_FILE_EXT);
+    filters.push_back(NATRON_PROJECT_FILE_EXT_LEGACY); // Natron projects
     std::string selectedFile =  popOpenFileDialog( false, filters, _imp->_lastLoadProjectOpenedDir.toStdString(), false );
 
     if ( !selectedFile.empty() ) {

@@ -34,6 +34,8 @@ if "$GENDOCS"; then
 
     if [ "${DISABLE_BREAKPAD:-}" != "1" ]; then
         NATRON_RENDERER_BIN="NatronRenderer-bin"
+    elif [ "$PKGOS" = "Windows" ]; then
+        NATRON_RENDERER_BIN="SOLVFXRenderer"
     else
         NATRON_RENDERER_BIN="NatronRenderer"
     fi
