@@ -72,7 +72,13 @@ done < <(find "$SDK_HOME/share/qt${QT_VERSION_MAJOR}/plugins" \
 echo "Resolving DLL dependencies of ${#NATRON_BINARIES[@]} binaries..."
 NATRON_LIST="$(resolveDlls "${NATRON_BINARIES[@]}")"
 # Always ship the Python runtime and the Qt libraries (loaded dynamically by PySide).
-NATRON_LIST="$( { echo "$NATRON_LIST"; ls "$SDK_HOME_BIN"/libpython${PYVER}*.dll "$SDK_HOME_BIN"/Qt${QT_VERSION_MAJOR}*.dll 2>/dev/null; } | grep -v '^$' | sort -u)"
+# Also always ship the DLLs of Python's standard extension modules (ssl, ctypes,
+# sqlite3, lzma, ...), in case ldd could not resolve the .pyd files.
+NATRON_LIST="$( { echo "$NATRON_LIST"; ls "$SDK_HOME_BIN"/libpython${PYVER}*.dll "$SDK_HOME_BIN"/Qt${QT_VERSION_MAJOR}*.dll \
+    "$SDK_HOME_BIN"/libssl-3*.dll "$SDK_HOME_BIN"/libcrypto-3*.dll "$SDK_HOME_BIN"/libffi-*.dll \
+    "$SDK_HOME_BIN"/libsqlite3-*.dll "$SDK_HOME_BIN"/liblzma-*.dll "$SDK_HOME_BIN"/libbz2-*.dll \
+    "$SDK_HOME_BIN"/libexpat-*.dll "$SDK_HOME_BIN"/libmpdec-*.dll "$SDK_HOME_BIN"/zlib1.dll \
+    "$SDK_HOME_BIN"/libzstd*.dll "$SDK_HOME_BIN"/libb2-*.dll 2>/dev/null; } | grep -v '^$' | sort -u)"
 
 # Plugin-specific DLLs: dependencies not already shipped with Natron
 pluginDlls() {

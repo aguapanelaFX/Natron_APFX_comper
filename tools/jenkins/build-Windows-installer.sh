@@ -459,13 +459,24 @@ if [ -x "${NATRON_PYTHON}" ]; then
     else
         $CURL --remote-name --insecure https://bootstrap.pypa.io/get-pip.py
     fi
-    "${NATRON_PYTHON}" get-pip.py
-    rm get-pip.py
-    # Install qtpy
-    "${NATRON_PYTHON}" -m pip install qtpy
-
-    # Useful Python packages
-    "${NATRON_PYTHON}" -m pip install future six #psutil
+    # Report whether the embedded Python can do HTTPS (needed by pip).
+    "${NATRON_PYTHON}" -c "import ssl; print('Embedded Python ssl:', ssl.OPENSSL_VERSION)" || echo "Warning: ssl module not available in embedded Python"
+    # pip and the extra modules are nice to have: never fail the build on them.
+    if "${NATRON_PYTHON}" get-pip.py; then
+        "${NATRON_PYTHON}" -m pip install qtpy || echo "Warning: pip install qtpy failed"
+        # Useful Python packages
+        "${NATRON_PYTHON}" -m pip install six || echo "Warning: pip install six failed"
+    else
+        echo "Warning: could not install pip into the embedded Python"
+    fi
+    rm -f get-pip.py
+    # Fall back to MSYS2's own copies of the pure-Python modules Natron uses
+    for mod in qtpy six.py; do
+        if [ ! -e "${PYDIR}/site-packages/${mod}" ] && [ -e "$SDK_HOME/lib/python${PYVER}/site-packages/${mod}" ]; then
+            echo "Info: copying ${mod} from $SDK_HOME"
+            cp -a "$SDK_HOME/lib/python${PYVER}/site-packages/${mod}" "${PYDIR}/site-packages/"
+        fi
+    done
     # Run extra user provided pip install scripts
     if [ -f "${EXTRA_PYTHON_MODULES_SCRIPT:-}" ]; then
         "${NATRON_PYTHON}" "$EXTRA_PYTHON_MODULES_SCRIPT" || true
@@ -511,7 +522,8 @@ cp "$SRC_PATH/natron-windows-mesa/win${BITS}/opengl32.dll" "$MESA_PKG_PATH/data/
 cp "$SRC_PATH/natron-windows-mesa/win${BITS}/opengl32.dll" "${TMP_PORTABLE_DIR}/bin/mesa/"
 
 # Generate documentation
-bash "$CWD"/gen-natron-doc.sh
+# The HTML documentation is optional: don't fail the build if Sphinx can't build it.
+bash "$CWD"/gen-natron-doc.sh || echo "Warning: documentation generation failed, continuing without it"
 
 # Copy documentation installed in the portable dir to installer package
 if [ -d "$NATRON_PACKAGE_PATH/data/Resources/docs" ]; then
