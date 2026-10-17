@@ -36,13 +36,31 @@ OFX_PLUGINS="${TMP_BINARIES_PATH}/OFX/Plugins"
 export PATH="$SDK_HOME_BIN:$PATH"
 export LC_ALL=C
 
+# Map of lowercase DLL name -> real file name in $SDK_HOME_BIN (Windows names are case-insensitive)
+declare -A SDK_DLLS=()
+while IFS= read -r -d '' dll; do
+    name="$(basename "$dll")"
+    SDK_DLLS["${name,,}"]="$name"
+done < <(find "$SDK_HOME_BIN" -maxdepth 1 -iname '*.dll' -print0)
+
 # Print the MSYS2 DLLs (full paths) that the given binaries depend on, recursively.
+# Reads the PE import tables with objdump, so it works for any file extension
+# (.exe, .dll, .pyd, .ofx) without loading the binaries.
 resolveDlls() {
-    local f
-    for f in "$@"; do
+    local -A seen=()
+    local queue=("$@") f name key
+    while [ ${#queue[@]} -gt 0 ]; do
+        f="${queue[0]}"
+        queue=("${queue[@]:1}")
         [ -f "$f" ] || continue
-        # ldd prints e.g. "	libfoo-1.dll => /ucrt64/bin/libfoo-1.dll (0x7ff...)"
-        ldd "$f" 2>/dev/null | awk -v bin="$SDK_HOME_BIN/" 'index(tolower($3), tolower(bin)) == 1 { print $3 }' || true
+        while IFS= read -r name; do
+            key="${name,,}"
+            if [ -n "${SDK_DLLS[$key]:-}" ] && [ -z "${seen[$key]:-}" ]; then
+                seen[$key]=1
+                echo "$SDK_HOME_BIN/${SDK_DLLS[$key]}"
+                queue+=("$SDK_HOME_BIN/${SDK_DLLS[$key]}")
+            fi
+        done < <(objdump -p "$f" 2>/dev/null | awk '/DLL Name:/ { print $3 }' | tr -d '\r')
     done | sort -u
 }
 
@@ -108,6 +126,7 @@ writeArray ARENA_DLL "$ARENA_LIST"
 writeArray GMIC_DLL "$GMIC_LIST"
 
 echo "DLLs to ship: $(echo "$NATRON_LIST" | grep -c .) with Natron, $(echo "$ARENA_LIST" | grep -c . || true) with Arena, $(echo "$GMIC_LIST" | grep -c . || true) with GMIC"
+echo "DLLs shipped with Natron:"; echo "$NATRON_LIST" | xargs -r -n1 basename | tr '\n' ' '; echo
 if [ -z "$NATRON_LIST" ]; then
     echo "Error: no DLL dependencies found, is ldd working?"
     exit 1
