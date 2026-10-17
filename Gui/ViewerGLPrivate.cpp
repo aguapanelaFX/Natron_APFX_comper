@@ -233,7 +233,8 @@ ViewerGL::Implementation::drawRenderingVAO(unsigned int mipmapLevel,
     assert( qApp && qApp->thread() == QThread::currentThread() );
     assert( QOpenGLContext::currentContext() == _this->context() );
 
-    bool useShader = _this->getBitDepth() != eImageBitDepthByte;
+    // SOLVFX: 8-bit textures also go through the shader when saturation is used
+    bool useShader = ( _this->getBitDepth() != eImageBitDepthByte ) || (displaySaturation != 1.);
 
 
     ///the texture rectangle in image coordinates. The values in it are multiples of tile size.
@@ -851,6 +852,17 @@ ViewerGL::Implementation::activateShaderRGB(int texIndex)
     }
 
     shaderRGB->setUniformValue("Tex", 0);
+    shaderRGB->setUniformValue("saturation", (float)displaySaturation);
+    if (_this->getBitDepth() == eImageBitDepthByte) {
+        // 8-bit textures already have gain, gamma and the display LUT applied:
+        // only apply saturation
+        shaderRGB->setUniformValue("gain", 1.f);
+        shaderRGB->setUniformValue("offset", 0.f);
+        shaderRGB->setUniformValue("lut", (GLint)eViewerColorSpaceLinear);
+        shaderRGB->setUniformValue("gamma", 1.f);
+
+        return;
+    }
     shaderRGB->setUniformValue("gain", (float)displayTextures[texIndex].gain);
     shaderRGB->setUniformValue("offset", (float)displayTextures[texIndex].offset);
     shaderRGB->setUniformValue("lut", (GLint)displayingImageLut);

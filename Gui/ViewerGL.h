@@ -394,6 +394,9 @@ public:
 
     void setGamma(double g);
 
+    // SOLVFX: display-only saturation (1 = unchanged)
+    void setSaturation(double s);
+
     void setLut(int lut);
 
     bool isWipeHandleVisible() const;

@@ -33,6 +33,11 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QMouseEvent>
 #include <QApplication>
+#include <QCursor>
+#include <QGuiApplication>
+#include <QScreen>
+
+#include <algorithm>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -54,6 +59,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/NodeCreationDialog.h"
 #include "Gui/NodeGui.h"
 #include "Gui/NodeSettingsPanel.h"
+#include "Gui/PropertiesBinWrapper.h"
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
@@ -68,10 +74,46 @@ NodeGraph::showNodePanel(bool casIsCtrl, bool casIsShift, NodeGui* nearbyNode)
     if (!nearbyNode) {
         return;
     }
+    // SOLVFX: when the Properties bin is closed (not visible), panels open as
+    // floating windows like in Nuke: one window per node, no limit.
+    if (!casIsCtrl) {
+        QWidget* bin = getGui()->getPropertiesBin();
+        if ( !bin || !bin->isVisible() ) {
+            nearbyNode->ensurePanelCreated();
+            if ( nearbyNode->getSettingPanel() ) {
+                casIsCtrl = true;
+            }
+        }
+    }
     if ( casIsCtrl ) {
         nearbyNode->ensurePanelCreated();
-        if ( nearbyNode->getSettingPanel() ) {
-            nearbyNode->getSettingPanel()->floatPanel();
+        DockablePanel* panel = nearbyNode->getSettingPanel();
+        if (panel) {
+            if ( !panel->isFloating() ) {
+                if ( panel->isClosed() ) {
+                    panel->setClosed(false);
+                }
+                panel->floatPanel();
+                FloatingWidget* window = panel->getFloatingWindow();
+                if (window) {
+                    // open next to the mouse, kept inside the screen
+                    QPoint pos = QCursor::pos() + QPoint(16, 16);
+                    QScreen* screen = QGuiApplication::screenAt( QCursor::pos() );
+                    if (screen) {
+                        QRect avail = screen->availableGeometry();
+                        QSize s = window->size();
+                        pos.setX( std::max( avail.left(), std::min(pos.x(), avail.right() - s.width()) ) );
+                        pos.setY( std::max( avail.top(), std::min(pos.y(), avail.bottom() - s.height()) ) );
+                    }
+                    window->move(pos);
+                }
+            }
+            FloatingWidget* window = panel->getFloatingWindow();
+            if (window) {
+                window->show();
+                window->raise();
+                window->activateWindow();
+            }
         }
     } else {
         nearbyNode->setVisibleSettingsPanel(true);

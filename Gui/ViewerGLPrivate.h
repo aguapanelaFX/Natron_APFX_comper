@@ -166,6 +166,7 @@ struct ViewerGL::Implementation
     bool zoomOrPannedSinceLastFit; //< true if the user zoomed or panned the image since the last call to fitToRoD
     QPoint oldClick;
     ViewerColorSpaceEnum displayingImageLut;
+    double displaySaturation = 1.; // SOLVFX: viewer saturation, preview only
     MouseStateEnum ms; /*!< Holds the mouse state*/
     HoverStateEnum hs;
     const QColor textRenderingColor;

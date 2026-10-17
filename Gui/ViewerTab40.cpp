@@ -27,6 +27,7 @@
 #include "ViewerTabPrivate.h"
 
 #include <cassert>
+#include <climits>
 #include <stdexcept>
 
 #include <QDebug>
@@ -454,6 +455,9 @@ ViewerTab::setTimelineVisible(bool visible)
 
     _imp->timelineVisible = visible;
     _imp->timeLineGui->setVisible(_imp->timelineVisible);
+    if (_imp->timelineRow) {
+        _imp->timelineRow->setVisible(_imp->timelineVisible); // SOLVFX: whole timeline row
+    }
 }
 
 void
@@ -1130,6 +1134,88 @@ ViewerTab::onGainSpinBoxValueChanged(double v)
     _imp->viewer->setGain(gain);
     _imp->viewerNode->onGainChanged(gain);
     _imp->lastFstopValue = v;
+}
+
+void
+ViewerTab::onTimelineRangeModeChanged(int index)
+{
+    if (!_imp->timeLineGui) {
+        return;
+    }
+    double first = 0., last = 0.;
+    getGui()->getApp()->getFrameRange(&first, &last); // Global, also the fallback
+    if (index == 1) {
+        // Input: frame range of the node connected to the viewer (input A)
+        int a = -1, b = -1;
+        _imp->viewerNode->getActiveInputs(a, b);
+        EffectInstancePtr input = (a >= 0) ? _imp->viewerNode->getInput(a) : EffectInstancePtr();
+        if (input) {
+            double f = first, l = last;
+            input->getFrameRange_public(input->getHash(), &f, &l);
+            if ( (f > INT_MIN) && (l < INT_MAX) && (l >= f) ) {
+                first = f;
+                last = l;
+            }
+        }
+    } else if (index == 2) {
+        // In/Out: playback in and out points
+        SequenceTime left, right;
+        _imp->timeLineGui->getBounds(&left, &right);
+        first = left;
+        last = right;
+    }
+    _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+}
+
+void
+ViewerTab::onGainStepDown()
+{
+    double v = _imp->gainBox->value() - 1.;
+    _imp->gainBox->setValue(v);
+    onGainSpinBoxValueChanged(v);
+}
+
+void
+ViewerTab::onGainStepUp()
+{
+    double v = _imp->gainBox->value() + 1.;
+    _imp->gainBox->setValue(v);
+    onGainSpinBoxValueChanged(v);
+}
+
+void
+ViewerTab::onSaturationToggled(bool clicked)
+{
+    double value = clicked ? _imp->lastSaturationValue : 1.;
+
+    _imp->toggleSaturationButton->setDown(clicked);
+    _imp->saturationBox->setValue(value);
+    _imp->saturationSlider->seekScalePosition(value);
+    _imp->viewer->setSaturation(value);
+}
+
+void
+ViewerTab::onSaturationSliderValueChanged(double value)
+{
+    if ( !_imp->toggleSaturationButton->isChecked() ) {
+        _imp->toggleSaturationButton->setChecked(true);
+        _imp->toggleSaturationButton->setDown(true);
+    }
+    _imp->saturationBox->setValue(value);
+    _imp->viewer->setSaturation(value);
+    _imp->lastSaturationValue = value;
+}
+
+void
+ViewerTab::onSaturationSpinBoxValueChanged(double value)
+{
+    if ( !_imp->toggleSaturationButton->isChecked() ) {
+        _imp->toggleSaturationButton->setChecked(true);
+        _imp->toggleSaturationButton->setDown(true);
+    }
+    _imp->saturationSlider->seekScalePosition(value);
+    _imp->viewer->setSaturation(value);
+    _imp->lastSaturationValue = value;
 }
 
 void

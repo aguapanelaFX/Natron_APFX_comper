@@ -113,6 +113,13 @@ struct ViewerTabPrivate
     double lastGammaValue;
     Button* toggleGammaButton;
     ScaleSliderQWidget* gammaSlider;
+    // SOLVFX: viewer saturation (preview only) and f-stop step buttons
+    Button* toggleSaturationButton = nullptr;
+    SpinBox* saturationBox = nullptr;
+    ScaleSliderQWidget* saturationSlider = nullptr;
+    double lastSaturationValue = 1.;
+    Button* gainDownButton = nullptr;
+    Button* gainUpButton = nullptr;
     ComboBox* viewerColorSpace;
     Button* checkerboardButton;
     Button* pickerButton;
@@ -158,6 +165,9 @@ struct ViewerTabPrivate
 
     /*frame seeker*/
     TimeLineGui* timeLineGui;
+    // SOLVFX: timeline range dropdown (Global / Input / In-Out) and its row
+    ComboBox* timelineRangeCombo = nullptr;
+    QWidget* timelineRow = nullptr;
 
     // This is all nodes that have a viewer context
     typedef std::map<NodeGuiWPtr, NodeViewerContextPtr, std::owner_less<NodeGuiWPtr>> NodeViewerContextsMap;

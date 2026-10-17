@@ -716,6 +716,14 @@ NodeGui::createGui()
     _disabledTopLeftBtmRight = new QGraphicsLineItem(this);
     _disabledTopLeftBtmRight->hide();
     _disabledTopLeftBtmRight->setZValue(depth + 1);
+    {
+        // SOLVFX: thicker X for disabled nodes, like Nuke
+        QPen xPen( QColor(20, 20, 20) );
+        xPen.setWidthF(3.);
+        xPen.setCapStyle(Qt::FlatCap);
+        _disabledBtmLeftTopRight->setPen(xPen);
+        _disabledTopLeftBtmRight->setPen(xPen);
+    }
 } // NodeGui::createGui
 
 void
@@ -2817,9 +2825,27 @@ NodeGui::onDisabledKnobToggled(bool disabled)
     int curFrame = node->getApp()->getTimeLine()->currentFrame();
     bool enabled = ( !lifetimeEnabled || (curFrame >= firstFrame && curFrame <= lastFrame) ) && !disabled;
 
-    _disabledTopLeftBtmRight->setVisible(!enabled);
-    _disabledBtmLeftTopRight->setVisible(!enabled);
+    setDisabledLook(!enabled);
     update();
+}
+
+void
+NodeGui::setDisabledLook(bool disabled)
+{
+    if ( _disabledTopLeftBtmRight && (_disabledTopLeftBtmRight->isVisible() != disabled) ) {
+        _disabledTopLeftBtmRight->setVisible(disabled);
+    }
+    if ( _disabledBtmLeftTopRight && (_disabledBtmLeftTopRight->isVisible() != disabled) ) {
+        _disabledBtmLeftTopRight->setVisible(disabled);
+    }
+    // dim the node body and its name, the X stays fully visible
+    const double opacity = disabled ? 0.4 : 1.;
+    if (_boundingBox) {
+        _boundingBox->setOpacity(opacity);
+    }
+    if (_nameItem) {
+        _nameItem->setOpacity(disabled ? 0.55 : 1.);
+    }
 }
 
 void
@@ -3874,21 +3900,7 @@ NodeGui::onIdentityStateChanged(int inputNb)
     bool lifetimeEnabled = node->isLifetimeActivated(&firstFrame, &lastFrame);
     int curFrame = node->getApp()->getTimeLine()->currentFrame();
     bool enabled = ( !lifetimeEnabled || (curFrame >= firstFrame && curFrame <= lastFrame) ) && !disabled;
-    if (enabled) {
-        if ( _disabledBtmLeftTopRight->isVisible() ) {
-            _disabledBtmLeftTopRight->setVisible(false);
-        }
-        if ( _disabledTopLeftBtmRight->isVisible() ) {
-            _disabledTopLeftBtmRight->setVisible(false);
-        }
-    } else {
-        if ( !_disabledBtmLeftTopRight->isVisible() ) {
-            _disabledBtmLeftTopRight->setVisible(true);
-        }
-        if ( !_disabledTopLeftBtmRight->isVisible() ) {
-            _disabledTopLeftBtmRight->setVisible(true);
-        }
-    }
+    setDisabledLook(!enabled);
 
     if (inputNb >= 0) {
         ptInput = node->getInput(inputNb);

@@ -548,6 +548,116 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( _imp->pickerButton, SIGNAL(clicked(bool)), this, SLOT(onPickerButtonClicked(bool)) );
 
     _imp->secondRowLayout->addWidget(_imp->pickerButton);
+
+    // SOLVFX: f-stop step buttons around the gain field, like Nuke
+    _imp->gainDownButton = new Button(QString::fromUtf8("\u25C0"), _imp->secondSettingsRow);
+    _imp->gainDownButton->setFocusPolicy(Qt::NoFocus);
+    _imp->gainDownButton->setFixedSize(buttonSize);
+    _imp->gainDownButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Decrease the viewer gain by one f-stop."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+    QObject::connect( _imp->gainDownButton, SIGNAL(clicked(bool)), this, SLOT(onGainStepDown()) );
+    _imp->gainUpButton = new Button(QString::fromUtf8("\u25B6"), _imp->secondSettingsRow);
+    _imp->gainUpButton->setFocusPolicy(Qt::NoFocus);
+    _imp->gainUpButton->setFixedSize(buttonSize);
+    _imp->gainUpButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Increase the viewer gain by one f-stop."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+    QObject::connect( _imp->gainUpButton, SIGNAL(clicked(bool)), this, SLOT(onGainStepUp()) );
+
+    // SOLVFX: viewer saturation (display only, never rendered)
+    {
+        QString satTt = NATRON_NAMESPACE::convertFromPlainText(tr("Viewer saturation: 0 is black and white, 1 is unchanged, 2 is double. "
+                                                                   "Only affects the viewer display, never the render."), NATRON_NAMESPACE::WhiteSpaceNormal);
+        _imp->toggleSaturationButton = new Button(QString::fromUtf8("S"), _imp->secondSettingsRow);
+        _imp->toggleSaturationButton->setCheckable(true);
+        _imp->toggleSaturationButton->setChecked(false);
+        _imp->toggleSaturationButton->setDown(false);
+        _imp->toggleSaturationButton->setFocusPolicy(Qt::NoFocus);
+        _imp->toggleSaturationButton->setFixedSize(buttonSize);
+        _imp->toggleSaturationButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Viewer saturation: switch between saturation=1.0 and user setting."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        QObject::connect( _imp->toggleSaturationButton, SIGNAL(clicked(bool)), this, SLOT(onSaturationToggled(bool)) );
+
+        _imp->saturationBox = new SpinBox(_imp->secondSettingsRow, SpinBox::eSpinBoxTypeDouble);
+        _imp->saturationBox->setToolTip(satTt);
+        _imp->saturationBox->setIncrement(0.1);
+        _imp->saturationBox->setMinimum(0.);
+        _imp->saturationBox->setValue(1.0);
+        QObject::connect( _imp->saturationBox, SIGNAL(valueChanged(double)), this, SLOT(onSaturationSpinBoxValueChanged(double)) );
+
+        _imp->saturationSlider = new ScaleSliderQWidget(0, 2, 1.0, false, ScaleSliderQWidget::eDataTypeDouble, getGui(), eScaleTypeLinear, _imp->secondSettingsRow);
+        _imp->saturationSlider->setToolTip(satTt);
+        QObject::connect( _imp->saturationSlider, SIGNAL(positionChanged(double)), this, SLOT(onSaturationSliderValueChanged(double)) );
+    }
+
+    // SOLVFX: Nuke-style toolbar layout.
+    // Row 1: channels | A, operation, B (centered) | zoom, center
+    // Row 2: f-stop gain, gamma, saturation | render scale, RoI, lock, refresh, pause, LUT, checkerboard
+    {
+        QList<QWidget*> keep;
+        keep << _imp->layerChoice << _imp->alphaChannelChoice << _imp->viewerChannels
+             << _imp->zoomCombobox << _imp->syncViewerButton << _imp->centerViewerButton
+             << _imp->clipToProjectFormatButton << _imp->fullFrameProcessingButton << _imp->enableViewerRoI
+             << _imp->activateRenderScale << _imp->renderScaleCombo << _imp->refreshButton << _imp->pauseButton
+             << _imp->firstInputLabel << _imp->firstInputImage << _imp->compositingOperatorLabel << _imp->compositingOperator
+             << _imp->secondInputLabel << _imp->secondInputImage
+             << _imp->toggleGainButton << _imp->gainBox << _imp->gainSlider << _imp->autoContrast
+             << _imp->toggleGammaButton << _imp->gammaBox << _imp->gammaSlider
+             << _imp->viewerColorSpace << _imp->checkerboardButton << _imp->viewsComboBox << _imp->pickerButton;
+        QBoxLayout* rows[2] = { _imp->firstRowLayout, _imp->secondRowLayout };
+        for (int r = 0; r < 2; ++r) {
+            while ( QLayoutItem* item = rows[r]->takeAt(0) ) {
+                QWidget* w = item->widget();
+                if ( w && !keep.contains(w) ) {
+                    w->deleteLater(); // old separators
+                }
+                delete item;
+            }
+        }
+
+        QBoxLayout* l = _imp->firstRowLayout;
+        l->addWidget(_imp->layerChoice);
+        l->addWidget(_imp->alphaChannelChoice);
+        l->addWidget(_imp->viewerChannels);
+        l->addStretch();
+        l->addWidget(_imp->firstInputLabel);
+        l->addWidget(_imp->firstInputImage);
+        l->addSpacing( TO_DPIX(4) );
+        l->addWidget(_imp->compositingOperatorLabel);
+        l->addWidget(_imp->compositingOperator);
+        l->addSpacing( TO_DPIX(4) );
+        l->addWidget(_imp->secondInputLabel);
+        l->addWidget(_imp->secondInputImage);
+        l->addStretch();
+        l->addWidget(_imp->zoomCombobox);
+        l->addWidget(_imp->centerViewerButton);
+
+        l = _imp->secondRowLayout;
+        l->addWidget(_imp->toggleGainButton);
+        l->addWidget(_imp->gainDownButton);
+        l->addWidget(_imp->gainBox);
+        l->addWidget(_imp->gainUpButton);
+        l->addWidget(_imp->gainSlider);
+        l->addWidget(_imp->autoContrast);
+        addSpacer(l);
+        l->addWidget(_imp->toggleGammaButton);
+        l->addWidget(_imp->gammaBox);
+        l->addWidget(_imp->gammaSlider);
+        addSpacer(l);
+        l->addWidget(_imp->toggleSaturationButton);
+        l->addWidget(_imp->saturationBox);
+        l->addWidget(_imp->saturationSlider);
+        l->addStretch();
+        l->addWidget(_imp->activateRenderScale);
+        l->addWidget(_imp->renderScaleCombo);
+        l->addWidget(_imp->clipToProjectFormatButton);
+        l->addWidget(_imp->fullFrameProcessingButton);
+        l->addWidget(_imp->enableViewerRoI);
+        l->addWidget(_imp->syncViewerButton);
+        l->addWidget(_imp->refreshButton);
+        l->addWidget(_imp->pauseButton);
+        l->addSpacing( TO_DPIX(4) );
+        l->addWidget(_imp->viewerColorSpace);
+        l->addWidget(_imp->checkerboardButton);
+        l->addWidget(_imp->viewsComboBox);
+        l->addWidget(_imp->pickerButton);
+    }
     /*=============================================*/
 
     /*OpenGL viewer*/
@@ -1006,10 +1116,80 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( _imp->timeFormat, SIGNAL(currentIndexChanged(int)), _imp->timeLineGui, SLOT(onTimeFormatChanged(int)) );
     _imp->timeLineGui->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
 
-    //Add some spacing because the timeline might be black as the info
-    _imp->mainLayout->addSpacing( TO_DPIY(5) );
-    _imp->mainLayout->addWidget(_imp->timeLineGui);
-    _imp->mainLayout->addWidget(_imp->playerButtonsContainer);
+    // SOLVFX: Nuke-style layout. Transport row on top, then the timeline row:
+    // range dropdown | in point | timeline | out point
+    {
+        // rebuild the transport row
+        QList<QWidget*> keep;
+        keep << _imp->currentFrameBox << _imp->tripleSyncButton
+             << _imp->firstFrame_Button << _imp->previousKeyFrame_Button << _imp->play_Backward_Button << _imp->previousFrame_Button
+             << _imp->nextFrame_Button << _imp->play_Forward_Button << _imp->nextKeyFrame_Button << _imp->lastFrame_Button
+             << _imp->previousIncrement_Button << _imp->incrementSpinBox << _imp->nextIncrement_Button
+             << _imp->canEditFpsBox << _imp->canEditFpsLabel << _imp->fpsBox << _imp->timeFormat << _imp->playbackMode_Button
+             << _imp->turboButton
+             << _imp->playBackInputButton << _imp->playBackInputSpinbox << _imp->playBackOutputSpinbox << _imp->playBackOutputButton;
+        while ( QLayoutItem* item = _imp->playerLayout->takeAt(0) ) {
+            QWidget* w = item->widget();
+            if ( w && !keep.contains(w) ) {
+                w->deleteLater();
+            }
+            delete item;
+        }
+        QBoxLayout* l = _imp->playerLayout;
+        l->addWidget(_imp->currentFrameBox);
+        l->addWidget(_imp->tripleSyncButton);
+        l->addStretch();
+        l->addWidget(_imp->firstFrame_Button);
+        l->addWidget(_imp->previousKeyFrame_Button);
+        l->addWidget(_imp->play_Backward_Button);
+        l->addWidget(_imp->previousFrame_Button);
+        l->addWidget(_imp->nextFrame_Button);
+        l->addWidget(_imp->play_Forward_Button);
+        l->addWidget(_imp->nextKeyFrame_Button);
+        l->addWidget(_imp->lastFrame_Button);
+        l->addSpacing( TO_DPIX(10) );
+        l->addWidget(_imp->previousIncrement_Button);
+        l->addWidget(_imp->incrementSpinBox);
+        l->addWidget(_imp->nextIncrement_Button);
+        l->addSpacing( TO_DPIX(10) );
+        l->addWidget(_imp->canEditFpsBox);
+        l->addSpacing( TO_DPIX(3) );
+        l->addWidget(_imp->canEditFpsLabel);
+        l->addWidget(_imp->fpsBox);
+        l->addWidget(_imp->timeFormat);
+        l->addWidget(_imp->playbackMode_Button);
+        l->addStretch();
+        l->addWidget(_imp->turboButton);
+
+        // timeline row
+        _imp->timelineRow = new QWidget(this);
+        QHBoxLayout* tl = new QHBoxLayout(_imp->timelineRow);
+        tl->setContentsMargins(0, 0, 0, 0);
+        tl->setSpacing(0);
+
+        _imp->timelineRangeCombo = new ComboBox(_imp->timelineRow);
+        _imp->timelineRangeCombo->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Frame range shown by the timeline: the project range (Global), "
+                                                                                       "the range of the viewer input (Input) or the playback in/out points (In/Out)."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->timelineRangeCombo->addItem( tr("Global") );
+        _imp->timelineRangeCombo->addItem( tr("Input") );
+        _imp->timelineRangeCombo->addItem( tr("In/Out") );
+        _imp->timelineRangeCombo->setCurrentIndex_no_emit(0);
+        QObject::connect( _imp->timelineRangeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onTimelineRangeModeChanged(int)) );
+
+        tl->addWidget(_imp->timelineRangeCombo, 0, Qt::AlignVCenter);
+        tl->addSpacing( TO_DPIX(4) );
+        tl->addWidget(_imp->playBackInputButton, 0, Qt::AlignVCenter);
+        tl->addWidget(_imp->playBackInputSpinbox, 0, Qt::AlignVCenter);
+        tl->addSpacing( TO_DPIX(4) );
+        tl->addWidget(_imp->timeLineGui, 1);
+        tl->addSpacing( TO_DPIX(4) );
+        tl->addWidget(_imp->playBackOutputSpinbox, 0, Qt::AlignVCenter);
+        tl->addWidget(_imp->playBackOutputButton, 0, Qt::AlignVCenter);
+
+        _imp->mainLayout->addSpacing( TO_DPIY(3) );
+        _imp->mainLayout->addWidget(_imp->playerButtonsContainer);
+        _imp->mainLayout->addWidget(_imp->timelineRow);
+    }
 
     double leftBound, rightBound;
     gui->getApp()->getFrameRange(&leftBound, &rightBound);

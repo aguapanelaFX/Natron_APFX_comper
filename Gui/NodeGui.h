@@ -579,6 +579,9 @@ private:
 
     void refreshCurrentBrush();
 
+    // SOLVFX: Nuke-like disabled look (thick X, dimmed node)
+    void setDisabledLook(bool disabled);
+
     void initializeInputsForInspector();
 
 

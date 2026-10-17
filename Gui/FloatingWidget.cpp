@@ -36,7 +36,9 @@
 #include <QScreen>
 
 #include <QScrollArea>
+#include <QKeyEvent>
 #include "Engine/Project.h"
+#include "Gui/DockablePanel.h"
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Splitter.h"
@@ -166,6 +168,20 @@ FloatingWidget::closeEvent(QCloseEvent* e)
     removeEmbeddedWidget();
     _gui->unregisterFloatingWindow(this);
     QWidget::closeEvent(e);
+}
+
+void
+FloatingWidget::keyPressEvent(QKeyEvent* e)
+{
+    // SOLVFX: Esc closes a floating properties panel, like in Nuke
+    if ( (e->key() == Qt::Key_Escape) && (e->modifiers() == Qt::NoModifier) &&
+         dynamic_cast<DockablePanel*>(_embeddedWidget) ) {
+        e->accept();
+        close();
+
+        return;
+    }
+    QWidget::keyPressEvent(e);
 }
 
 NATRON_NAMESPACE_EXIT

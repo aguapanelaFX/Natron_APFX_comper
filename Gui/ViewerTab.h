@@ -436,6 +436,16 @@ public Q_SLOTS:
     void onGammaSliderEditingFinished(bool hasMovedOnce);
     void onGainSliderEditingFinished(bool hasMovedOnce);
 
+    // SOLVFX: timeline range dropdown
+    void onTimelineRangeModeChanged(int index);
+
+    // SOLVFX: viewer saturation and f-stop steps
+    void onSaturationToggled(bool clicked);
+    void onSaturationSliderValueChanged(double value);
+    void onSaturationSpinBoxValueChanged(double value);
+    void onGainStepDown();
+    void onGainStepUp();
+
     void onSyncViewersButtonPressed(bool clicked);
 
     void onRenderStatsAvailable(int time, ViewIdx view, double wallTime, const RenderStatsMap& stats);

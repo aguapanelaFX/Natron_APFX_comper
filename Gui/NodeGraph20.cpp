@@ -61,7 +61,13 @@ NodeGraph::checkForHints(bool shiftdown,
 {
     NodePtr internalNode = selectedNode->getNode();
     bool doMergeHints = shiftdown && controlDown;
-    bool doConnectionHints = controlDown;
+    // SOLVFX: like Nuke, dragging a free node onto a connection inserts it
+    // without any modifier; holding Ctrl drags over connections without inserting.
+    bool doConnectionHints = doMergeHints || !controlDown;
+    if ( !doMergeHints && ( internalNode->hasInputConnected() || internalNode->hasOutputConnected() ) ) {
+        // only fully disconnected nodes get inserted
+        doConnectionHints = false;
+    }
 
     //Ignore hints for backdrops
     BackdropGui* isBd = dynamic_cast<BackdropGui*>( selectedNode.get() );

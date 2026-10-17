@@ -1027,12 +1027,26 @@ DockablePanel::setClosedInternal(bool c)
 
 
     if (_imp->_floating) {
-        floatPanel();
+        if (!c) {
+            floatPanel();
 
-        return;
-    }
-
-    if (!c) {
+            return;
+        }
+        // SOLVFX: closing a floating panel (Esc or X) really closes it, like in
+        // Nuke, instead of docking it back into the Properties bin.
+        FloatingWidget* window = _imp->_floatingWidget;
+        _imp->_floating = false;
+        _imp->_floatingWidget = 0;
+        if (window) {
+            _imp->_gui->unregisterFloatingWindow(window);
+            window->removeEmbeddedWidget();
+            window->deleteLater();
+        }
+        setParent( _imp->_container->parentWidget() );
+        setVisible(false);
+        _imp->_gui->removeVisibleDockablePanel(this);
+        _imp->_gui->buildTabFocusOrderPropertiesBin();
+    } else if (!c) {
         _imp->_gui->addVisibleDockablePanel(this);
     } else {
         _imp->_gui->removeVisibleDockablePanel(this);

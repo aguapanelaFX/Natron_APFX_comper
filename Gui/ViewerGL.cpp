@@ -1713,6 +1713,15 @@ ViewerGL::setGamma(double g)
 }
 
 void
+ViewerGL::setSaturation(double s)
+{
+    // always running in the main thread
+    assert( qApp && qApp->thread() == QThread::currentThread() );
+    _imp->displaySaturation = s;
+    update();
+}
+
+void
 ViewerGL::setLut(int lut)
 {
     // always running in the main thread
