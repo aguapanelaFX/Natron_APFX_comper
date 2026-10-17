@@ -448,6 +448,9 @@ export PYDIR="$PYDIR"
 . "$CWD"/zip-python-mingw.sh
 
 NATRON_PYTHON="${TMP_PORTABLE_DIR}/bin/natron-python"
+# This is Natron's own embedded Python, not MSYS2's system Python: drop the
+# PEP 668 marker copied from MSYS2 so pip can install modules into it.
+rm -f "${PYDIR}/EXTERNALLY-MANAGED" "${PYDIR}/../EXTERNALLY-MANAGED" || true
 # Install pip
 if [ -x "${NATRON_PYTHON}" ]; then
     pushd "$PYDIR/../.."

@@ -82,7 +82,15 @@ elif [ "$PKGOS" = "Windows" ]; then
     # https://github.com/msys2/MINGW-packages/issues/10761
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70129
     # export C_INCLUDE_PATH="${SDK_HOME}/gcc/include:${SDK_HOME}/include:${FFMPEG_PATH}/include:$LIBRAW_PATH/include"
-    export C_INCLUDE_PATH="${FFMPEG_PATH}/include:${LIBRAW_PATH}/include"
+    # Only add private install prefixes: putting the environment's own include dir
+    # ($SDK_HOME/include) here breaks libstdc++'s #include_next <stdlib.h> (gcc bug 70129).
+    C_INCLUDE_PATH=""
+    for prefix in "${FFMPEG_PATH}" "${LIBRAW_PATH}"; do
+        if [ "${prefix}" != "${SDK_HOME}" ] && [[ ":${C_INCLUDE_PATH}:" != *":${prefix}/include:"* ]]; then
+            C_INCLUDE_PATH="${C_INCLUDE_PATH:+${C_INCLUDE_PATH}:}${prefix}/include"
+        fi
+    done
+    export C_INCLUDE_PATH
     export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
     BUILDID="-Wl,--build-id"
 elif [ "$PKGOS" = "OSX" ]; then
