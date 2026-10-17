@@ -40,8 +40,11 @@ popd () {
     command popd "$@" > /dev/null
 }
 
-# Generate dll versions with dlls on the system
-env BITS="$BITS" PYVER="$PYVER" PYV="${PYV}" QT_VERSION_MAJOR="${QT_VERSION_MAJOR}" NATRON_LICENSE="$NATRON_LICENSE" ./genDllVersions.sh
+# Load build options (TMP_BINARIES_PATH, ...) needed to find the built binaries
+updateBuildOptions
+
+# Generate the list of DLLs to ship, from the actual dependencies of the built binaries
+env BITS="$BITS" PYVER="$PYVER" PYV="${PYV}" QT_VERSION_MAJOR="${QT_VERSION_MAJOR}" NATRON_LICENSE="$NATRON_LICENSE" SDK_HOME="$SDK_HOME" FFMPEG_PATH="$FFMPEG_PATH" TMP_BINARIES_PATH="$TMP_BINARIES_PATH" ./genDllVersions.sh
 
 source dllVersions.sh
 
@@ -295,9 +298,13 @@ for location in "${COPY_LOCATIONS[@]}"; do
         cp "${TMP_BINARIES_PATH}/bin/natron-python.exe" "$location/bin/natron-python.exe"
     fi
 
-    cp "$SDK_HOME"/bin/{iconvert.exe,idiff.exe,igrep.exe,iinfo.exe} "$location/bin/"
-    cp "$SDK_HOME"/bin/{exrheader.exe,tiffinfo.exe} "$location/bin/"
-    cp "${FFMPEG_PATH}"/bin/{ffmpeg.exe,ffprobe.exe} "$location/bin/"
+    for tool in "$SDK_HOME"/bin/{iconvert.exe,idiff.exe,igrep.exe,iinfo.exe,exrheader.exe,tiffinfo.exe} "${FFMPEG_PATH}"/bin/{ffmpeg.exe,ffprobe.exe}; do
+        if [ -f "$tool" ]; then
+            cp "$tool" "$location/bin/"
+        else
+            echo "Warning: $tool not found, not shipping it"
+        fi
+    done
 
     mkdir -p "${location}"/Resources/{pixmaps,stylesheets}
     cp "$CWD/include/config/natronProjectIcon_windows.ico" "$location/Resources/pixmaps/"

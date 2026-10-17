@@ -3,16 +3,13 @@ set -e
 #set -x
 BUILD_SCRIPT_DIR=$(realpath $(dirname "${BASH_SOURCE[0]}"))
 
+# Natron-specific packages only. Everything else (FFmpeg, OpenImageIO, OpenColorIO,
+# OpenEXR, Imath, LibRaw, Poppler, SoX, ...) comes from MSYS2's own, maintained packages.
+# - seexpr-git: openfx-io needs the SeExpr v1 API (MSYS2 ships SeExpr v2)
+# - imagemagick: openfx-arena is built against ImageMagick 6
 PKGS="
 mingw-w64-natron-setup
-mingw-w64-imath
-mingw-w64-openexr
-mingw-w64-libraw-gpl2
-mingw-w64-opencolorio2-git
-mingw-w64-openimageio
 mingw-w64-seexpr-git
-mingw-w64-sox
-mingw-w64-poppler
 mingw-w64-imagemagick
 mingw-w64-osmesa
 mingw-w64-dump_syms
@@ -74,6 +71,19 @@ depends_on_rebuilt() {
   return 1
 }
 
+# Remove packages that are no longer part of the repo (e.g. dropped recipes)
+# before building, so they can't interfere with dependency resolution.
+for pkg_dir in ${PKGS}; do
+  EXPECTED_PKGS="${EXPECTED_PKGS}$(cd "${BUILD_SCRIPT_DIR}/${pkg_dir}" && makepkg --printsrcinfo | awk '/pkgname/{print $3}') "
+done
+for old_pkg in $(pacman -Sl natron 2>/dev/null | awk '{print $2}'); do
+  if [[ "${EXPECTED_PKGS}" != *" ${old_pkg} "* ]]; then
+    echo "Removing ${old_pkg} from package repo (no longer built)."
+    (cd "${NATRON_REPO_DIR}" && repo-remove natron.db.tar.gz "${old_pkg}" && rm -f "${old_pkg}"-[0-9]*-any.pkg.tar.* ".recipes/${old_pkg}.sha256")
+  fi
+done
+pacman -Sy
+
 for pkg_dir in ${PKGS}; do
   echo -e "\n\nEntering package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}/${pkg_dir}"
@@ -86,7 +96,6 @@ for pkg_dir in ${PKGS}; do
     continue
   fi
 
-  EXPECTED_PKGS="${EXPECTED_PKGS}${PACKAGE_NAME} "
   RECIPE_HASH="$(recipe_hash .)"
   HASH_FILE="${RECIPE_HASH_DIR}/${PACKAGE_NAME}.sha256"
   REASON=""
@@ -141,15 +150,6 @@ for pkg_dir in ${PKGS}; do
   echo -e "Leaving package directory ${pkg_dir}."
   cd "${BUILD_SCRIPT_DIR}"
 done
-
-# Remove packages that are no longer part of the repo (e.g. dropped recipes).
-for old_pkg in $(pacman -Sl natron 2>/dev/null | awk '{print $2}'); do
-  if [[ "${EXPECTED_PKGS}" != *" ${old_pkg} "* ]]; then
-    echo "Removing ${old_pkg} from package repo (no longer built)."
-    (cd "${NATRON_REPO_DIR}" && repo-remove natron.db.tar.gz "${old_pkg}" && rm -f "${old_pkg}"-[0-9]*-any.pkg.tar.* ".recipes/${old_pkg}.sha256")
-  fi
-done
-pacman -Sy
 
 if [[ -n "${FAILED_PKGS}" ]]; then
   echo -e "\n\nERROR: the following packages failed to build:${FAILED_PKGS}"

@@ -1,314 +1,111 @@
 #!/bin/bash
 
-# Configurable script indicating DLL versions installed on the system that
-# should ship with Natron
-# Since msys2 is a moving target, each msys2 build machine almost has different  DLLs versions
+# Generates dllVersions.sh, which lists the DLLs that must ship with Natron:
+#   NATRON_DLL: DLLs installed next to the Natron executables (bin/)
+#   ARENA_DLL:  extra DLLs installed inside the Arena.ofx bundle
+#   GMIC_DLL:   extra DLLs installed inside the GMIC.ofx bundle
+#
+# Instead of a hand-maintained list (which breaks every time MSYS2 updates a
+# library and its DLL name changes), the list is computed from the actual
+# dependencies of the built binaries, resolved recursively with ldd. Only DLLs
+# from the MSYS2 environment ($SDK_HOME/bin) are shipped; Windows system DLLs
+# are skipped.
 
 set -e # Exit immediately if a command exits with a non-zero status
 set -u # Treat unset variables as an error when substituting.
-#set -x # Print commands and their arguments as they are executed.
 
 if [ -z "${PYVER:-}" ]; then
-	echo "PYVER must be set to Python version"
-	exit 1
+    echo "PYVER must be set to Python version"
+    exit 1
+fi
+if [ -z "${TMP_BINARIES_PATH:-}" ] || [ ! -d "${TMP_BINARIES_PATH}" ]; then
+    echo "TMP_BINARIES_PATH must point to the built binaries"
+    exit 1
 fi
 
 OUTPUT_FILE_NAME="dllVersions.sh"
 
-echo "#!/bin/bash" > $OUTPUT_FILE_NAME
-
-SDK_HOME=""
-if [ -z "${BITS:-}" ]; then
-    echo "BITS must be set to 32 or 64"
-    exit 1
+if [ -z "${SDK_HOME:-}" ]; then
+    SDK_HOME="${MSYSTEM_PREFIX:-/mingw64}"
 fi
-
-if [ "$BITS" = "32" ]; then
-    SDK_HOME="/mingw32"
-else
-    SDK_HOME="/mingw64"
-fi
-
 SDK_HOME_BIN="$SDK_HOME/bin"
+FFMPEG_PATH="${FFMPEG_PATH:-$SDK_HOME}"
+QT_VERSION_MAJOR="${QT_VERSION_MAJOR:-5}"
+OFX_PLUGINS="${TMP_BINARIES_PATH}/OFX/Plugins"
 
-if [ "${NATRON_LICENSE:-}" != "GPL" ] && [ "${NATRON_LICENSE:-}" != "COMMERCIAL" ]; then
-    echo "NATRON_LICENSE must be set to GPL or COMMERCIAL"
-    exit 1
-fi
+export PATH="$SDK_HOME_BIN:$PATH"
+export LC_ALL=C
 
-if [ -z "${LIBRAW_PATH:-}" ]; then
-    if [ "$NATRON_LICENSE" = "GPL" ]; then
-        LIBRAW_PATH="$SDK_HOME/libraw-gpl2/bin"
-    else
-        LIBRAW_PATH="$SDK_HOME/libraw-lgpl/bin"
-    fi
-    echo "LIBRAW_PATH not set, assuming this is $LIBRAW_PATH"
-fi
-
-if [ -z "${FFMPEG_PATH:-}" ]; then
-    if [ "$NATRON_LICENSE" = "GPL" ]; then
-        FFMPEG_PATH="$SDK_HOME/ffmpeg-gpl2/bin"
-    else
-        FFMPEG_PATH="$SDK_HOME/ffmpeg-lgpl/bin"
-    fi
-    echo "FFMPEG_PATH not set, assuming this is $FFMPEG_PATH"
-fi
-
-function findDll() {
-    #Try with given name first, otherwise try with * suffix
-    DLL_NAME=$(cd "$BIN_PATH"; ls "$1".dll 2>/dev/null || true)
-    if [ -f "$BIN_PATH/$1.dll" ]; then
-	DLL_NAME="$1.dll"
-    else
-	DLL_NAME=$(cd "$BIN_PATH"; ls "$1"*.dll 2>/dev/null || true)
-    fi
+# Print the MSYS2 DLLs (full paths) that the given binaries depend on, recursively.
+resolveDlls() {
+    local f
+    for f in "$@"; do
+        [ -f "$f" ] || continue
+        # ldd prints e.g. "	libfoo-1.dll => /ucrt64/bin/libfoo-1.dll (0x7ff...)"
+        ldd "$f" 2>/dev/null | awk -v bin="$SDK_HOME_BIN/" 'index(tolower($3), tolower(bin)) == 1 { print $3 }' || true
+    done | sort -u
 }
 
-function catDll() {
-    DLL_NAME=""
-    findDll $1
-    DLL_LEN=$(echo "$DLL_NAME" | wc -w)
-    if [ "$DLL_LEN" = "0" ]; then
-        echo "WARNING, dll $1 was not found!"
-   #     sleep 1
-	return 1
-    elif [ "$DLL_LEN" != "1" ]; then
-        echo "WARNING, More than 1 DLL were found for $1: $DLL_NAME"
-  #      sleep 1
-	return 1
-    fi
-#    echo "Found DLL: $DLL_NAME"
-    if [ "$INIT_VAR" = "1" ]; then
-    	echo "${DLL_VAR_PREFIX}_DLL="'('"${BIN_PATH}/${DLL_NAME}"')' >> "$OUTPUT_FILE_NAME"
-	INIT_VAR=0
-    else
-        echo "${DLL_VAR_PREFIX}_DLL="'('"\"\${${DLL_VAR_PREFIX}_DLL[@]}\" ${BIN_PATH}/${DLL_NAME}"')' >> "$OUTPUT_FILE_NAME"
-    fi
+# Binaries whose dependencies go next to Natron.exe
+NATRON_BINARIES=()
+for f in "${TMP_BINARIES_PATH}"/bin/*.exe; do
+    [ -f "$f" ] && NATRON_BINARIES+=("$f")
+done
+for p in IO Misc CImg Shadertoy; do
+    for f in "${OFX_PLUGINS}/${p}.ofx.bundle/Contents/Win"*/*.ofx; do
+        [ -f "$f" ] && NATRON_BINARIES+=("$f")
+    done
+done
+# Command-line tools shipped with Natron
+for f in "$SDK_HOME_BIN"/{iconvert.exe,idiff.exe,igrep.exe,iinfo.exe,exrheader.exe,tiffinfo.exe} "${FFMPEG_PATH}"/bin/{ffmpeg.exe,ffprobe.exe}; do
+    [ -f "$f" ] && NATRON_BINARIES+=("$f")
+done
+# Qt plugins, Python and PySide modules
+while IFS= read -r -d '' f; do
+    NATRON_BINARIES+=("$f")
+done < <(find "$SDK_HOME/share/qt${QT_VERSION_MAJOR}/plugins" \
+              "$SDK_HOME/lib/python${PYVER}/lib-dynload" \
+              "$SDK_HOME/lib/python${PYVER}/site-packages/PySide2" \
+              "$SDK_HOME/lib/python${PYVER}/site-packages/shiboken2" \
+              -type f \( -iname '*.dll' -o -iname '*.pyd' \) -print0 2>/dev/null)
+
+echo "Resolving DLL dependencies of ${#NATRON_BINARIES[@]} binaries..."
+NATRON_LIST="$(resolveDlls "${NATRON_BINARIES[@]}")"
+# Always ship the Python runtime and the Qt libraries (loaded dynamically by PySide).
+NATRON_LIST="$( { echo "$NATRON_LIST"; ls "$SDK_HOME_BIN"/libpython${PYVER}*.dll "$SDK_HOME_BIN"/Qt${QT_VERSION_MAJOR}*.dll 2>/dev/null; } | grep -v '^$' | sort -u)"
+
+# Plugin-specific DLLs: dependencies not already shipped with Natron
+pluginDlls() {
+    local plugin="$1" files=()
+    for f in "${OFX_PLUGINS}/${plugin}.ofx.bundle/Contents/Win"*/*.ofx; do
+        [ -f "$f" ] && files+=("$f")
+    done
+    [ ${#files[@]} -gt 0 ] || return 0
+    comm -23 <(resolveDlls "${files[@]}") <(echo "$NATRON_LIST")
+}
+ARENA_LIST="$(pluginDlls Arena)"
+GMIC_LIST="$(pluginDlls GMIC)"
+
+writeArray() {
+    local name="$1" list="$2" dll
+    echo "${name}=(" >> "$OUTPUT_FILE_NAME"
+    while IFS= read -r dll; do
+        [ -n "$dll" ] && echo "    \"$dll\"" >> "$OUTPUT_FILE_NAME"
+    done <<< "$list"
+    echo ")" >> "$OUTPUT_FILE_NAME"
 }
 
-INIT_VAR=1
-DLL_VAR_PREFIX="NATRON"
-BIN_PATH="$SDK_HOME_BIN"
-if [ "$QT_VERSION_MAJOR" = "5" ]; then
-    catDll Qt5Concurrent
-    catDll Qt5Core
-    catDll Qt5DBus
-    catDll Qt5Gui
-    catDll Qt5Network
-    catDll Qt5OpenGL
-    catDll Qt5PrintSupport
-    catDll Qt5Qml
-    catDll Qt5QmlModels
-    catDll Qt5QmlWorkerScript
-    catDll Qt5Quick
-    catDll Qt5QuickParticles
-    catDll Qt5QuickShapes
-    catDll Qt5QuickTest
-    catDll Qt5QuickWidgets
-    catDll Qt5Sql
-    catDll Qt5Test
-    catDll Qt5Widgets
-    catDll Qt5Xml
-    catDll Qt5XmlPatterns
+echo "#!/bin/bash" > "$OUTPUT_FILE_NAME"
+echo "# Generated by genDllVersions.sh" >> "$OUTPUT_FILE_NAME"
+writeArray NATRON_DLL "$NATRON_LIST"
+writeArray ARENA_DLL "$ARENA_LIST"
+writeArray GMIC_DLL "$GMIC_LIST"
 
-    catDll libdouble-conversion
-    catDll libicuin
-    catDll libpcre2-16-
-    catDll libmd4c
-else
-    echo "Unsupported QT_VERSION_MAJOR" ${QT_VERSION_MAJOR}
+echo "DLLs to ship: $(echo "$NATRON_LIST" | grep -c .) with Natron, $(echo "$ARENA_LIST" | grep -c . || true) with Arena, $(echo "$GMIC_LIST" | grep -c . || true) with GMIC"
+if [ -z "$NATRON_LIST" ]; then
+    echo "Error: no DLL dependencies found, is ldd working?"
     exit 1
 fi
-
-
-catDll fbclient
-catDll libass-
-catDll libbluray-
-catDll libboost_filesystem-mt
-catDll libboost_serialization-mt
-catDll libboost_thread-mt
-catDll libbz2-
-catDll libcaca-
-catDll libcairo-2
-#catDll libcroco-
-#catDll LIBEAY32
-catDll libexpat-
-catDll libffi-
-catDll libfontconfig-
-catDll libfreetype-
-catDll libfribidi-
-catDll libgdk_pixbuf-
-catDll libgif-
-catDll libgio-
-catDll libglib-
-catDll libgmodule-
-catDll libgmp-
-catDll libgnutls-30
-catDll libgobject-
-catDll libgomp-
-catDll libgraphite
-catDll libgsm
-catDll libharfbuzz-0
-catDll libhogweed-
-catDll libiconv-
-catDll libicudt
-catDll libicuuc
-catDll libidn2-
-catDll libIex-
-catDll libIlmThread-
-catDll libImath-
-catDll libintl-
-catDll libjasper
-catDll libjpeg-
-catDll liblcms2-
-catDll liblzma-
-catDll libmfx
-catDll libmodplug-
-catDll libmp3lame-
-catDll libnettle-
-catDll libnghttp2-
-catDll libnghttp3-
-catDll libogg-
-catDll libopenal-
-catDll libOpenColorIO
-catDll libOpenEXR-
-catDll libOpenEXRCore
-catDll libOpenImageIO-
-catDll libOpenImageIO_Util-
-catDll libopenjp2-
-catDll libopenjph-
-catDll libopus-
-catDll libp11-kit-
-catDll libpango-
-catDll libpangocairo-
-catDll libpangoft2-
-catDll libpangowin32-
-catDll libpcre2-8-
-catDll libpixman-
-catDll libpng16-
-#catDll libPtex
-catDll librsvg-
-catDll librtmp-
-catDll libsharpyuv-
-catDll libspeex-
-catDll libsqlite3-
-catDll libsrt
-catDll libssh2-
-catDll libstdc++-
-catDll libSvtAv1Enc
-catDll libtasn1-
-catDll libtheoradec-
-catDll libtheoraenc-
-catDll libtiff-
-catDll libunistring-
-catDll libunibreak-
-catDll libvorbis-
-catDll libvorbisenc-
-catDll libvpx-
-#catDll libwavpack-
-catDll libwebp-
-catDll libwebpdemux-
-catDll libwebpmux-
-catDll libwinpthread-
-catDll libxml2-
-#catDll SDL2
-#catDll SSLEAY32
-catDll zlib1
-catDll libbrotlicommon
-catDll libbrotlidec
-catDll libbrotlienc
-catDll libssl-3-
-catDll libcrypto-3-
-catDll libzstd
-
-catDll libSeExpr
-catDll libyaml-cpp
-catDll libopenh264
-catDll libthai
-catDll libdatrie-
-catDll libsnappy
-#catDll libpugixml
-catDll libheif
-catDll libkvazaar-
-catDll libcryptopp
-catDll librav1e
-catDll libde265-
-catDll libx265
-catDll libdav1d
-catDll libaom
-catDll libdeflate
-catDll libjbig-
-catDll liblerc
-catDll libpsl-5
-catDll libcairo-gobject-
-
-# python
-catDll libpython${PYVER}
-if [ "$PYV" = 2 ]; then
-    catDll libpyside-python${PYVER}
-    catDll libshiboken-python${PYVER}
-else
-    catDll libpyside
-    catDll libshiboken
-fi
-
-# gcc
-if [ "$BITS" = "32" ]; then
-    catDll libgcc_s_dw2-
-else
-    catDll libgcc_s_seh-
-fi
-
-if [ "$NATRON_LICENSE" = "GPL" ]; then
-    catDll libx264-
-    #catDll libx265
-    #catDll libx265_main
-    catDll xvidcore
-fi
-
-BIN_PATH="$SDK_HOME/osmesa/lib"
-catDll osmesa
-BIN_PATH="$LIBRAW_PATH"
-catDll libraw-
-catDll libraw_r-
-BIN_PATH="$FFMPEG_PATH"
-catDll avcodec-
-catDll avdevice-
-catDll avfilter-
-catDll avformat-
-#catDll avresample- # removed from ffmpeg 4
-catDll avutil-
-catDll swresample-
-catDll swscale-
-if [ "$NATRON_LICENSE" = "GPL" ]; then
-    catDll postproc-
-fi
-
-INIT_VAR=1
-DLL_VAR_PREFIX="ARENA"
-BIN_PATH="$SDK_HOME_BIN"
-catDll libcdr-
-#catDll libcroco-
-catDll libicuin
-catDll libpoppler-117
-catDll libpoppler-glib-
-catDll librevenge-0
-catDll librevenge-stream-
-catDll libzip
-catDll libmad-0
-catDll libsox-
-
-INIT_VAR=1
-DLL_VAR_PREFIX="GMIC"
-BIN_PATH="$SDK_HOME_BIN"
-catDll libfftw3-
-catDll libfftw3_threads-
-catDll libcurl-
-catDll libnghttp2-
-catDll libngtcp2-
-catDll libngtcp2_crypto_ossl
-#catDll libbrotlidec
-#catDll libbrotlicommon
 
 # Local variables:
 # mode: shell-script

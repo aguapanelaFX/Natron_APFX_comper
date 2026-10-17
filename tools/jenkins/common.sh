@@ -328,7 +328,12 @@ if [ "$PKGOS" = "Windows" ]; then
             (>&2 echo "Info: no private FFmpeg in $SDK_HOME/ffmpeg-gpl[2], using FFMPEG_PATH=$SDK_HOME")
             FFMPEG_PATH="$SDK_HOME"
         fi
-        LIBRAW_PATH="$CUSTOM_BUILDS_PATH/libraw-gpl2"        
+        if [ -d "$CUSTOM_BUILDS_PATH/libraw-gpl2" ]; then
+            LIBRAW_PATH="$CUSTOM_BUILDS_PATH/libraw-gpl2"
+        else
+            # No private LibRaw build: use the environment's own LibRaw package.
+            LIBRAW_PATH="$SDK_HOME"
+        fi
     elif [ -z "${NATRON_LICENSE+x}" ] || [ "${NATRON_LICENSE:-}" = "COMMERCIAL" ]; then
         FFMPEG_PATH="$CUSTOM_BUILDS_PATH/ffmpeg-lgpl"
         LIBRAW_PATH="$CUSTOM_BUILDS_PATH/libraw-lgpl"
