@@ -51,6 +51,10 @@ if [ "$PKGOS" = "Linux" ]; then
     export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
 fi
 QMAKE="$QTDIR/bin/qmake"
+if [ -x "$QTDIR/bin/qmake-qt${QT_VERSION_MAJOR}.exe" ]; then
+    # MSYS2 renames Qt5's qmake to qmake-qt5.exe
+    QMAKE="$QTDIR/bin/qmake-qt${QT_VERSION_MAJOR}"
+fi
 
 cd "$TMP_PATH"
 

@@ -403,7 +403,9 @@ if [ -d "$SDK_HOME/qt${QT_VERSION_MAJOR}" ]; then
     QTDIR="$SDK_HOME/qt${QT_VERSION_MAJOR}"
 elif [ -d "$SDK_HOME/libexec/qt${QT_VERSION_MAJOR}" ]; then
     QTDIR="$SDK_HOME/libexec/qt${QT_VERSION_MAJOR}"
-elif [ -x "$SDK_HOME/bin/qmake" ] || [ -x "$SDK_HOME/bin/qmake.exe" ]; then
+elif [ -x "$SDK_HOME/bin/qmake" ] || [ -x "$SDK_HOME/bin/qmake.exe" ] || [ -x "$SDK_HOME/bin/qmake-qt${QT_VERSION_MAJOR}.exe" ]; then
+    # MSYS2 installs Qt into the environment prefix (headers in $SDK_HOME/include/QtCore, ...)
+    # and names Qt5's qmake "qmake-qt5.exe".
     QTDIR="$SDK_HOME"
 else
     (>&2 echo "Warning: Qt cannot be found in $SDK_HOME or $SDK_HOME/qt${QT_VERSION_MAJOR}")
