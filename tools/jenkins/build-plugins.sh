@@ -389,6 +389,8 @@ if [ "$BUILD_ARENA" = "1" ] && [ -d "$TMP_PATH/openfx-arena" ]; then
         ISWIN=1
     fi
 
+    # Current Poppler headers (used by ReadPDF) require C++20.
+    ARENA_CXX="$(echo "$CXX" | sed -E 's/-std=(gnu|c)\+\+[0-9a-z]+/-std=gnu++20/')"
     echo "Info: build openfx-arena using make..."
     # Arena 2.1 breaks compat with older releases, check if this is a 2.1(+) build
     ARENA_CHECK=$(cat Bundle/Makefile|grep lodepng)
@@ -408,7 +410,7 @@ if [ "$BUILD_ARENA" = "1" ] && [ -d "$TMP_PATH/openfx-arena" ]; then
         MINGW="${ISWIN:-}" \
         LICENSE="$NATRON_LICENSE" \
         ${ARENA_FLAGS:-} \
-        CXX="$CXX" \
+        CXX="$ARENA_CXX" \
         CONFIG="${COMPILE_TYPE}" \
         OPTFLAG="${OPTFLAG}" \
         BITS="${BITS}" \
