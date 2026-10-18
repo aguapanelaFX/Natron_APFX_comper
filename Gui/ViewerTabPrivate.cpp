@@ -388,6 +388,15 @@ ViewerTabPrivate::getComponentsAvailabel(std::set<ImagePlaneDesc>* comps) const
             }
         }
     }
+    // SOLVFX: like Nuke, always offer rgba. An RGB input is shown as rgba
+    // with a black alpha (the viewer converts RGB to RGBA with alpha = 0).
+    for (std::set<ImagePlaneDesc>::iterator it = comps->begin(); it != comps->end(); ++it) {
+        if ( it->isColorPlane() && (it->getNumComponents() == 3) ) {
+            comps->erase(it);
+            comps->insert( ImagePlaneDesc::getRGBAComponents() );
+            break;
+        }
+    }
 }
 
 std::list<ViewerTabPrivate::PluginViewerContext>::iterator

@@ -187,7 +187,7 @@ Gui::reloadProject()
     ProjectPtr proj = getApp()->getProject();
 
     if ( !proj->hasProjectBeenSavedByUser() ) {
-        Dialogs::errorDialog( tr("Reload project").toStdString(), tr("This project has not been saved yet").toStdString() );
+        Dialogs::errorDialog( tr("Reload comp").toStdString(), tr("This comp has not been saved yet").toStdString() );
 
         return;
     }

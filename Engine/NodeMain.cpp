@@ -217,6 +217,10 @@ Node::load(const CreateNodeArgs& args)
     if ( isRotoPaintingNode() || ( pluginID == QString::fromUtf8(PLUGINID_OFX_ROTO) ) ) {
         _imp->useAlpha0ToConvertFromRGBToRGBA = true;
     }
+    // SOLVFX: the viewer shows RGB inputs as rgba with a black alpha, like Nuke
+    if ( isEffectViewer() ) {
+        _imp->useAlpha0ToConvertFromRGBToRGBA = true;
+    }
 
     if (!serialization) {
         computeHash();

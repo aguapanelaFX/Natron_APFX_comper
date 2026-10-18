@@ -61,28 +61,28 @@ CLANG_DIAG_ON(uninitialized)
 
 /////////GLOBAL SHORTCUTS
 #define kShortcutIDActionNewProject "newProject"
-#define kShortcutDescActionNewProject "New Project"
+#define kShortcutDescActionNewProject "New Comp"
 
 #define kShortcutIDActionOpenProject "openProject"
-#define kShortcutDescActionOpenProject "Open Project..."
+#define kShortcutDescActionOpenProject "Open Comp..."
 
 #define kShortcutIDActionCloseProject "closeProject"
-#define kShortcutDescActionCloseProject "Close Project"
+#define kShortcutDescActionCloseProject "Close Comp"
 
 #define kShortcutIDActionReloadProject "reloadProject"
-#define kShortcutDescActionReloadProject "Reload Project"
+#define kShortcutDescActionReloadProject "Reload Comp"
 
 #define kShortcutIDActionSaveProject "saveProject"
-#define kShortcutDescActionSaveProject "Save Project"
+#define kShortcutDescActionSaveProject "Save Comp"
 
 #define kShortcutIDActionSaveAsProject "saveAsProject"
-#define kShortcutDescActionSaveAsProject "Save Project As.."
+#define kShortcutDescActionSaveAsProject "Save Comp As..."
 
 #define kShortcutIDActionSaveAndIncrVersion "saveAndIncr"
-#define kShortcutDescActionSaveAndIncrVersion "New Project Version"
+#define kShortcutDescActionSaveAndIncrVersion "Save Comp and Increment Version"
 
 #define kShortcutIDActionExportProject "exportAsGroup"
-#define kShortcutDescActionExportProject "Export Project As Group"
+#define kShortcutDescActionExportProject "Export Comp As Group"
 
 #define kShortcutIDActionPreferences "preferences"
 #define kShortcutDescActionPreferences "Preferences..."
@@ -91,7 +91,7 @@ CLANG_DIAG_ON(uninitialized)
 #define kShortcutDescActionQuit "Quit"
 
 #define kShortcutIDActionProjectSettings "projectSettings"
-#define kShortcutDescActionProjectSettings "Show Project Settings..."
+#define kShortcutDescActionProjectSettings "Comp Settings..."
 
 #define kShortcutIDActionShowErrorLog "showErrorLog"
 #define kShortcutDescActionShowErrorLog "Show Project Errors Log..."

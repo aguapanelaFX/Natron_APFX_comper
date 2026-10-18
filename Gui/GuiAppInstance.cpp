@@ -391,13 +391,13 @@ GuiAppInstance::loadInternal(const CLArgs& cl,
             QString name = info.fileName();
             QString path = info.path();
             StrUtils::ensureLastPathSeparator(path);
-            appPTR->setLoadingStatus(tr("Loading project: ") + path + name);
+            appPTR->setLoadingStatus(tr("Loading comp: ") + path + name);
             getProject()->loadProject(path, name);
             ///remove any file open event that might have occurred
             appPTR->setFileToOpen( QString() );
         } else {
             Dialogs::errorDialog( tr("Invalid file").toStdString(),
-                                  tr("%1 only accepts python scripts or .%2 / .%3 project files").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ).toStdString() );
+                                  tr("%1 only accepts python scripts or .%2 / .%3 comp files").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ).arg( QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ).toStdString() );
             execOnProjectCreatedCallback();
         }
     }
@@ -437,7 +437,7 @@ GuiAppInstance::findAndTryLoadUntitledAutoSave()
         return false;
     }
 
-    QString text = tr("An auto-saved project was found with no associated project file.\n"
+    QString text = tr("An auto-saved comp was found with no associated comp file.\n"
                       "Would you like to restore it?\n"
                       "Clicking No will remove this auto-save.");
 
@@ -1247,7 +1247,7 @@ GuiAppInstance::handleFileOpenEvent(const std::string &filename)
     if ( ( ext == QString::fromUtf8(NATRON_PROJECT_FILE_EXT) ) || ( ext == QString::fromUtf8(NATRON_PROJECT_FILE_EXT_LEGACY) ) ) {
         AppInstancePtr app = getGui()->openProject(filename);
         if (!app) {
-            Dialogs::errorDialog(tr("Project").toStdString(), tr("Failed to open project").toStdString() + ' ' + filename);
+            Dialogs::errorDialog(tr("Comp").toStdString(), tr("Failed to open comp").toStdString() + ' ' + filename);
         }
     } else {
         appPTR->handleImageFileOpenRequest(filename);

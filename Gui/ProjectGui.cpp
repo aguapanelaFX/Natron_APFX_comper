@@ -119,7 +119,7 @@ ProjectGui::create(ProjectPtr projectInternal,
                                DockablePanel::eHeaderModeReadOnlyName,
                                false,
                                QUndoStackPtr(),
-                               tr("Project Settings"),
+                               tr("Comp Settings"),
                                tr("The settings of the current project."),
                                parent);
 
