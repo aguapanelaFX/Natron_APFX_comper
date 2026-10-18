@@ -82,6 +82,7 @@ struct SolvfxOcioViewerShader::Imp
     }
 
     bool build();
+    bool buildInternal();
 };
 
 static const char* kSolvfxOcioVertex =
@@ -92,8 +93,37 @@ static const char* kSolvfxOcioVertex =
     "    gl_Position = ftransform();\n"
     "}\n";
 
+// SOLVFX: build() runs while the viewer is drawing. The LUT textures are created
+// on texture unit 1 and every GL state touched here is restored afterwards, so the
+// image texture bound on unit 0 stays attached (otherwise the viewer goes black
+// after changing the view until the frame is rendered again).
 bool
 SolvfxOcioViewerShader::Imp::build()
+{
+    GLint prevActive = GL_TEXTURE0;
+    GLint prevAlign = 4;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
+    glActiveTexture(GL_TEXTURE1);
+    GLint prev1D = 0, prev2D = 0, prev3D = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_1D, &prev1D);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev2D);
+    glGetIntegerv(GL_TEXTURE_BINDING_3D, &prev3D);
+
+    const bool ok = buildInternal();
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_1D, (GLuint)prev1D);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev2D);
+    glBindTexture(GL_TEXTURE_3D, (GLuint)prev3D);
+    glActiveTexture( (GLenum)prevActive );
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
+
+    return ok;
+}
+
+bool
+SolvfxOcioViewerShader::Imp::buildInternal()
 {
     clearGL();
 #ifndef SOLVFX_HAS_OCIO
@@ -232,7 +262,7 @@ SolvfxOcioViewerShader::Imp::build()
         return false;
     }
 #endif // SOLVFX_HAS_OCIO
-} // build
+} // buildInternal
 
 bool
 SolvfxOcioViewerShader::listDisplayViews(std::vector<DisplayView>* views,
