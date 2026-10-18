@@ -21,7 +21,7 @@ TARGET = Gui
 TEMPLATE = lib
 CONFIG += staticlib
 CONFIG += moc rcc
-CONFIG += boost opengl qt cairo python shiboken pyside 
+CONFIG += boost opengl qt cairo python shiboken pyside ocio
 QT += gui core network concurrent widgets
 
 GUI_WRAPPER_DIR = Qt$${QT_MAJOR_VERSION}/NatronGui
@@ -83,6 +83,7 @@ SOURCES += \
     ClickableLabel.cpp \
     ColoredFrame.cpp \
     ColorSelectorWidget.cpp \
+    SolvfxColorPanel.cpp \
     ComboBox.cpp \
     CurveEditor.cpp \
     CurveEditorUndoRedo.cpp \
@@ -235,6 +236,7 @@ HEADERS += \
     ClickableLabel.h \
     ColoredFrame.h \
     ColorSelectorWidget.h \
+    SolvfxColorPanel.h \
     ComboBox.h \
     CurveEditor.h \
     CurveEditorUndoRedo.h \

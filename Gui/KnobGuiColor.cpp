@@ -319,7 +319,7 @@ KnobGuiColor::addExtraWidgets(QHBoxLayout* containerLayout)
     _colorSelectorButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Open Color Selector"), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _colorSelectorButton->setFocusPolicy(Qt::NoFocus);
 
-    _colorSelector = new ColorSelectorWidget( knob->getDimension() == 4, containerLayout->widget() );
+    _colorSelector = new SolvfxColorPanel( knob->getDimension() == 4, containerLayout->widget() );
     QObject::connect( _colorSelector, SIGNAL( colorChanged(float, float, float, float) ),
                       this, SLOT( onColorSelectorChanged(float, float, float, float) ) );
     QObject::connect( _colorSelector, SIGNAL( updateColor() ),
@@ -532,10 +532,8 @@ KnobGuiColor::updateColorSelector()
         curA = knob->getValue(3);
     }
 
-    _colorSelector->setColor( Image::clamp<qreal>(curR, 0., 1.),
-                              Image::clamp<qreal>(curG, 0., 1.),
-                              Image::clamp<qreal>(curB, 0., 1.),
-                              Image::clamp<qreal>(curA, 0., 1.) );
+    // SOLVFX: the Nuke-style panel handles HDR and negative values
+    _colorSelector->setColor(curR, curG, curB, curA);
 }
 
 bool

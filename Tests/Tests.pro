@@ -21,7 +21,7 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG += moc rcc
-CONFIG += boost boost-serialization-lib opengl qt cairo python shiboken pyside 
+CONFIG += boost boost-serialization-lib opengl qt cairo python shiboken pyside ocio
 CONFIG += static-gui static-engine static-host-support static-breakpadclient static-libmv static-openmvg static-ceres static-libtess
 QT += gui core opengl network widgets concurrent
 

@@ -51,6 +51,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/CurveSelection.h"
 #include "Gui/KnobGuiValue.h"
 #include "Gui/ColorSelectorWidget.h"
+#include "Gui/SolvfxColorPanel.h"
 #include "Gui/AnimatedCheckBox.h"
 #include "Gui/Label.h"
 #include "Gui/GuiFwd.h"
@@ -187,7 +188,7 @@ private:
 
     KnobColorWPtr _knob;
     ColorPickerLabel *_colorLabel;
-    ColorSelectorWidget *_colorSelector;
+    SolvfxColorPanel *_colorSelector; // SOLVFX: Nuke-style color panel
     QToolButton *_colorSelectorButton;
     std::vector<double> _lastColor;
     bool _useSimplifiedUI;

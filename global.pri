@@ -383,6 +383,9 @@ win32-g++ {
 
     expat:     PKGCONFIG += expat
     cairo:     PKGCONFIG += cairo fontconfig
+    # SOLVFX: OpenColorIO for the color panel hex field
+    ocio:      PKGCONFIG += OpenColorIO
+    ocio:      DEFINES += SOLVFX_HAS_OCIO
     equals(QT_MAJOR_VERSION, 5) {
       shiboken:  INCLUDEPATH += $$system(pkg-config --variable=includedir shiboken2)
       PYSIDE_INCLUDEDIR = $$system(pkg-config --variable=includedir pyside2)
@@ -416,6 +419,9 @@ unix {
      # Linking cairo dynamically is OK even on Linux, where it links to X11,
      # since we need X11 for OpenGL rendering anyway.
      cairo:     PKGCONFIG += cairo fontconfig
+     # SOLVFX: OpenColorIO for the color panel hex field
+     ocio:      PKGCONFIG += OpenColorIO
+     ocio:      DEFINES += SOLVFX_HAS_OCIO
 
      # GLFW will require a link to X11 on linux and OpenGL framework on OS X
      linux-*|freebsd-* {
