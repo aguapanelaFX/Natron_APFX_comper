@@ -436,8 +436,12 @@ public Q_SLOTS:
     void onGammaSliderEditingFinished(bool hasMovedOnce);
     void onGainSliderEditingFinished(bool hasMovedOnce);
 
+    // SOLVFX: Nuke-like exposure (stops internally, multiplier shown)
+    void setGainStops(double stops, bool rememberValue);
+
     // SOLVFX: timeline range dropdown
     void onTimelineRangeModeChanged(int index);
+    void applyTimelineRangeMode();
 
     // SOLVFX: viewer saturation and f-stop steps
     void onSaturationToggled(bool clicked);

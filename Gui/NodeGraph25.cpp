@@ -77,8 +77,7 @@ NodeGraph::showNodePanel(bool casIsCtrl, bool casIsShift, NodeGui* nearbyNode)
     // SOLVFX: when the Properties bin is closed (not visible), panels open as
     // floating windows like in Nuke: one window per node, no limit.
     if (!casIsCtrl) {
-        QWidget* bin = getGui()->getPropertiesBin();
-        if ( !bin || !bin->isVisible() ) {
+        if ( !getGui()->isPropertiesBinVisible() ) {
             nearbyNode->ensurePanelCreated();
             if ( nearbyNode->getSettingPanel() ) {
                 casIsCtrl = true;
@@ -87,34 +86,7 @@ NodeGraph::showNodePanel(bool casIsCtrl, bool casIsShift, NodeGui* nearbyNode)
     }
     if ( casIsCtrl ) {
         nearbyNode->ensurePanelCreated();
-        DockablePanel* panel = nearbyNode->getSettingPanel();
-        if (panel) {
-            if ( !panel->isFloating() ) {
-                if ( panel->isClosed() ) {
-                    panel->setClosed(false);
-                }
-                panel->floatPanel();
-                FloatingWidget* window = panel->getFloatingWindow();
-                if (window) {
-                    // open next to the mouse, kept inside the screen
-                    QPoint pos = QCursor::pos() + QPoint(16, 16);
-                    QScreen* screen = QGuiApplication::screenAt( QCursor::pos() );
-                    if (screen) {
-                        QRect avail = screen->availableGeometry();
-                        QSize s = window->size();
-                        pos.setX( std::max( avail.left(), std::min(pos.x(), avail.right() - s.width()) ) );
-                        pos.setY( std::max( avail.top(), std::min(pos.y(), avail.bottom() - s.height()) ) );
-                    }
-                    window->move(pos);
-                }
-            }
-            FloatingWidget* window = panel->getFloatingWindow();
-            if (window) {
-                window->show();
-                window->raise();
-                window->activateWindow();
-            }
-        }
+        getGui()->openPanelFloating( nearbyNode->getSettingPanel() );
     } else {
         nearbyNode->setVisibleSettingsPanel(true);
         if ( nearbyNode->getSettingPanel() ) {

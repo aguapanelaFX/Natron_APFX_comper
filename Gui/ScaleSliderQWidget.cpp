@@ -80,6 +80,7 @@ struct ScaleSliderQWidgetPrivate
     bool useSliderColor;
     QColor lineColor;
     bool allowDraftModeSetting;
+    std::vector<std::pair<double, QString> > customTicks; // SOLVFX
 
     ScaleSliderQWidgetPrivate(QWidget* parent,
                               double min,
@@ -512,7 +513,34 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     const double largestTickSize = range * largestTickSizePixel / rangePixel;
     const double minTickSizeTextPixel = fontM.horizontalAdvance( QLatin1String("00") ); // AXIS-SPECIFIC
     const double minTickSizeText = range * minTickSizeTextPixel / rangePixel;
-    for (int i = m1; i <= m2; ++i) {
+    if ( !_imp->customTicks.empty() ) {
+        // SOLVFX: fixed ticks with custom labels
+        QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
+        QPen pen(c);
+        pen.setWidthF(1.);
+        p.setFont(_imp->font);
+        for (std::size_t i = 0; i < _imp->customTicks.size(); ++i) {
+            const double value = _imp->customTicks[i].first;
+            if ( (value < range_min) || (value > range_max) ) {
+                continue;
+            }
+            p.setPen(pen);
+            QPointF tickBottomPos = _imp->zoomCtx.toWidgetCoordinates(value, tickBottom);
+            QPointF tickTopPos = _imp->zoomCtx.toWidgetCoordinates(value, tickTop);
+            p.drawLine(tickBottomPos, tickTopPos);
+            const QString& s = _imp->customTicks[i].second;
+            if ( s.isEmpty() ) {
+                continue;
+            }
+            QPointF textPos = _imp->zoomCtx.toWidgetCoordinates( value, btmLeft.y() );
+            int textWidth = fontM.horizontalAdvance(s);
+            int textX = std::floor(textPos.x() + 0.5);
+            int textY = std::floor(textPos.y() + 0.5);
+            textX = std::min(std::max(0, textX - textWidth / 2), width() - textWidth);
+            p.drawText(textX, textY, s);
+        }
+    }
+    for (int i = m1; _imp->customTicks.empty() && i <= m2; ++i) {
         double value = i * smallTickSize + offset;
         const double tickSize = ticks[i - m1] * smallTickSize;
         const double alpha = ticks_alpha(smallestTickSize, largestTickSize, tickSize);
@@ -659,6 +687,13 @@ ScaleSliderQWidget::setUseSliderColor(bool use,
 {
     _imp->useSliderColor = use;
     _imp->customSliderColor = color;
+    update();
+}
+
+void
+ScaleSliderQWidget::setCustomTicks(const std::vector<std::pair<double, QString> >& ticks)
+{
+    _imp->customTicks = ticks;
     update();
 }
 

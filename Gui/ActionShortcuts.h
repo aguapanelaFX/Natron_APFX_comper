@@ -304,6 +304,12 @@ CLANG_DIAG_ON(uninitialized)
 #define kShortcutIDActionHideOverlays "hideOverlays"
 #define kShortcutDescActionHideOverlays "Show/Hide Overlays"
 
+// SOLVFX: viewer exposure steps (one f-stop), like Nuke
+#define kShortcutIDActionViewerGainDown "viewerGainDown"
+#define kShortcutDescActionViewerGainDown "Decrease Viewer Exposure (1 stop)"
+#define kShortcutIDActionViewerGainUp "viewerGainUp"
+#define kShortcutDescActionViewerGainUp "Increase Viewer Exposure (1 stop)"
+
 #define kShortcutIDActionHidePlayer "hidePlayer"
 #define kShortcutDescActionHidePlayer "Show/Hide Player"
 

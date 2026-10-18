@@ -72,6 +72,10 @@ void
 FloatingWidget::onProjectNameChanged(const QString& filePath,
                                      bool modified)
 {
+    if ( dynamic_cast<DockablePanel*>(_embeddedWidget) ) {
+        // SOLVFX: floating properties panels keep the "Properties" title
+        return;
+    }
     // handles window title and appearance formatting
     // http://doc.qt.io/qt-4.8/qwidget.html#windowModified-prop
     setWindowModified(modified);
@@ -116,6 +120,12 @@ FloatingWidget::setWidget(QWidget* w)
         return;
     }
     _embeddedWidget = w;
+    if ( dynamic_cast<DockablePanel*>(w) ) {
+        // SOLVFX: floating properties panels are titled "Properties", like Nuke
+        setWindowFilePath( QString() );
+        setWindowModified(false);
+        setWindowTitle( tr("Properties") );
+    }
     _scrollArea->setWidget(w);
     w->setVisible(true);
     w->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);

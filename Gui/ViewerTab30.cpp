@@ -161,15 +161,11 @@ ViewerTab::setColorSpace(const std::string & colorSpaceName)
 void
 ViewerTab::setGain(double d)
 {
-    double fstop = std::log(d) / M_LN2;
+    double fstop = std::log( std::max(d, 1e-6) ) / M_LN2;
 
-    _imp->gainBox->setValue(fstop);
-    _imp->gainSlider->seekScalePosition(fstop);
-    _imp->viewer->setGain(d);
-    _imp->viewerNode->onGainChanged(d);
+    setGainStops(fstop, true);
     _imp->toggleGainButton->setDown(d != 1.);
     _imp->toggleGainButton->setChecked(d != 1.);
-    _imp->lastFstopValue = fstop;
 }
 
 double
@@ -182,7 +178,7 @@ void
 ViewerTab::setGamma(double gamma)
 {
     _imp->gammaBox->setValue(gamma);
-    _imp->gammaSlider->seekScalePosition(gamma);
+    _imp->gammaSlider->seekScalePosition( solvfxGammaToSliderPos(gamma) );
     _imp->viewerNode->onGammaChanged(gamma);
     _imp->viewer->setGamma(gamma);
     _imp->toggleGammaButton->setDown(gamma != 1.);
@@ -321,7 +317,7 @@ ViewerTab::onAutoContrastChanged(bool b)
     _imp->gammaSlider->setEnabled(!b);
     _imp->toggleGammaButton->setEnabled(!b);
     if (!b) {
-        _imp->viewerNode->onGainChanged( std::pow( 2, _imp->gainBox->value() ) );
+        _imp->viewerNode->onGainChanged( _imp->gainBox->value() ); // SOLVFX: box shows the multiplier
         _imp->viewerNode->onGammaChanged( _imp->gammaBox->value() );
     }
     _imp->viewerNode->onAutoContrastChanged(b, true);

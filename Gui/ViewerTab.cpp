@@ -436,7 +436,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QString gainTt =  QString::fromUtf8("<p><b>") + tr("Gain:") + QString::fromUtf8("</b></p><p>") + tr("Gain is shown as f-stops. The image is multiplied by pow(2,value) before display.") + QString::fromUtf8("</p>");
     _imp->gainBox->setToolTip(gainTt);
     _imp->gainBox->setIncrement(0.1);
-    _imp->gainBox->setValue(0.0);
+    _imp->gainBox->setMinimum(0.);
+    _imp->gainBox->setValue(1.0); // SOLVFX: multiplier, like Nuke
     _imp->secondRowLayout->addWidget(_imp->gainBox);
 
 
@@ -487,7 +488,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->gammaBox->setValue(1.0);
     _imp->secondRowLayout->addWidget(_imp->gammaBox);
 
-    _imp->gammaSlider = new ScaleSliderQWidget(0, 4, 1.0, false, ScaleSliderQWidget::eDataTypeDouble, getGui(), eScaleTypeLinear, _imp->secondSettingsRow);
+    // SOLVFX: slider positions 0..2 map to gamma 0..1..4 with 1 in the center
+    _imp->gammaSlider = new ScaleSliderQWidget(0, 2, 1.0, false, ScaleSliderQWidget::eDataTypeDouble, getGui(), eScaleTypeLinear, _imp->secondSettingsRow);
     QObject::connect( _imp->gammaSlider, SIGNAL(editingFinished(bool)), this, SLOT(onGammaSliderEditingFinished(bool)) );
     _imp->gammaSlider->setToolTip(gammaTt);
     QObject::connect( _imp->gammaSlider, SIGNAL(positionChanged(double)), this, SLOT(onGammaSliderValueChanged(double)) );
@@ -549,6 +551,33 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     _imp->secondRowLayout->addWidget(_imp->pickerButton);
 
+    // SOLVFX: Nuke-like exposure. Button shows the f-number (f/8 = gain 1),
+    // slider in stops (log scale 1/64..64, 1 centered) with multiplier labels
+    _imp->toggleGainButton->setIcon( QIcon() );
+    _imp->toggleGainButton->setText( solvfxFStopLabel(0.) );
+    _imp->toggleGainButton->setFixedSize( QSize( fm.horizontalAdvance( QString::fromUtf8("f/128") ) + TO_DPIX(10), buttonSize.height() ) );
+    {
+        std::vector<std::pair<double, QString> > ticks;
+        const double gainTicks[] = { 1. / 64., 1. / 32., 1. / 16., 0.125, 0.25, 0.5, 1., 2., 4., 8., 16., 32., 64. };
+        for (int i = 0; i < 13; ++i) {
+            double v = gainTicks[i];
+            QString label;
+            if ( (v == 1. / 32.) || (v == 0.125) || (v == 1.) || (v == 2.) || (v == 8.) || (v == 64.) ) {
+                label = QString::number(v);
+            }
+            ticks.push_back( std::make_pair(std::log(v) / M_LN2, label) );
+        }
+        _imp->gainSlider->setCustomTicks(ticks);
+    }
+    {
+        std::vector<std::pair<double, QString> > ticks;
+        const double gammaTicks[] = { 0., 0.1, 0.5, 1., 2., 3., 4. };
+        for (int i = 0; i < 7; ++i) {
+            ticks.push_back( std::make_pair( solvfxGammaToSliderPos(gammaTicks[i]), QString::number(gammaTicks[i]) ) );
+        }
+        _imp->gammaSlider->setCustomTicks(ticks);
+    }
+
     // SOLVFX: f-stop step buttons around the gain field, like Nuke
     _imp->gainDownButton = new Button(QString::fromUtf8("\u25C0"), _imp->secondSettingsRow);
     _imp->gainDownButton->setFocusPolicy(Qt::NoFocus);
@@ -585,6 +614,36 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         _imp->saturationSlider->setToolTip(satTt);
         QObject::connect( _imp->saturationSlider, SIGNAL(positionChanged(double)), this, SLOT(onSaturationSliderValueChanged(double)) );
     }
+
+    // SOLVFX: Nuke-style layer/channel names (display only):
+    // Color.RGBA -> rgba, depth.Z -> depth ; Color.A -> rgba.a, depth.Z -> depth.z
+    _imp->layerChoice->setDisplayTextTransform([](const QString& t) -> QString {
+        int dot = t.indexOf( QLatin1Char('.') );
+        if (dot < 0) {
+            return t;
+        }
+        QString plane = t.left(dot);
+        QString chans = t.mid(dot + 1).toLower();
+        if ( plane == QString::fromUtf8("Color") ) {
+            if ( (chans == QString::fromUtf8("a")) || (chans == QString::fromUtf8("alpha")) ) {
+                return QString::fromUtf8("alpha");
+            }
+            return chans; // rgba, rgb, xy
+        }
+        return plane.toLower();
+    });
+    _imp->alphaChannelChoice->setDisplayTextTransform([](const QString& t) -> QString {
+        int dot = t.lastIndexOf( QLatin1Char('.') );
+        if (dot < 0) {
+            return t;
+        }
+        QString plane = t.left(dot);
+        QString chan = t.mid(dot + 1).toLower();
+        if ( plane == QString::fromUtf8("Color") ) {
+            plane = QString::fromUtf8("rgba");
+        }
+        return plane.toLower() + QLatin1Char('.') + chan;
+    });
 
     // SOLVFX: Nuke-style toolbar layout.
     // Row 1: channels | A, operation, B (centered) | zoom, center
@@ -1136,6 +1195,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
             delete item;
         }
         QBoxLayout* l = _imp->playerLayout;
+        l->setSpacing( TO_DPIX(3) ); // SOLVFX: small gap between playback buttons, like Nuke
         l->addWidget(_imp->currentFrameBox);
         l->addWidget(_imp->tripleSyncButton);
         l->addStretch();

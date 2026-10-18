@@ -36,6 +36,9 @@
 #include <QScrollBar>
 #include <QScrollArea>
 #include <QAction>
+#include <QCursor>
+#include <QGuiApplication>
+#include <QScreen>
 
 #include "Global/FStreamsSupport.h"
 
@@ -43,6 +46,8 @@
 #include "Engine/ViewIdx.h"
 
 #include "Gui/DockablePanel.h"
+#include "Gui/FloatingWidget.h"
+#include "Gui/PropertiesBinWrapper.h"
 #include "Gui/Menu.h"
 #include "Gui/ProjectGui.h"
 #include "Gui/ProjectGuiSerialization.h" // PaneLayout, GuiLayoutSerialization
@@ -428,9 +433,68 @@ Gui::buildTabFocusOrderPropertiesBin()
     }
 }
 
+bool
+Gui::isPropertiesBinVisible() const
+{
+    return _imp->_propertiesBin && _imp->_propertiesBin->isVisible();
+}
+
+void
+Gui::openPanelFloating(DockablePanel* panel)
+{
+    if (!panel) {
+        return;
+    }
+    if ( !panel->isFloating() ) {
+        if ( panel->isClosed() ) {
+            panel->setClosed(false);
+        }
+        panel->floatPanel();
+        FloatingWidget* window = panel->getFloatingWindow();
+        if (window) {
+            // Nuke-like title
+            window->setWindowFilePath( QString() );
+            window->setWindowModified(false);
+            window->setWindowTitle( tr("Properties") );
+
+            // size to fit the content, capped to the screen
+            QScreen* screen = QGuiApplication::screenAt( QCursor::pos() );
+            if (!screen) {
+                screen = QGuiApplication::primaryScreen();
+            }
+            QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
+            panel->adjustSize();
+            QSize hint = panel->sizeHint().expandedTo( panel->minimumSizeHint() );
+            int w = std::max( hint.width() + TO_DPIX(30), TO_DPIX(480) );
+            int h = std::max( hint.height() + TO_DPIY(30), TO_DPIY(200) );
+            w = std::min( w, (int)(avail.width() * 0.6) );
+            h = std::min( h, (int)(avail.height() * 0.85) );
+            window->resize(w, h);
+
+            // open next to the mouse, kept inside the screen
+            QPoint pos = QCursor::pos() + QPoint(16, 16);
+            pos.setX( std::max( avail.left(), std::min(pos.x(), avail.right() - w) ) );
+            pos.setY( std::max( avail.top(), std::min(pos.y(), avail.bottom() - h) ) );
+            window->move(pos);
+        }
+    }
+    FloatingWidget* window = panel->getFloatingWindow();
+    if (window) {
+        window->show();
+        window->raise();
+        window->activateWindow();
+    }
+}
+
 void
 Gui::setVisibleProjectSettingsPanel(bool minimized)
 {
+    // SOLVFX: with the Properties bin closed, project settings open floating
+    if ( !isPropertiesBinVisible() ) {
+        openPanelFloating( _imp->_projectGui->getPanel() );
+
+        return;
+    }
     if ( _imp->_projectGui->getPanel()->isClosed() ) {
         _imp->_projectGui->getPanel()->setClosed(false);
     } else {

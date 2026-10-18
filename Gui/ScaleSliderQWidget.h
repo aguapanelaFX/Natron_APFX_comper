@@ -31,6 +31,9 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QSize>
+#include <QString>
+#include <utility>
+#include <vector>
 #include <QWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -103,6 +106,11 @@ Q_SIGNALS:
 public Q_SLOTS:
 
     void seekScalePosition(double v);
+
+    // SOLVFX: draw only these ticks (position in slider units, label) instead
+    // of the automatic linear ticks. Used for the Nuke-like viewer exposure
+    // (log scale) and gamma (1 centered) sliders.
+    void setCustomTicks(const std::vector<std::pair<double, QString> >& ticks);
 
 private:
 

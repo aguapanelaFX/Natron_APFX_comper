@@ -35,6 +35,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QToolBar>
+#include <QTimer>
 
 #include "Engine/Project.h"
 #include "Engine/Node.h"
@@ -122,6 +123,11 @@ ViewerTab::onInputChanged(int inputNb)
     }
 
     //refreshLayerAndAlphaChannelComboBox();
+
+    // SOLVFX: in Input mode the range follows what is plugged into the viewer
+    if (_imp->timelineRangeMode == 1) {
+        QTimer::singleShot( 0, this, SLOT(applyTimelineRangeMode()) );
+    }
 } // ViewerTab::onInputChanged
 
 void
@@ -205,27 +211,42 @@ ViewerTab::onPauseViewerButtonClicked(bool clicked)
 void
 ViewerTab::onPlaybackInButtonClicked()
 {
-    SequenceTime curIn, curOut;
-
-    _imp->timeLineGui->getBounds(&curIn, &curOut);
-    curIn = (SequenceTime)_imp->timeLineGui->getTimeline()->currentFrame();
-    curIn = std::min(curIn, curOut);
-    setTimelineBounds(curIn, curOut);
-    _imp->timeLineGui->recenterOnBounds();
-    onTimelineBoundariesChanged(curIn, curOut);
+    // SOLVFX: I stores the in point at the current frame; it is used when
+    // the range dropdown is on In/Out (applied right away in that mode)
+    if (!_imp->inOutPointsSet) {
+        double f, l;
+        getGui()->getApp()->getFrameRange(&f, &l);
+        _imp->inPoint = (int)f;
+        _imp->outPoint = (int)l;
+        _imp->inOutPointsSet = true;
+    }
+    _imp->inPoint = _imp->timeLineGui->getTimeline()->currentFrame();
+    if (_imp->outPoint < _imp->inPoint) {
+        _imp->outPoint = _imp->inPoint;
+    }
+    if (_imp->timelineRangeMode == 2) {
+        applyTimelineRangeMode();
+    }
 }
 
 void
 ViewerTab::onPlaybackOutButtonClicked()
 {
-    SequenceTime curIn, curOut;
-
-    _imp->timeLineGui->getBounds(&curIn, &curOut);
-    curOut = (SequenceTime)_imp->timeLineGui->getTimeline()->currentFrame();
-    curOut = std::max(curIn, curOut);
-    setTimelineBounds(curIn, curOut);
-    _imp->timeLineGui->recenterOnBounds();
-    onTimelineBoundariesChanged(curIn, curOut);
+    // SOLVFX: O stores the out point at the current frame (see above)
+    if (!_imp->inOutPointsSet) {
+        double f, l;
+        getGui()->getApp()->getFrameRange(&f, &l);
+        _imp->inPoint = (int)f;
+        _imp->outPoint = (int)l;
+        _imp->inOutPointsSet = true;
+    }
+    _imp->outPoint = _imp->timeLineGui->getTimeline()->currentFrame();
+    if (_imp->inPoint > _imp->outPoint) {
+        _imp->inPoint = _imp->outPoint;
+    }
+    if (_imp->timelineRangeMode == 2) {
+        applyTimelineRangeMode();
+    }
 }
 
 void
@@ -269,6 +290,11 @@ ViewerTab::onTimelineBoundariesChanged(SequenceTime first,
 {
     _imp->playBackInputSpinbox->setValue(first);
     _imp->playBackOutputSpinbox->setValue(second);
+    if (_imp->timelineRangeMode == 2) {
+        _imp->inPoint = first;
+        _imp->outPoint = second;
+        _imp->inOutPointsSet = true;
+    }
 
 
     abortViewersAndRefresh();
@@ -1090,22 +1116,27 @@ ViewerTab::setCurrentLayers(const QString& layer,
 }
 
 void
-ViewerTab::onGainToggled(bool clicked)
+ViewerTab::setGainStops(double stops,
+                        bool rememberValue)
 {
-    double value;
-
-    if (clicked) {
-        value = _imp->lastFstopValue;
-    } else {
-        value = 0;
-    }
-    _imp->toggleGainButton->setDown(clicked);
-    _imp->gainBox->setValue(value);
-    _imp->gainSlider->seekScalePosition(value);
-
-    double gain = std::pow(2, value);
+    // SOLVFX: the field shows the gain multiplier, the slider works in stops
+    // (log scale, 1 centered) and the button shows the f-number (f/8 = 1)
+    const double gain = std::pow(2., stops);
+    _imp->gainBox->setValue(gain);
+    _imp->gainSlider->seekScalePosition( std::max( -6., std::min(6., stops) ) );
+    _imp->toggleGainButton->setText( solvfxFStopLabel(stops) );
     _imp->viewer->setGain(gain);
     _imp->viewerNode->onGainChanged(gain);
+    if (rememberValue) {
+        _imp->lastFstopValue = stops;
+    }
+}
+
+void
+ViewerTab::onGainToggled(bool clicked)
+{
+    _imp->toggleGainButton->setDown(clicked);
+    setGainStops(clicked ? _imp->lastFstopValue : 0., false);
 }
 
 void
@@ -1115,36 +1146,45 @@ ViewerTab::onGainSliderChanged(double v)
         _imp->toggleGainButton->setChecked(true);
         _imp->toggleGainButton->setDown(true);
     }
-    _imp->gainBox->setValue(v);
-    double gain = std::pow(2, v);
-    _imp->viewer->setGain(gain);
-    _imp->viewerNode->onGainChanged(gain);
-    _imp->lastFstopValue = v;
+    setGainStops(v, true);
 }
 
 void
 ViewerTab::onGainSpinBoxValueChanged(double v)
 {
+    // v is the gain multiplier
     if ( !_imp->toggleGainButton->isChecked() ) {
         _imp->toggleGainButton->setChecked(true);
         _imp->toggleGainButton->setDown(true);
     }
-    _imp->gainSlider->seekScalePosition(v);
-    double gain = std::pow(2, v);
+    const double gain = std::max(v, 0.);
+    const double stops = std::log( std::max(gain, 1e-6) ) / M_LN2;
+    _imp->gainSlider->seekScalePosition( std::max( -6., std::min(6., stops) ) );
+    _imp->toggleGainButton->setText( solvfxFStopLabel(stops) );
     _imp->viewer->setGain(gain);
     _imp->viewerNode->onGainChanged(gain);
-    _imp->lastFstopValue = v;
+    _imp->lastFstopValue = stops;
 }
 
 void
 ViewerTab::onTimelineRangeModeChanged(int index)
 {
+    _imp->timelineRangeMode = index;
+    applyTimelineRangeMode();
+}
+
+void
+ViewerTab::applyTimelineRangeMode()
+{
+    // SOLVFX: Nuke-like frame range modes. The chosen range is what the
+    // timeline shows and what plays.
     if (!_imp->timeLineGui) {
         return;
     }
     double first = 0., last = 0.;
     getGui()->getApp()->getFrameRange(&first, &last); // Global, also the fallback
-    if (index == 1) {
+    const int mode = _imp->timelineRangeMode;
+    if (mode == 1) {
         // Input: frame range of the node connected to the viewer (input A)
         int a = -1, b = -1;
         _imp->viewerNode->getActiveInputs(a, b);
@@ -1157,30 +1197,42 @@ ViewerTab::onTimelineRangeModeChanged(int index)
                 last = l;
             }
         }
-    } else if (index == 2) {
-        // In/Out: playback in and out points
-        SequenceTime left, right;
-        _imp->timeLineGui->getBounds(&left, &right);
-        first = left;
-        last = right;
+    } else if ( (mode == 2) && _imp->inOutPointsSet ) {
+        first = _imp->inPoint;
+        last = _imp->outPoint;
     }
+    if (last < first) {
+        last = first;
+    }
+    setTimelineBounds( (int)first, (int)last );
+    onTimelineBoundariesChanged( (SequenceTime)first, (SequenceTime)last );
+    // in Global mode, follow the project frame range when it changes
+    _imp->timeLineGui->setFrameRangeEdited(mode != 0);
     _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
 }
 
 void
 ViewerTab::onGainStepDown()
 {
-    double v = _imp->gainBox->value() - 1.;
-    _imp->gainBox->setValue(v);
-    onGainSpinBoxValueChanged(v);
+    double stops = std::log( std::max(_imp->gainBox->value(), 1e-6) ) / M_LN2;
+    stops = std::floor(stops + 0.5) - 1.; // one stop down, snapped to whole stops
+    if ( !_imp->toggleGainButton->isChecked() ) {
+        _imp->toggleGainButton->setChecked(true);
+        _imp->toggleGainButton->setDown(true);
+    }
+    setGainStops(stops, true);
 }
 
 void
 ViewerTab::onGainStepUp()
 {
-    double v = _imp->gainBox->value() + 1.;
-    _imp->gainBox->setValue(v);
-    onGainSpinBoxValueChanged(v);
+    double stops = std::log( std::max(_imp->gainBox->value(), 1e-6) ) / M_LN2;
+    stops = std::floor(stops + 0.5) + 1.; // one stop up, snapped to whole stops
+    if ( !_imp->toggleGainButton->isChecked() ) {
+        _imp->toggleGainButton->setChecked(true);
+        _imp->toggleGainButton->setDown(true);
+    }
+    setGainStops(stops, true);
 }
 
 void
@@ -1230,14 +1282,15 @@ ViewerTab::onGammaToggled(bool clicked)
     }
     _imp->toggleGammaButton->setDown(clicked);
     _imp->gammaBox->setValue(value);
-    _imp->gammaSlider->seekScalePosition(value);
+    _imp->gammaSlider->seekScalePosition( solvfxGammaToSliderPos(value) );
     _imp->viewer->setGamma(value);
     _imp->viewerNode->onGammaChanged(value);
 }
 
 void
-ViewerTab::onGammaSliderValueChanged(double value)
+ViewerTab::onGammaSliderValueChanged(double pos)
 {
+    const double value = solvfxGammaFromSliderPos(pos); // SOLVFX: 1 centered slider
     if ( !_imp->toggleGammaButton->isChecked() ) {
         _imp->toggleGammaButton->setChecked(true);
         _imp->toggleGammaButton->setDown(true);
@@ -1255,7 +1308,7 @@ ViewerTab::onGammaSpinBoxValueChanged(double value)
         _imp->toggleGammaButton->setChecked(true);
         _imp->toggleGammaButton->setDown(true);
     }
-    _imp->gammaSlider->seekScalePosition(value);
+    _imp->gammaSlider->seekScalePosition( solvfxGammaToSliderPos(value) );
     _imp->viewer->setGamma(value);
     _imp->viewerNode->onGammaChanged(value);
     _imp->lastGammaValue = value;

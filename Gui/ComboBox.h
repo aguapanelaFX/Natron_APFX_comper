@@ -29,6 +29,7 @@
 #include "Global/Macros.h"
 
 #include <vector>
+#include <functional>
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
@@ -95,6 +96,14 @@ public:
 
     explicit ComboBox(QWidget* parent = 0);
 
+    // SOLVFX: show items with different labels (display only; the item texts
+    // used by the code and saved in projects stay unchanged)
+    void setDisplayTextTransform(const std::function<QString(const QString&)>& f)
+    {
+        _displayTransform = f;
+        update();
+    }
+
     virtual ~ComboBox() OVERRIDE
     {
     }
@@ -115,6 +124,8 @@ public:
     void addAction(QAction* action);
 
 private:
+
+    std::function<QString(const QString&)> _displayTransform; // SOLVFX
 
     void addActionPrivate(QAction* action);
 

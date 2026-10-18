@@ -30,6 +30,9 @@
 
 #include <map>
 #include <set>
+#include <cmath>
+#include <algorithm>
+#include <QString>
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
@@ -51,6 +54,33 @@ CLANG_DIAG_ON(uninitialized)
 #define NATRON_TRANSFORM_AFFECTS_OVERLAYS
 
 NATRON_NAMESPACE_ENTER
+
+// SOLVFX: Nuke-like viewer exposure/gamma helpers
+// Gamma slider: positions 0..2, value 0..1 on the left half and 1..4 on the right half
+inline double
+solvfxGammaFromSliderPos(double pos)
+{
+    return (pos <= 1.) ? std::max(0., pos) : 1. + (pos - 1.) * 3.;
+}
+
+inline double
+solvfxGammaToSliderPos(double gamma)
+{
+    return (gamma <= 1.) ? std::max(0., gamma) : 1. + (gamma - 1.) / 3.;
+}
+
+// f-number shown on the exposure button: f/8 at gain 1, one stop up = f/5.6 ...
+inline QString
+solvfxFStopLabel(double stops)
+{
+    static const char* names[] = { "1", "1.4", "2", "2.8", "4", "5.6", "8", "11", "16", "22", "32", "45", "64", "90", "128" };
+    const int idx = 6 - (int)std::floor(stops + 0.5); // index of f/8 is 6
+    if ( (std::abs( stops - std::floor(stops + 0.5) ) < 1e-6) && (idx >= 0) && (idx < 15) ) {
+        return QString::fromUtf8("f/") + QString::fromUtf8(names[idx]);
+    }
+    double f = 8. * std::pow(2., -stops / 2.);
+    return QString::fromUtf8("f/") + QString::number(f, 'g', 2);
+}
 
 struct ViewerTabPrivate
 {
@@ -168,6 +198,10 @@ struct ViewerTabPrivate
     // SOLVFX: timeline range dropdown (Global / Input / In-Out) and its row
     ComboBox* timelineRangeCombo = nullptr;
     QWidget* timelineRow = nullptr;
+    int timelineRangeMode = 0; // 0 = Global, 1 = Input, 2 = In/Out
+    bool inOutPointsSet = false;
+    int inPoint = 0;  // stored with I, used in In/Out mode
+    int outPoint = 0; // stored with O, used in In/Out mode
 
     // This is all nodes that have a viewer context
     typedef std::map<NodeGuiWPtr, NodeViewerContextPtr, std::owner_less<NodeGuiWPtr>> NodeViewerContextsMap;

@@ -52,6 +52,7 @@
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/Menu.h"
 #include "Gui/NodeGui.h"
+#include "Gui/NodeSettingsPanel.h"
 #include "Gui/NodeGraphTextItem.h"
 
 #include "Global/QtCompat.h"
@@ -426,6 +427,11 @@ NodeGraph::createNodeGUI(const NodePtr & node,
     bool panelOpened = args.getProperty<bool>(kCreateNodeArgsPropSettingsOpened);
     if ( !serialization && panelOpened && isTopLevelNodeBeingCreated ) {
         node_ui->ensurePanelCreated();
+        // SOLVFX: with the Properties bin closed, a new node opens its panel
+        // as a floating window right away, like in Nuke
+        if ( node_ui->getSettingPanel() && !node->isEffectViewer() && !getGui()->isPropertiesBinVisible() ) {
+            getGui()->openPanelFloating( node_ui->getSettingPanel() );
+        }
     }
 
 

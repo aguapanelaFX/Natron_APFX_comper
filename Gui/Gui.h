@@ -614,6 +614,10 @@ public Q_SLOTS:
 
     void putSettingsPanelFirst(DockablePanel* panel);
 
+    // SOLVFX: Nuke-like floating properties windows
+    bool isPropertiesBinVisible() const;
+    void openPanelFloating(DockablePanel* panel);
+
     void buildTabFocusOrderPropertiesBin();
 
     void addToolButttonsToToolBar();

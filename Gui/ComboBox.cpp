@@ -360,7 +360,7 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         p.setPen(pen);
 
         QRectF lr = layoutRect().toAlignedRect();
-        p.drawText(lr.toRect(), flags, _currentText);
+        p.drawText(lr.toRect(), flags, _displayTransform ? _displayTransform(_currentText) : _currentText);
     }
 
     {
@@ -477,7 +477,26 @@ ComboBox::createMenu()
     } else {
         setEnabledRecursive( _enabled && !_readOnly, _rootNode.get() );
     }
+    // SOLVFX: display labels in the menu, restored right after
+    std::vector<QString> originalTexts;
+    if ( _displayTransform && !_cascading ) {
+        for (U32 i = 0; i < _rootNode->children.size(); ++i) {
+            QAction* a = _rootNode->children[i]->isLeaf;
+            originalTexts.push_back( a ? a->text() : QString() );
+            if (a) {
+                a->setText( _displayTransform( a->text() ) );
+            }
+        }
+    }
     QAction* triggered = _rootNode->isMenu->exec( this->mapToGlobal( QPoint( 0, height() ) ) );
+    if ( !originalTexts.empty() ) {
+        for (U32 i = 0; i < _rootNode->children.size() && i < originalTexts.size(); ++i) {
+            QAction* a = _rootNode->children[i]->isLeaf;
+            if (a) {
+                a->setText(originalTexts[i]);
+            }
+        }
+    }
     if (triggered) {
         QVariant data = triggered->data();
         if ( data.toString() != QString::fromUtf8("New") ) {
