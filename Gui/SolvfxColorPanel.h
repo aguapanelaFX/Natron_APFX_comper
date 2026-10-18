@@ -50,6 +50,7 @@ class QToolButton;
 class QLineEdit;
 class QGridLayout;
 class QMouseEvent;
+class QKeyEvent;
 class QPaintEvent;
 
 NATRON_NAMESPACE_ENTER
@@ -64,8 +65,9 @@ public:
 
     enum ScaleEnum
     {
-        eScaleSigned = 0,   // -1..1, square-root spacing around 0 (Nuke T/M/I/S/V/R/G/B/A)
-        eScaleLinear01      // 0..1 linear (Nuke H)
+        eScaleSigned4 = 0,  // -4..4, 0 centered, square-root spacing (Nuke T/M)
+        eScaleUnsigned4,    // 0..4, 1 centered, square-root spacing (Nuke I/S/V/R/G/B/A)
+        eScaleLinear01      // 0..1 linear, 0.5 centered (Nuke H)
     };
 
     SolvfxGradientSlider(ScaleEnum scale, QWidget* parent = 0);
@@ -91,8 +93,13 @@ private:
     virtual void mouseMoveEvent(QMouseEvent* e) OVERRIDE FINAL;
     virtual void mouseReleaseEvent(QMouseEvent* e) OVERRIDE FINAL;
 
-    double posFromValue(double v) const;
-    double valueFromPos(double p) const;
+public:
+    static double posFromValue(ScaleEnum scale, double v);
+    static double valueFromPos(ScaleEnum scale, double p);
+
+private:
+    double posFromValue(double v) const { return posFromValue(_scale, v); }
+    double valueFromPos(double p) const { return valueFromPos(_scale, p); }
     void setFromMouse(int x);
 
     ScaleEnum _scale;
@@ -134,6 +141,17 @@ private:
 
     double _h, _s;
     QImage _image;
+};
+
+/// Floating window holding a color panel (title "Node.knob", Esc closes)
+class SolvfxColorWindow
+    : public QWidget
+{
+public:
+    explicit SolvfxColorWindow(QWidget* parent = 0);
+
+private:
+    virtual void keyPressEvent(QKeyEvent* e) OVERRIDE FINAL;
 };
 
 /// The full panel. Same signals/slots as Natron's ColorSelectorWidget so it

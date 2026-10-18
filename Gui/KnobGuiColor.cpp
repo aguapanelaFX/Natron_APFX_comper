@@ -41,6 +41,9 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QApplication>
 #include <QScrollArea>
 #include <QWidgetAction>
+#include <QCursor>
+#include <QGuiApplication>
+#include <QScreen>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 // /opt/local/include/QtGui/qmime.h:119:10: warning: private field 'type' is not used [-Wunused-private-field]
 #include <QKeyEvent>
@@ -50,6 +53,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Engine/EffectInstance.h"
 #include "Engine/Image.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/Lut.h"
@@ -312,28 +316,69 @@ KnobGuiColor::addExtraWidgets(QHBoxLayout* containerLayout)
     _colorSelectorButton->setIcon( QIcon(colorSelectorPix) );
     _colorSelectorButton->setFixedSize(medSize);
     _colorSelectorButton->setIconSize(medIconSize);
-    _colorSelectorButton->setPopupMode(QToolButton::InstantPopup);
+    _colorSelectorButton->setPopupMode(QToolButton::DelayedPopup); // SOLVFX: no popup, opens a window
     _colorSelectorButton->setArrowType(Qt::NoArrow);
     _colorSelectorButton->setAutoRaise(false);
     _colorSelectorButton->setCheckable(false);
     _colorSelectorButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Open Color Selector"), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _colorSelectorButton->setFocusPolicy(Qt::NoFocus);
 
-    _colorSelector = new SolvfxColorPanel( knob->getDimension() == 4, containerLayout->widget() );
-    QObject::connect( _colorSelector, SIGNAL( colorChanged(float, float, float, float) ),
-                      this, SLOT( onColorSelectorChanged(float, float, float, float) ) );
-    QObject::connect( _colorSelector, SIGNAL( updateColor() ),
-                      this, SLOT( updateColorSelector() ) );
-
-    QWidgetAction *colorPopupAction = new QWidgetAction( containerLayout->widget() );
-    colorPopupAction->setDefaultWidget(_colorSelector);
-    _colorSelectorButton->addAction(colorPopupAction);
+    // SOLVFX: the Nuke-style color panel opens in its own movable window
+    QObject::connect( _colorSelectorButton, SIGNAL(clicked()), this, SLOT(onColorSelectorButtonClicked()) );
     containerLayout->addWidget(_colorSelectorButton);
 
     if (_useSimplifiedUI) {
         KnobGuiValue::_hide();
         enableRightClickMenu(_colorLabel, -1);
     }
+}
+
+KnobGuiColor::~KnobGuiColor()
+{
+    if (_colorWindow) {
+        delete _colorWindow.data();
+    }
+    _colorSelector = 0;
+}
+
+void
+KnobGuiColor::onColorSelectorButtonClicked()
+{
+    KnobColorPtr knob = _knob.lock();
+    if (!knob) {
+        return;
+    }
+    if (!_colorWindow) {
+        SolvfxColorWindow* window = new SolvfxColorWindow( getGui() );
+        _colorSelector = new SolvfxColorPanel(knob->getDimension() == 4, window);
+        window->layout()->addWidget(_colorSelector);
+        QObject::connect( _colorSelector, SIGNAL( colorChanged(float, float, float, float) ),
+                          this, SLOT( onColorSelectorChanged(float, float, float, float) ) );
+        QObject::connect( _colorSelector, SIGNAL( updateColor() ),
+                          this, SLOT( updateColorSelector() ) );
+        _colorWindow = window;
+
+        // open next to the mouse, inside the screen
+        window->adjustSize();
+        QPoint pos = QCursor::pos() + QPoint(16, 16);
+        QScreen* screen = QGuiApplication::screenAt( QCursor::pos() );
+        if (screen) {
+            QRect avail = screen->availableGeometry();
+            pos.setX( std::max( avail.left(), std::min( pos.x(), avail.right() - window->width() ) ) );
+            pos.setY( std::max( avail.top(), std::min( pos.y(), avail.bottom() - window->height() - 30 ) ) );
+        }
+        window->move(pos);
+    }
+    // title like Nuke: "Grade1.white"
+    QString title = QString::fromUtf8( knob->getName().c_str() );
+    EffectInstance* effect = dynamic_cast<EffectInstance*>( knob->getHolder() );
+    if ( effect && effect->getNode() ) {
+        title = QString::fromUtf8( effect->getNode()->getScriptName_mt_safe().c_str() ) + QLatin1Char('.') + title;
+    }
+    _colorWindow->setWindowTitle(title);
+    _colorWindow->show();
+    _colorWindow->raise();
+    _colorWindow->activateWindow();
 }
 
 void
@@ -512,6 +557,9 @@ KnobGuiColor::setEnabledExtraGui(bool enabled)
 void
 KnobGuiColor::updateColorSelector()
 {
+    if (!_colorSelector) {
+        return;
+    }
     KnobColorPtr knob = _knob.lock();
     const int nDims = knob->getDimension();
     double curR = knob->getValue(0);

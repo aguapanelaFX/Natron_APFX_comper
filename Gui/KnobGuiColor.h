@@ -52,6 +52,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/KnobGuiValue.h"
 #include "Gui/ColorSelectorWidget.h"
 #include "Gui/SolvfxColorPanel.h"
+#include <QPointer>
 #include "Gui/AnimatedCheckBox.h"
 #include "Gui/Label.h"
 #include "Gui/GuiFwd.h"
@@ -129,7 +130,7 @@ public:
     KnobGuiColor(KnobIPtr knob,
                  KnobGuiContainerI *container);
 
-    virtual ~KnobGuiColor() {}
+    virtual ~KnobGuiColor();
 
 public Q_SLOTS:
 
@@ -142,6 +143,8 @@ public Q_SLOTS:
     void onMustShowAllDimension();
 
     void onColorSelectorChanged(float r, float g, float b, float a);
+
+    void onColorSelectorButtonClicked(); // SOLVFX: opens the floating color window
 
 Q_SIGNALS:
 
@@ -188,7 +191,8 @@ private:
 
     KnobColorWPtr _knob;
     ColorPickerLabel *_colorLabel;
-    SolvfxColorPanel *_colorSelector; // SOLVFX: Nuke-style color panel
+    SolvfxColorPanel *_colorSelector; // SOLVFX: Nuke-style color panel (inside _colorWindow)
+    QPointer<QWidget> _colorWindow;
     QToolButton *_colorSelectorButton;
     std::vector<double> _lastColor;
     bool _useSimplifiedUI;

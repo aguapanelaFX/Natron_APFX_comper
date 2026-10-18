@@ -35,6 +35,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
+#include <QKeyEvent>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -376,27 +377,50 @@ SolvfxGradientSlider::setGradient(const QGradientStops& stops)
     update();
 }
 
+// Nuke-like slider scales (square-root spacing, measured on Nuke's panel)
 double
-SolvfxGradientSlider::posFromValue(double v) const
+SolvfxGradientSlider::posFromValue(ScaleEnum scale,
+                                   double v)
 {
-    if (_scale == eScaleLinear01) {
-        return std::max( 0., std::min(1., v) );
-    }
-    double a = std::sqrt( std::min(1., std::abs(v) ) );
+    switch (scale) {
+    case eScaleLinear01:
 
-    return 0.5 + 0.5 * (v < 0. ? -a : a);
+        return std::max( 0., std::min(1., v) );
+    case eScaleUnsigned4:
+        // 0 -> 0, 1 -> 0.5, 4 -> 1
+
+        return 0.5 * std::sqrt( std::max( 0., std::min(4., v) ) );
+    case eScaleSigned4:
+    default: {
+        // -4 -> 0, 0 -> 0.5, 1 -> 0.75, 4 -> 1
+        double a = 0.25 * std::sqrt( std::min( 4., std::abs(v) ) );
+
+        return 0.5 + (v < 0. ? -a : a);
+    }
+    }
 }
 
 double
-SolvfxGradientSlider::valueFromPos(double p) const
+SolvfxGradientSlider::valueFromPos(ScaleEnum scale,
+                                   double p)
 {
     p = std::max( 0., std::min(1., p) );
-    if (_scale == eScaleLinear01) {
-        return p;
-    }
-    double d = (p - 0.5) * 2.;
+    switch (scale) {
+    case eScaleLinear01:
 
-    return (d < 0. ? -1. : 1.) * d * d;
+        return p;
+    case eScaleUnsigned4: {
+        double a = 2. * p;
+
+        return a * a;
+    }
+    case eScaleSigned4:
+    default: {
+        double d = (p - 0.5) * 4.;
+
+        return (d < 0. ? -1. : 1.) * d * d;
+    }
+    }
 }
 
 void
@@ -419,13 +443,19 @@ SolvfxGradientSlider::paintEvent(QPaintEvent* /*e*/)
     QFontMetrics fm(f);
     std::vector<std::pair<double, QString> > ticks;
     if (_scale == eScaleLinear01) {
-        for (int i = 0; i <= 9; ++i) {
+        for (int i = 0; i <= 10; ++i) {
             ticks.push_back( std::make_pair( i / 10., QString::number(i / 10.) ) );
         }
+    } else if (_scale == eScaleUnsigned4) {
+        const double vals[] = { 0.1, 0.2, 0.4, 0.6, 0.8, 1., 2., 3., 4. };
+        for (int i = 0; i < 9; ++i) {
+            // 1 is the center: tick without label, like Nuke
+            ticks.push_back( std::make_pair( vals[i], vals[i] == 1. ? QString() : QString::number(vals[i]) ) );
+        }
     } else {
-        const double vals[] = { -1., -0.4, -0.1, 0., 0.1, 0.4, 1. };
-        for (int i = 0; i < 7; ++i) {
-            ticks.push_back( std::make_pair( vals[i], QString::number(vals[i]) ) );
+        const double vals[] = { -4., -3., -2., -1., -0.5, -0.1, 0., 0.1, 0.5, 1., 2., 3., 4. };
+        for (int i = 0; i < 13; ++i) {
+            ticks.push_back( std::make_pair( vals[i], vals[i] == 0. ? QString() : QString::number(vals[i]) ) );
         }
     }
     const double w = r.width();
@@ -451,6 +481,9 @@ SolvfxGradientSlider::paintEvent(QPaintEvent* /*e*/)
         p.setPen(ink);
         p.drawLine( QPointF(x, r.top() + 2), QPointF(x, r.top() + r.height() * 0.38) );
         const QString& label = ticks[i].second;
+        if ( label.isEmpty() ) {
+            continue;
+        }
         int tw = fm.horizontalAdvance(label);
         int tx = (int)std::floor(x - tw / 2. + 0.5);
         tx = std::max( (int)r.left() + 1, std::min(tx, (int)r.right() - tw - 1) );
@@ -472,8 +505,10 @@ SolvfxGradientSlider::setFromMouse(int x)
     double v = valueFromPos(p);
 
     // snap to 0 near the center of signed sliders
-    if ( (_scale == eScaleSigned) && (std::abs(v) < 0.0004) ) {
+    if ( (_scale == eScaleSigned4) && (std::abs(v) < 0.002) ) {
         v = 0.;
+    } else if ( (_scale == eScaleUnsigned4) && (std::abs(v - 1.) < 0.01) ) {
+        v = 1.; // snap to the center
     }
     _value = v;
     update();
@@ -678,6 +713,20 @@ SolvfxColorWheel::mouseMoveEvent(QMouseEvent* e)
 // SolvfxColorPanel
 // ---------------------------------------------------------------------------
 
+static SolvfxGradientSlider::ScaleEnum
+scaleForRow(int row)
+{
+    switch (row) {
+    case 0: // T
+    case 1: // M
+        return SolvfxGradientSlider::eScaleSigned4;
+    case 3: // H
+        return SolvfxGradientSlider::eScaleLinear01;
+    default: // I S V R G B A
+        return SolvfxGradientSlider::eScaleUnsigned4;
+    }
+}
+
 static QToolButton*
 makeToggle(const QString& text,
            QWidget* parent,
@@ -830,7 +879,7 @@ SolvfxColorPanel::SolvfxColorPanel(bool withAlpha,
         row.spin->setIncrement(0.01);
         row.spin->setProperty("solvfxRow", i);
         QObject::connect( row.spin, SIGNAL(valueChanged(double)), this, SLOT(onRowSpinChanged(double)) );
-        row.slider = new SolvfxGradientSlider(i == eRowH ? SolvfxGradientSlider::eScaleLinear01 : SolvfxGradientSlider::eScaleSigned, rowsWidget);
+        row.slider = new SolvfxGradientSlider(scaleForRow(i), rowsWidget);
         row.slider->setProperty("solvfxRow", i);
         row.slider->setToolTip( tr(tips[i]) );
         QObject::connect( row.slider, SIGNAL(valueDragged(double)), this, SLOT(onRowSliderDragged(double)) );
@@ -1009,17 +1058,11 @@ SolvfxColorPanel::refreshGradients()
         if (dyn && row != eRowA) {
             // sample what the slider would do to the current color
             const int N = 24;
-            SolvfxGradientSlider::ScaleEnum scale = (row == eRowH) ? SolvfxGradientSlider::eScaleLinear01 : SolvfxGradientSlider::eScaleSigned;
+            SolvfxGradientSlider::ScaleEnum scale = scaleForRow(row);
             double sr = _r, sg = _g, sb = _b, sa = _a, lh = _lastHue;
             for (int k = 0; k <= N; ++k) {
                 double p = k / (double)N;
-                double v;
-                if (scale == SolvfxGradientSlider::eScaleLinear01) {
-                    v = p;
-                } else {
-                    double d = (p - 0.5) * 2.;
-                    v = (d < 0. ? -1. : 1.) * d * d;
-                }
+                double v = SolvfxGradientSlider::valueFromPos(scale, p);
                 // evaluate on a copy of the state
                 double t, m, i, h, s, vv, r = sr, g = sg, b = sb;
                 rgbToTmi(sr, sg, sb, &t, &m, &i);
@@ -1061,19 +1104,19 @@ SolvfxColorPanel::refreshGradients()
                 }
                 break;
             case eRowS:
-                stops << qMakePair(0., white) << qMakePair(0.5, white) << qMakePair(1., QColor(235, 20, 40) );
+                stops << qMakePair(0., white) << qMakePair(0.5, QColor(240, 40, 40) ) << qMakePair(1., QColor(250, 0, 0) );
                 break;
             case eRowR:
-                stops << qMakePair(0., black) << qMakePair(0.5, black) << qMakePair(1., QColor(235, 0, 0) );
+                stops << qMakePair(0., black) << qMakePair(0.5, QColor(240, 0, 0) ) << qMakePair(1., QColor(255, 0, 0) );
                 break;
             case eRowG:
-                stops << qMakePair(0., black) << qMakePair(0.5, black) << qMakePair(1., QColor(0, 225, 0) );
+                stops << qMakePair(0., black) << qMakePair(0.5, QColor(0, 230, 0) ) << qMakePair(1., QColor(0, 255, 0) );
                 break;
             case eRowB:
-                stops << qMakePair(0., black) << qMakePair(0.5, black) << qMakePair(1., QColor(0, 0, 235) );
+                stops << qMakePair(0., black) << qMakePair(0.5, QColor(0, 0, 240) ) << qMakePair(1., QColor(0, 0, 255) );
                 break;
-            default: // I, V, A
-                stops << qMakePair(0., black) << qMakePair(0.5, black) << qMakePair(1., white);
+            default: // I, V, A: black to white at 1 (center), white above
+                stops << qMakePair(0., black) << qMakePair(0.5, white) << qMakePair(1., white);
                 break;
             }
         }
@@ -1273,6 +1316,25 @@ SolvfxColorPanel::onRowMenuAction()
     }
     int code = a->data().toInt();
     setChannel(code / 10, (code % 10) ? 1. : 0., true);
+}
+
+SolvfxColorWindow::SolvfxColorWindow(QWidget* parent)
+    : QWidget(parent, Qt::Tool | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | Qt::CustomizeWindowHint)
+{
+    QVBoxLayout* l = new QVBoxLayout(this);
+    l->setContentsMargins(0, 0, 0, 0);
+}
+
+void
+SolvfxColorWindow::keyPressEvent(QKeyEvent* e)
+{
+    if ( (e->key() == Qt::Key_Escape) && (e->modifiers() == Qt::NoModifier) ) {
+        e->accept();
+        close();
+
+        return;
+    }
+    QWidget::keyPressEvent(e);
 }
 
 bool
