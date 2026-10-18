@@ -353,6 +353,7 @@ public Q_SLOTS:
     void onRenderScaleButtonClicked(bool checked);
 
     void onColorSpaceComboBoxChanged(int v);
+    void applyViewerColorSpace(); // SOLVFX
 
     void onCompositingOperatorIndexChanged(int index);
 

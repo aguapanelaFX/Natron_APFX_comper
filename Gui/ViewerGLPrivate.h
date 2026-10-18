@@ -41,6 +41,9 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/ViewerGL.h"
 #include "Gui/ZoomContext.h"
 #include "Gui/GuiFwd.h"
+#include "Gui/SolvfxOcioViewer.h"
+
+#include <atomic>
 
 #define WIPE_MIX_HANDLE_LENGTH 50.
 #define WIPE_ROTATE_HANDLE_LENGTH 100.
@@ -167,6 +170,9 @@ struct ViewerGL::Implementation
     QPoint oldClick;
     ViewerColorSpaceEnum displayingImageLut;
     double displaySaturation = 1.; // SOLVFX: viewer saturation, preview only
+    SolvfxOcioViewerShader ocioViewer; // SOLVFX: OCIO display/view in the viewer
+    std::atomic<bool> ocioRequested{false};
+    bool ocioBound = false;
     MouseStateEnum ms; /*!< Holds the mouse state*/
     HoverStateEnum hs;
     const QColor textRenderingColor;

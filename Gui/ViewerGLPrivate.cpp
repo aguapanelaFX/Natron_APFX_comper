@@ -153,6 +153,7 @@ ViewerGL::Implementation::~Implementation()
         shaderRGB->removeAllShaders();
         shaderRGB.reset();
     }
+    ocioViewer.destroyGL();
     if (shaderBlack) {
         shaderBlack->removeAllShaders();
         shaderBlack.reset();
@@ -234,7 +235,7 @@ ViewerGL::Implementation::drawRenderingVAO(unsigned int mipmapLevel,
     assert( QOpenGLContext::currentContext() == _this->context() );
 
     // SOLVFX: 8-bit textures also go through the shader when saturation is used
-    bool useShader = ( _this->getBitDepth() != eImageBitDepthByte ) || (displaySaturation != 1.);
+    bool useShader = ( _this->getBitDepth() != eImageBitDepthByte ) || (displaySaturation != 1.) || ocioRequested;
 
 
     ///the texture rectangle in image coordinates. The values in it are multiples of tile size.
@@ -693,7 +694,12 @@ void
 ViewerGL::Implementation::unbindTextureAndReleaseShader(bool useShader)
 {
     if (useShader) {
-        shaderRGB->release();
+        if (ocioBound) {
+            ocioViewer.release();
+            ocioBound = false;
+        } else {
+            shaderRGB->release();
+        }
     }
     glCheckError();
     glBindTexture(GL_TEXTURE_2D, prevBoundTexture);
@@ -846,6 +852,17 @@ ViewerGL::Implementation::activateShaderRGB(int texIndex)
     // we assume that:
     // - 8-bits textures are stored non-linear and must be displayer as is
     // - floating-point textures are linear and must be decompressed according to the given lut
+
+    // SOLVFX: OCIO display/view (float textures only, exposure is applied before the view)
+    ocioBound = false;
+    if ( ocioRequested && (_this->getBitDepth() != eImageBitDepthByte) ) {
+        if ( ocioViewer.bind( (float)displayTextures[texIndex].gain, (float)displayTextures[texIndex].offset,
+                              (float)displayTextures[texIndex].gamma, (float)displaySaturation ) ) {
+            ocioBound = true;
+
+            return;
+        }
+    }
 
     if ( !shaderRGB->bind() ) {
         qDebug() << "Error when binding shader" << qPrintable( shaderRGB->log() );

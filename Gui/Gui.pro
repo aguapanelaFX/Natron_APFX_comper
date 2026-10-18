@@ -84,6 +84,7 @@ SOURCES += \
     ColoredFrame.cpp \
     ColorSelectorWidget.cpp \
     SolvfxColorPanel.cpp \
+    SolvfxOcioViewer.cpp \
     ComboBox.cpp \
     CurveEditor.cpp \
     CurveEditorUndoRedo.cpp \
@@ -237,6 +238,7 @@ HEADERS += \
     ColoredFrame.h \
     ColorSelectorWidget.h \
     SolvfxColorPanel.h \
+    SolvfxOcioViewer.h \
     ComboBox.h \
     CurveEditor.h \
     CurveEditorUndoRedo.h \

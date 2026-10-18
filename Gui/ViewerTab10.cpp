@@ -66,8 +66,28 @@ NATRON_NAMESPACE_ENTER
 
 
 void
+ViewerTab::applyViewerColorSpace()
+{
+    onColorSpaceComboBoxChanged( _imp->viewerColorSpace->activeIndex() );
+}
+
+void
 ViewerTab::onColorSpaceComboBoxChanged(int v)
 {
+    // SOLVFX: OCIO display/view
+    if ( !_imp->ocioViews.empty() ) {
+        if ( (v < 0) || ( v >= (int)_imp->ocioViews.size() ) ) {
+            return;
+        }
+        _imp->viewer->setOcioDisplayView(_imp->ocioViews[v].display, _imp->ocioViews[v].view);
+        // the engine keeps the image linear, the view is applied on the GPU
+        _imp->viewer->setLut( (int)eViewerColorSpaceLinear );
+        _imp->viewerNode->onColorSpaceChanged(eViewerColorSpaceLinear);
+
+        return;
+    }
+    _imp->viewer->setOcioDisplayView( std::string(), std::string() );
+
     ViewerColorSpaceEnum colorspace = eViewerColorSpaceSRGB;
 
     if (v == 0) {

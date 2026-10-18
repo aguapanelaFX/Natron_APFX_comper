@@ -1722,6 +1722,17 @@ ViewerGL::setSaturation(double s)
 }
 
 void
+ViewerGL::setOcioDisplayView(const std::string& display,
+                             const std::string& view)
+{
+    // always running in the main thread
+    assert( qApp && qApp->thread() == QThread::currentThread() );
+    _imp->ocioViewer.setDisplayView(display, view);
+    _imp->ocioRequested = !display.empty();
+    update();
+}
+
+void
 ViewerGL::setLut(int lut)
 {
     // always running in the main thread
@@ -3144,6 +3155,11 @@ ViewerGL::resizeEvent(QResizeEvent* e)
 ImageBitDepthEnum
 ViewerGL::getBitDepth() const
 {
+    // SOLVFX: OCIO views need linear float textures
+    if (_imp->ocioRequested) {
+        return eImageBitDepthFloat;
+    }
+
     return appPTR->getCurrentSettings()->getViewersBitDepth();
 }
 

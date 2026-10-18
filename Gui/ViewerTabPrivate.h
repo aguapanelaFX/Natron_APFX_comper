@@ -30,6 +30,7 @@
 
 #include <map>
 #include <set>
+#include <vector>
 #include <cmath>
 #include <algorithm>
 #include <QString>
@@ -52,6 +53,8 @@ CLANG_DIAG_ON(uninitialized)
 
 
 #define NATRON_TRANSFORM_AFFECTS_OVERLAYS
+
+#include "Gui/SolvfxOcioViewer.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -151,6 +154,8 @@ struct ViewerTabPrivate
     Button* gainDownButton = nullptr;
     Button* gainUpButton = nullptr;
     ComboBox* viewerColorSpace;
+    // SOLVFX: OCIO display/views listed in viewerColorSpace (empty = legacy LUT list)
+    std::vector<SolvfxOcioViewerShader::DisplayView> ocioViews;
     Button* checkerboardButton;
     Button* pickerButton;
     ComboBox* viewsComboBox;

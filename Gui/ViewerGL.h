@@ -397,6 +397,9 @@ public:
     // SOLVFX: display-only saturation (1 = unchanged)
     void setSaturation(double s);
 
+    // SOLVFX: OCIO display/view used to show the image (empty display = off)
+    void setOcioDisplayView(const std::string& display, const std::string& view);
+
     void setLut(int lut);
 
     bool isWipeHandleVisible() const;

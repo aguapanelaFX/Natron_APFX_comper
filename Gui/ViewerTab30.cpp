@@ -74,6 +74,10 @@ ViewerTab::isClippedToProject() const
 std::string
 ViewerTab::getColorSpace() const
 {
+    // SOLVFX: OCIO views are saved by their label, e.g. "sRGB (ACES)"
+    if ( !_imp->ocioViews.empty() ) {
+        return _imp->viewerColorSpace->getCurrentIndexText().toStdString();
+    }
     ViewerColorSpaceEnum lut = (ViewerColorSpaceEnum)_imp->viewerNode->getLutType();
 
     switch (lut) {

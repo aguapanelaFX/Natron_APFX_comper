@@ -503,11 +503,23 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
                                             "to your monitor's colorspace.") + QString::fromUtf8("</p>") );
     _imp->secondRowLayout->addWidget(_imp->viewerColorSpace);
 
-    _imp->viewerColorSpace->addItem( QString::fromUtf8("Linear(None)") );
-    _imp->viewerColorSpace->addItem( QString::fromUtf8("sRGB") );
-    _imp->viewerColorSpace->addItem( QString::fromUtf8("Rec.709") );
-    _imp->viewerColorSpace->addItem( QString::fromUtf8("BT1886") );
-    _imp->viewerColorSpace->setCurrentIndex(1);
+    // SOLVFX: like Nuke, list the display/views of the OCIO config (e.g. "sRGB (ACES)").
+    // Without a usable OCIO config, keep Natron's built-in display LUTs.
+    {
+        int defaultIndex = -1;
+        if ( SolvfxOcioViewerShader::listDisplayViews(&_imp->ocioViews, &defaultIndex) ) {
+            for (std::size_t i = 0; i < _imp->ocioViews.size(); ++i) {
+                _imp->viewerColorSpace->addItem( QString::fromUtf8( _imp->ocioViews[i].label.c_str() ) );
+            }
+            _imp->viewerColorSpace->setCurrentIndex(defaultIndex);
+        } else {
+            _imp->viewerColorSpace->addItem( QString::fromUtf8("Linear(None)") );
+            _imp->viewerColorSpace->addItem( QString::fromUtf8("sRGB") );
+            _imp->viewerColorSpace->addItem( QString::fromUtf8("Rec.709") );
+            _imp->viewerColorSpace->addItem( QString::fromUtf8("BT1886") );
+            _imp->viewerColorSpace->setCurrentIndex(1);
+        }
+    }
 
     QPixmap pixCheckerboardEnabled, pixCheckerboardDisabld;
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_CHECKERBOARD_ENABLED, pixmapIconSize, &pixCheckerboardEnabled);
@@ -674,6 +686,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->addWidget(_imp->layerChoice);
         l->addWidget(_imp->alphaChannelChoice);
         l->addWidget(_imp->viewerChannels);
+        l->addSpacing( TO_DPIX(6) );
+        l->addWidget(_imp->viewerColorSpace); // SOLVFX: viewer process next to the channels, like Nuke
         l->addStretch();
         l->addWidget(_imp->firstInputLabel);
         l->addWidget(_imp->firstInputImage);
@@ -712,7 +726,6 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->addWidget(_imp->refreshButton);
         l->addWidget(_imp->pauseButton);
         l->addSpacing( TO_DPIX(4) );
-        l->addWidget(_imp->viewerColorSpace);
         l->addWidget(_imp->checkerboardButton);
         l->addWidget(_imp->viewsComboBox);
         l->addWidget(_imp->pickerButton);
@@ -1278,6 +1291,10 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     }
     QObject::connect( _imp->viewerColorSpace, SIGNAL(currentIndexChanged(int)), this,
                       SLOT(onColorSpaceComboBoxChanged(int)) );
+    if ( !_imp->ocioViews.empty() ) {
+        // apply the config's default view once everything is set up
+        QTimer::singleShot( 0, this, SLOT(applyViewerColorSpace()) );
+    }
     QObject::connect( _imp->zoomCombobox, SIGNAL(currentIndexChanged(int)), this, SLOT(onZoomComboboxCurrentIndexChanged(int)) );
     QObject::connect( _imp->viewer, SIGNAL(zoomChanged(int)), this, SLOT(updateZoomComboBox(int)) );
     QObject::connect( _imp->gainBox, SIGNAL(valueChanged(double)), this, SLOT(onGainSpinBoxValueChanged(double)) );
