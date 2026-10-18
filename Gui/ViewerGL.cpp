@@ -3155,11 +3155,6 @@ ViewerGL::resizeEvent(QResizeEvent* e)
 ImageBitDepthEnum
 ViewerGL::getBitDepth() const
 {
-    // SOLVFX: OCIO views need linear float textures
-    if (_imp->ocioRequested) {
-        return eImageBitDepthFloat;
-    }
-
     return appPTR->getCurrentSettings()->getViewersBitDepth();
 }
 

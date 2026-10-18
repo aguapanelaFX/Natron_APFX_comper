@@ -1076,6 +1076,7 @@ Settings::initializeKnobsViewers()
 
     _texturesMode->setHintToolTip( tr("Bit depth of the viewer textures used for rendering. "
                                       "Hover each option with the mouse for a detailed description.") );
+    _texturesMode->setSecret(true); // SOLVFX: viewer is always 32-bit float
     _viewersTab->addKnob(_texturesMode);
 
     _powerOf2Tiling = AppManager::createKnob<KnobInt>( this, tr("Viewer tile size is 2 to the power of...") );
@@ -2431,15 +2432,10 @@ Settings::getViewersBitDepth() const
     if (!appPTR->isTextureFloatSupported()) {
         return eImageBitDepthByte;
     }
-    int v = _texturesMode->getValue();
 
-    if (v == 0) {
-        return eImageBitDepthByte;
-    } else if (v == 1) {
-        return eImageBitDepthFloat;
-    } else {
-        return eImageBitDepthByte;
-    }
+    // SOLVFX: the viewer is always 32-bit float like Nuke (needed by the OCIO views;
+    // the viewer cache tile size, the textures and the render must all agree)
+    return eImageBitDepthFloat;
 }
 
 int
