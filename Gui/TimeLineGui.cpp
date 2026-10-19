@@ -508,6 +508,14 @@ TimeLineGui::paintGL()
         double dcR, dcG, dcB;
         settings->getDiskCachedColor(&dcR, &dcG, &dcB);
 
+        // SOLVFX timeline colors (locked look): red keyframes (Maya-like), amber
+        // playhead, orange in/out, green cached frames
+        kfR = 1.; kfG = 0x2a / 255.; kfB = 0x2a / 255.;
+        cursorR = 0xe0 / 255.; cursorG = 0xa0 / 255.; cursorB = 0x3a / 255.;
+        boundsR = 0xe0 / 255.; boundsG = 0x74 / 255.; boundsB = 0x3a / 255.;
+        cachedR = 0x3f / 255.; cachedG = 0xa3 / 255.; cachedB = 0x4d / 255.;
+        dcR = 0x2a / 255.; dcG = 0x6e / 255.; dcB = 0x36 / 255.;
+
 
         glColor4f(txtR / 2., txtG / 2., txtB / 2., 1.);
         glLineWidth(1.5 * _imp->_screenPixelRatio);

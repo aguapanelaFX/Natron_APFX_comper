@@ -64,6 +64,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/Variant.h"
 #include "Engine/ViewerInstance.h"
 
+#include <QCursor>
 #include "Gui/Button.h"
 #include "Gui/ComboBox.h"
 #include "Gui/CurveEditor.h"
@@ -161,10 +162,15 @@ EditScriptDialog::create(const QString& initialScript,
         labelHtml.append( QString::fromUtf8("<p>") + tr("Note that parameters can be referenced by drag'n'dropping while holding %1 on their widget").arg( s.toString(QKeySequence::NativeText) ) + QString::fromUtf8("</p>") );
     }
 
+    // SOLVFX: compact window, the long help goes to the "?" tooltip
+    _imp->mainLayout->setContentsMargins( TO_DPIX(8), TO_DPIY(8), TO_DPIX(8), TO_DPIY(8) );
+    _imp->mainLayout->setSpacing( TO_DPIY(5) );
     _imp->expressionLabel = new Label(labelHtml, this);
-    _imp->mainLayout->addWidget(_imp->expressionLabel);
+    _imp->expressionLabel->hide();
 
     _imp->expressionEdit = new InputScriptTextEdit(_imp->gui, this);
+    _imp->expressionEdit->setFixedHeight( TO_DPIY(52) );
+    _imp->expressionEdit->setToolTip(labelHtml);
     _imp->expressionEdit->setAcceptDrops(true);
     _imp->expressionEdit->setMouseTracking(true);
     _imp->mainLayout->addWidget(_imp->expressionEdit);
@@ -172,6 +178,8 @@ EditScriptDialog::create(const QString& initialScript,
 
     _imp->midButtonsContainer = new QWidget(this);
     _imp->midButtonsLayout = new QHBoxLayout(_imp->midButtonsContainer);
+    _imp->midButtonsLayout->setContentsMargins(0, 0, 0, 0);
+    _imp->midButtonsLayout->setSpacing( TO_DPIX(4) );
 
 
     if (makeUseRetButton) {
@@ -186,29 +194,36 @@ EditScriptDialog::create(const QString& initialScript,
         bool checked = !initialScript.isEmpty() && retVariable;
         _imp->useRetButton->setChecked(checked);
         _imp->useRetButton->setDown(checked);
+        if (checked) {
+            _imp->expressionEdit->setFixedHeight( TO_DPIY(160) );
+        }
         QObject::connect( _imp->useRetButton, SIGNAL(clicked(bool)), this, SLOT(onUseRetButtonClicked(bool)) );
         _imp->midButtonsLayout->addWidget(_imp->useRetButton);
     }
 
 
-    _imp->helpButton = new Button(tr("Help"), _imp->midButtonsContainer);
+    _imp->helpButton = new Button(QString::fromUtf8("?"), _imp->midButtonsContainer);
+    _imp->helpButton->setFixedSize( TO_DPIX(24), TO_DPIY(22) );
+    _imp->helpButton->setToolTip( labelHtml + getCustomHelp() );
     QObject::connect( _imp->helpButton, SIGNAL(clicked(bool)), this, SLOT(onHelpRequested()) );
+
+    // result on one thin line (red when the expression has an error)
+    _imp->resultLabel = new Label(QString(), _imp->midButtonsContainer);
+    _imp->resultLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    _imp->midButtonsLayout->addWidget(_imp->resultLabel, 1);
     _imp->midButtonsLayout->addWidget(_imp->helpButton);
-    _imp->midButtonsLayout->addStretch();
-
-    _imp->mainLayout->addWidget(_imp->midButtonsContainer);
-
-    _imp->resultLabel = new Label(tr("Result:"), this);
-    _imp->mainLayout->addWidget(_imp->resultLabel);
 
     _imp->resultEdit = new OutputScriptTextEdit(this);
-    _imp->resultEdit->setFixedHeight( TO_DPIY(80) );
     _imp->resultEdit->setFocusPolicy(Qt::NoFocus);
     _imp->resultEdit->setReadOnly(true);
-    _imp->mainLayout->addWidget(_imp->resultEdit);
+    _imp->resultEdit->hide();
 
     _imp->buttons = new DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
-    _imp->mainLayout->addWidget(_imp->buttons);
+    QHBoxLayout* bottom = new QHBoxLayout();
+    bottom->setContentsMargins(0, 0, 0, 0);
+    bottom->addWidget(_imp->midButtonsContainer, 1);
+    bottom->addWidget(_imp->buttons);
+    _imp->mainLayout->addLayout(bottom);
     QObject::connect( _imp->buttons, SIGNAL(accepted()), this, SLOT(accept()) );
     QObject::connect( _imp->buttons, SIGNAL(rejected()), this, SLOT(reject()) );
 
@@ -227,6 +242,10 @@ EditScriptDialog::create(const QString& initialScript,
     }
     QFontMetrics fm = _imp->expressionEdit->fontMetrics();
     _imp->expressionEdit->setTabStopDistance( 4 * fm.horizontalAdvance( QLatin1Char(' ') ) );
+
+    // SOLVFX: small window next to the mouse
+    resize( TO_DPIX(520), TO_DPIY(130) );
+    move( QCursor::pos() + QPoint( TO_DPIX(12), TO_DPIY(12) ) );
 } // EditScriptDialog::create
 
 void
@@ -235,6 +254,18 @@ EditScriptDialog::compileAndSetResult(const QString& script)
     QString ret = compileExpression(script);
 
     _imp->resultEdit->setPlainText(ret);
+    // SOLVFX: one-line result, red on errors, full text in the tooltip
+    if (_imp->resultLabel) {
+        const bool isError = ret.contains( QString::fromUtf8("rror") ) || ret.contains( QString::fromUtf8("Traceback") );
+        QString line = ret.trimmed();
+        int nl = line.lastIndexOf( QLatin1Char('\n') );
+        if (nl >= 0) {
+            line = line.mid(nl + 1);
+        }
+        _imp->resultLabel->setText( (isError ? QString() : QString::fromUtf8("= ")) + line );
+        _imp->resultLabel->setStyleSheet( isError ? QString::fromUtf8("color: #ff6b61;") : QString::fromUtf8("color: #8e8e8e;") );
+        _imp->resultLabel->setToolTip( ret.toHtmlEscaped() );
+    }
 }
 
 QString
@@ -326,6 +357,9 @@ EditScriptDialog::onUseRetButtonClicked(bool useRet)
 {
     compileAndSetResult( _imp->expressionEdit->toPlainText() );
     _imp->useRetButton->setDown(useRet);
+    // SOLVFX: more room for multi-line scripts
+    _imp->expressionEdit->setFixedHeight( useRet ? TO_DPIY(160) : TO_DPIY(52) );
+    adjustSize();
 }
 
 EditScriptDialog::~EditScriptDialog()

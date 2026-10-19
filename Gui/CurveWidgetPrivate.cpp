@@ -376,6 +376,9 @@ CurveWidgetPrivate::drawTimelineMarkers(double screenPixelRatio)
     SettingsPtr settings = appPTR->getCurrentSettings();
     settings->getTimelinePlayheadColor(&cursorR, &cursorG, &cursorB);
     settings->getTimelineBoundsColor(&boundsR, &boundsG, &boundsB);
+    // SOLVFX: amber current frame, orange in/out
+    cursorR = 0xe0 / 255.; cursorG = 0xa0 / 255.; cursorB = 0x3a / 255.;
+    boundsR = 0xe0 / 255.; boundsG = 0x74 / 255.; boundsB = 0x3a / 255.;
 
     QPointF topLeft = zoomCtx.toZoomCoordinates(0, 0);
     QPointF btmRight = zoomCtx.toZoomCoordinates(_widget->width() - 1, _widget->height() - 1);

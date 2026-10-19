@@ -1702,7 +1702,7 @@ RotoPaint::drawOverlay(double time,
         glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
 
 
-        double cpWidth = kControlPointMidSize * 2;
+        double cpWidth = 5.; // SOLVFX: 5px points (was kControlPointMidSize * 2)
         for (std::list<RotoDrawableItemPtr>::const_iterator it = drawables.begin(); it != drawables.end(); ++it) {
             if ( !(*it)->isGloballyActivated() ) {
                 continue;
@@ -1842,7 +1842,7 @@ RotoPaint::drawOverlay(double time,
                     }
 
 
-                    glColor3d(0.85, 0.67, 0.);
+                    glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
 
                     std::list<BezierCPPtr>::const_iterator itF = featherPts.begin();
                     int index = 0;
@@ -1897,7 +1897,7 @@ RotoPaint::drawOverlay(double time,
                              ( ( firstSelectedCP->first == *it2) || ( firstSelectedCP->second == *it2) ) &&
                              ( _imp->ui->selectedCps.size() == 1) &&
                              ( ( _imp->ui->state == eEventStateDraggingSelectedControlPoints) || ( _imp->ui->state == eEventStateDraggingControlPoint) ) ) {
-                            glColor3f(0., 1., 1.);
+                            glColor3f(1., 0.82, 0.34); // SOLVFX dragged = selected yellow
                             colorChanged = true;
                         }
 
@@ -1913,7 +1913,7 @@ RotoPaint::drawOverlay(double time,
                                 if (drawFeather) {
                                     _imp->ui->drawSelectedCp(time, cpIt->second, xF, yF, transform);
                                 }
-                                glColor3f(0.2, 1., 0.);
+                                glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
                                 colorChanged = true;
                                 break;
                             } else if (cpIt->second == *it2) {
@@ -1921,7 +1921,7 @@ RotoPaint::drawOverlay(double time,
                                 if (drawFeather) {
                                     _imp->ui->drawSelectedCp(time, cpIt->first, xF, yF, transform);
                                 }
-                                glColor3f(0.2, 1., 0.);
+                                glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
                                 colorChanged = true;
                                 break;
                             }
@@ -1932,14 +1932,14 @@ RotoPaint::drawOverlay(double time,
                         glEnd();
 
                         if (colorChanged) {
-                            glColor3d(0.85, 0.67, 0.);
+                            glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
                         }
 
                         if ( (firstSelectedCP->first == *itF)
                              && ( _imp->ui->selectedCps.size() == 1) &&
                              ( ( _imp->ui->state == eEventStateDraggingSelectedControlPoints) || ( _imp->ui->state == eEventStateDraggingControlPoint) )
                              && !colorChanged ) {
-                            glColor3f(0.2, 1., 0.);
+                            glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
                             colorChanged = true;
                         }
 
@@ -1967,7 +1967,7 @@ RotoPaint::drawOverlay(double time,
                             if ( ( (_imp->ui->state == eEventStateDraggingFeatherBar) &&
                                    ( ( *itF == _imp->ui->featherBarBeingDragged.first) || ( *itF == _imp->ui->featherBarBeingDragged.second) ) ) ||
                                  isHovered ) {
-                                glColor3f(0.2, 1., 0.);
+                                glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
                                 colorChanged = true;
                             } else {
                                 glColor4dv(curveColor);
@@ -1990,7 +1990,7 @@ RotoPaint::drawOverlay(double time,
                             glVertex2f(beyondX, beyondY);
                             glEnd();
 
-                            glColor3d(0.85, 0.67, 0.);
+                            glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
                         } else if (featherVisible) {
                             ///if the feather point is identical to the control point
                             ///draw a small hint line that the user can drag to move the feather point
@@ -2010,7 +2010,7 @@ RotoPaint::drawOverlay(double time,
                                     if ( ( (_imp->ui->state == eEventStateDraggingFeatherBar) &&
                                            ( ( *itF == _imp->ui->featherBarBeingDragged.first) ||
                                              ( *itF == _imp->ui->featherBarBeingDragged.second) ) ) || isHovered ) {
-                                        glColor3f(0.2, 1., 0.);
+                                        glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
                                         colorChanged = true;
                                     } else {
                                         glColor4dv(curveColor);
@@ -2022,14 +2022,14 @@ RotoPaint::drawOverlay(double time,
                                     glVertex2f(featherPoint.x, featherPoint.y);
                                     glEnd();
 
-                                    glColor3d(0.85, 0.67, 0.);
+                                    glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
                                 }
                             }
                         } // isFeatherVisible()
 
 
                         if (colorChanged) {
-                            glColor3d(0.85, 0.67, 0.);
+                            glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
                         }
 
                         // increment for next iteration

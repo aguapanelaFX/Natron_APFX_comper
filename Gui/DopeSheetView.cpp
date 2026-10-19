@@ -1508,6 +1508,7 @@ DopeSheetViewPrivate::drawProjectBounds() const
     SettingsPtr settings = appPTR->getCurrentSettings();
     double colorR, colorG, colorB;
     settings->getTimelineBoundsColor(&colorR, &colorG, &colorB);
+    colorR = 0xe0 / 255.; colorG = 0x74 / 255.; colorB = 0x3a / 255.; // SOLVFX orange in/out
 
     // Perform drawing
     {
@@ -1552,6 +1553,7 @@ DopeSheetViewPrivate::drawCurrentFrameIndicator()
     SettingsPtr settings = appPTR->getCurrentSettings();
     double colorR, colorG, colorB;
     settings->getTimelinePlayheadColor(&colorR, &colorG, &colorB);
+    colorR = 0xe0 / 255.; colorG = 0xa0 / 255.; colorB = 0x3a / 255.; // SOLVFX amber playhead
 
     // Perform drawing
     {

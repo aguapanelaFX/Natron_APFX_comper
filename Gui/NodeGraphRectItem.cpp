@@ -100,6 +100,15 @@ NodeGraphRectItem::paint(QPainter *painter, const QStyleOptionGraphicsItem* /*op
     painter->setBrush(grad);
     const double hw = pen().widthF() / 2.;
     painter->drawRoundedRect(r.adjusted(hw, hw, -hw, -hw), radius, radius);
+    if (_selectedLook) {
+        // SOLVFX: thin dark ring inside the yellow outline so it reads on light nodes
+        QPen ring( QColor(0x14, 0x14, 0x14) );
+        ring.setWidthF(1.);
+        painter->setPen(ring);
+        painter->setBrush(Qt::NoBrush);
+        const double in = pen().widthF() + 0.5;
+        painter->drawRoundedRect( r.adjusted(in, in, -in, -in), std::max(0., radius - in), std::max(0., radius - in) );
+    }
 }
 
 NATRON_NAMESPACE_EXIT

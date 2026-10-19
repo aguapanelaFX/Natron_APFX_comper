@@ -469,7 +469,7 @@ CurveGui::drawCurve(int curveIndex,
                 continue;
             }
 
-            glColor4f( _color.redF(), _color.greenF(), _color.blueF(), _color.alphaF() );
+            glColor4f(0.91f, 0.91f, 0.91f, 1.f); // SOLVFX: keys white
 
             //if the key is selected change its color to white
             KeyPtr isSelected;
@@ -478,7 +478,7 @@ CurveGui::drawCurve(int curveIndex,
                      it2 != foundCurveSelected->second.end(); ++it2) {
                     if ( ( (*it2)->key.getTime() == key.getTime() ) && ( (*it2)->curve.get() == this ) ) {
                         isSelected = *it2;
-                        glColor4f(1.f, 1.f, 1.f, 1.f);
+                        glColor4f(1.f, 0.82f, 0.34f, 1.f); // SOLVFX: selected key yellow
                         break;
                     }
                 }

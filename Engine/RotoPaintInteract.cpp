@@ -209,23 +209,24 @@ RotoPaintInteract::drawSelectedCp(double time,
 
     bool drawLeftHandle = leftDeriv.x != x || leftDeriv.y != y;
     bool drawRightHandle = rightDeriv.y != x || rightDeriv.y != y;
+    glColor3f(0.5, 0.7, 1.); // SOLVFX: tangents and their end dots in blue
     glBegin(GL_POINTS);
     if (drawLeftHandle) {
         if (colorLeftTangent) {
-            glColor3f(0.2, 1., 0.);
+            glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
         }
         glVertex2d(leftDeriv.x, leftDeriv.y);
         if (colorLeftTangent) {
-            glColor3d(0.85, 0.67, 0.);
+            glColor3f(0.5, 0.7, 1.); // SOLVFX tangents blue
         }
     }
     if (drawRightHandle) {
         if (colorRightTangent) {
-            glColor3f(0.2, 1., 0.);
+            glColor3f(1., 0.82, 0.34); // SOLVFX selected yellow
         }
         glVertex2d(rightDeriv.x, rightDeriv.y);
         if (colorRightTangent) {
-            glColor3d(0.85, 0.67, 0.);
+            glColor3f(0.5, 0.7, 1.); // SOLVFX tangents blue
         }
     }
     glEnd();
@@ -269,6 +270,7 @@ RotoPaintInteract::drawEllipse(double x,
     glEnd();
 
     glPopMatrix();
+    glColor3f(0.91, 0.91, 0.91); // SOLVFX: back to the point color
 }
 
 void

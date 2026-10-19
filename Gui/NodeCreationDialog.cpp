@@ -36,6 +36,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QTimer>
 #include <QApplication>
 #include <QListView>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QSettings>
 #include <QDesktopWidget>
 #include <QRegExp>
@@ -94,6 +96,116 @@ struct CompleterLineEditPrivate
     }
 };
 
+// SOLVFX: Tab node search rows: light gray highlight, thin category color line on
+// the left, typed letters in bold, category name on the right
+class SolvfxNodeSearchDelegate
+    : public QStyledItemDelegate
+{
+    QLineEdit* _edit;
+
+public:
+    SolvfxNodeSearchDelegate(QLineEdit* edit)
+        : QStyledItemDelegate(edit)
+        , _edit(edit)
+    {
+    }
+
+    static QColor categoryColor(const QString& cat)
+    {
+        const QString c = cat.toLower();
+        if ( c.startsWith( QString::fromUtf8("image") ) ) return QColor(0xa8, 0xa8, 0xa8);
+        if ( c.startsWith( QString::fromUtf8("color") ) ) return QColor(0x77, 0x92, 0xc6);
+        if ( c.startsWith( QString::fromUtf8("filter") ) ) return QColor(0xd4, 0x84, 0x4a);
+        if ( c.startsWith( QString::fromUtf8("merge") ) ) return QColor(0x4c, 0x62, 0xbc);
+        if ( c.startsWith( QString::fromUtf8("transform") ) ) return QColor(0xad, 0x80, 0xc8);
+        if ( c.startsWith( QString::fromUtf8("draw") ) || c.startsWith( QString::fromUtf8("paint") ) ) return QColor(0x62, 0xb8, 0x62);
+        if ( c.startsWith( QString::fromUtf8("keyer") ) ) return QColor(0x1c, 0xbf, 0x3a);
+        if ( c.startsWith( QString::fromUtf8("channel") ) ) return QColor(0x98, 0x40, 0x6d);
+        if ( c.startsWith( QString::fromUtf8("time") ) ) return QColor(0xa8, 0x9c, 0x7f);
+        if ( c.startsWith( QString::fromUtf8("3d") ) ) return QColor(0x53, 0x7f, 0x35);
+
+        return QColor(0x96, 0x96, 0x96);
+    }
+
+    virtual QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE FINAL
+    {
+        QSize sz = QStyledItemDelegate::sizeHint(option, index);
+        sz.setHeight( std::max( sz.height(), (int)TO_DPIY(24) ) );
+
+        return sz;
+    }
+
+    virtual void paint(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE FINAL
+    {
+        const QString full = index.data().toString();
+        QString name = full, cat;
+        int br = full.lastIndexOf( QString::fromUtf8("  [") );
+        if (br >= 0) {
+            name = full.left(br);
+            cat = full.mid(br + 3);
+            if ( cat.endsWith( QLatin1Char(']') ) ) {
+                cat.chop(1);
+            }
+            int slash = cat.indexOf( QLatin1Char('/') );
+            if (slash >= 0) {
+                cat = cat.left(slash);
+            }
+        }
+        const QRect r = option.rect.adjusted(2, 1, -2, -1);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        if (selected || hovered) {
+            p->setPen(Qt::NoPen);
+            p->setBrush( selected ? QColor(0x55, 0x55, 0x55) : QColor(0x3a, 0x3a, 0x3a) );
+            p->drawRoundedRect(r, 4, 4);
+        }
+        // category line
+        p->setPen(Qt::NoPen);
+        p->setBrush( categoryColor(cat) );
+        p->drawRoundedRect( QRectF( r.left() + 6, r.center().y() - TO_DPIY(8), 2, TO_DPIY(16) ), 1, 1 );
+
+        // name with the typed letters (fuzzy, in order) in bold
+        QFont f = option.font;
+        QFont fb = f;
+        fb.setBold(true);
+        const QString typed = _edit ? _edit->text().toLower() : QString();
+        int ti = 0;
+        double x = r.left() + 16;
+        const QColor txt = selected ? QColor(0xf4, 0xf4, 0xf4) : QColor(0xdc, 0xdc, 0xdc);
+        p->setPen(txt);
+        for (int i = 0; i < name.size(); ++i) {
+            const bool match = ( ti < typed.size() ) && ( name[i].toLower() == typed[ti] );
+            if (match) {
+                ++ti;
+            }
+            p->setFont(match ? fb : f);
+            QFontMetrics fm( match ? fb : f );
+            p->drawText( QPointF( x, r.center().y() + fm.ascent() / 2. - 1 ), QString(name[i]) );
+            x += fm.horizontalAdvance(name[i]);
+        }
+        // category on the right
+        if ( !cat.isEmpty() ) {
+            QFont fc = f;
+            fc.setPointSizeF( std::max(6., f.pointSizeF() * 0.85) );
+            p->setFont(fc);
+            p->setPen( selected ? QColor(0xb8, 0xb8, 0xb8) : QColor(0x8e, 0x8e, 0x8e) );
+            p->drawText( r.adjusted(0, 0, -8, 0), Qt::AlignRight | Qt::AlignVCenter, cat );
+        }
+        p->restore();
+    }
+};
+
+static void
+solvfxStyleSearchList(QListView* view, QLineEdit* edit)
+{
+    view->setItemDelegate( new SolvfxNodeSearchDelegate(edit) );
+    view->setMouseTracking(true);
+    view->setStyleSheet( QString::fromUtf8("QListView { background-color: #2b2b2b; border: 1px solid #0f0f0f; outline: 0; padding: 4px; }") );
+    view->setMinimumWidth( TO_DPIX(300) );
+}
+
 CompleterLineEdit::CompleterLineEdit(const PluginsNamesMap& plugins,
                                      bool quickExit,
                                      QDialog* parent)
@@ -104,6 +216,7 @@ CompleterLineEdit::CompleterLineEdit(const PluginsNamesMap& plugins,
     _imp->model = new QStringListModel(this);
     _imp->listView->setWindowFlags(Qt::ToolTip);
     _imp->listView->setModel(_imp->model);
+    solvfxStyleSearchList(_imp->listView, this); // SOLVFX
 
     connect( this, SIGNAL(textChanged(QString)), this, SLOT(filterText(QString)) );
     connect( _imp->listView, SIGNAL(clicked(QModelIndex)), this, SLOT(setTextFromIndex(QModelIndex)) );
@@ -120,6 +233,7 @@ CompleterLineEdit::CompleterLineEdit(const QStringList & displayWords,
     _imp->model = new QStringListModel(this);
     _imp->listView->setWindowFlags(Qt::ToolTip);
     _imp->listView->setModel(_imp->model);
+    solvfxStyleSearchList(_imp->listView, this); // SOLVFX
 
     connect( this, SIGNAL(textChanged(QString)), this, SLOT(filterText(QString)) );
     connect( _imp->listView, SIGNAL(clicked(QModelIndex)), this, SLOT(setTextFromIndex(QModelIndex)) );

@@ -77,6 +77,30 @@ using std::endl;
 
 NATRON_NAMESPACE_ENTER
 
+// SOLVFX: curve editor channel names and colors
+static QString
+solvfxFullDimensionName(const QString& d)
+{
+    const QString l = d.toLower();
+    if ( (l == QString::fromUtf8("r")) || (l == QString::fromUtf8("red")) ) return QString::fromUtf8("red");
+    if ( (l == QString::fromUtf8("g")) || (l == QString::fromUtf8("green")) ) return QString::fromUtf8("green");
+    if ( (l == QString::fromUtf8("b")) || (l == QString::fromUtf8("blue")) ) return QString::fromUtf8("blue");
+    if ( (l == QString::fromUtf8("a")) || (l == QString::fromUtf8("alpha")) ) return QString::fromUtf8("alpha");
+
+    return d;
+}
+
+static QColor
+solvfxDimensionColor(const QString& d)
+{
+    if ( (d == QString::fromUtf8("red")) || (d == QString::fromUtf8("x")) ) return QColor(0xff, 0x6b, 0x61);
+    if ( (d == QString::fromUtf8("green")) || (d == QString::fromUtf8("y")) ) return QColor(0x6b, 0xdc, 0x6b);
+    if ( (d == QString::fromUtf8("blue")) || (d == QString::fromUtf8("z")) ) return QColor(0x6b, 0x9b, 0xff);
+    if (d == QString::fromUtf8("alpha")) return QColor(0xc8, 0xc8, 0xc8);
+
+    return QColor();
+}
+
 class CurveEditorTreeWidget
     : public QTreeWidget
 {
@@ -455,8 +479,16 @@ createElementsForKnob(QTreeWidgetItem* parent,
         for (int j = 0; j < k->getDimension(); ++j) {
             QTreeWidgetItem* dimItem = new QTreeWidgetItem(knobItem);
             dimItem->setExpanded(true);
-            dimItem->setText( 0, QString::fromUtf8( k->getDimensionName(j).c_str() ) );
-            QString curveName = QString::fromUtf8( k->getLabel().c_str() ) + QLatin1Char('.') + QString::fromUtf8( k->getDimensionName(j).c_str() );
+            // SOLVFX: full channel names (red / green / blue / alpha) and channel colors
+            const QString dimName = solvfxFullDimensionName( QString::fromUtf8( k->getDimensionName(j).c_str() ) );
+            dimItem->setText(0, dimName);
+            {
+                QColor dc = solvfxDimensionColor(dimName);
+                if ( dc.isValid() ) {
+                    dimItem->setForeground( 0, QBrush(dc) );
+                }
+            }
+            QString curveName = QString::fromUtf8( k->getLabel().c_str() ) + QLatin1Char('.') + dimName;
             NodeCurveEditorElement* elem;
             KnobCurveGuiPtr dimCurve;
             if (kgui) {
@@ -467,6 +499,12 @@ createElementsForKnob(QTreeWidgetItem* parent,
                 elem = new NodeCurveEditorElement(tree, curveEditor, k, j, dimItem, dimCurve);
             }
             curveWidget->addCurveAndSetColor(dimCurve);
+            {
+                QColor dc = solvfxDimensionColor(dimName);
+                if ( dc.isValid() ) {
+                    dimCurve->setColor(dc);
+                }
+            }
 
             elements.push_back(elem);
             std::string expr = k->getExpression(j);

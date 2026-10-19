@@ -346,34 +346,10 @@ NodeGui::getColorFromGrouping(QColor* color)
     internalNode->getPluginGrouping(&grouping);
     std::string majGroup = grouping.empty() ? "" : grouping.front();
 
-    // SOLVFX: locked category colors (bottom color of the node gradient).
-    // Backdrops keep the preference color.
-    if (!isBd) {
-        unsigned int rgb = 0x969696; // other
-        if ( iseffect->isReader() || iseffect->isGenerator() ) {
-            rgb = 0xa8a8a8; // image I/O
-        } else if ( iseffect->isWriter() ) {
-            rgb = 0xd9bd33;
-        } else if (majGroup == PLUGIN_GROUP_COLOR) {
-            rgb = 0x7792c6;
-        } else if (majGroup == PLUGIN_GROUP_FILTER) {
-            rgb = 0xd4844a;
-        } else if (majGroup == PLUGIN_GROUP_CHANNEL) {
-            rgb = 0x98406d;
-        } else if (majGroup == PLUGIN_GROUP_KEYER) {
-            rgb = 0x1cbf3a;
-        } else if (majGroup == PLUGIN_GROUP_MERGE) {
-            rgb = 0x4c62bc;
-        } else if (majGroup == PLUGIN_GROUP_PAINT) {
-            rgb = 0x62b862;
-        } else if (majGroup == PLUGIN_GROUP_TIME) {
-            rgb = 0xa89c7f;
-        } else if (majGroup == PLUGIN_GROUP_TRANSFORM) {
-            rgb = 0xad80c8;
-        } else if (majGroup == PLUGIN_GROUP_3D) {
-            rgb = 0x537f35;
-        }
-        color->setRgb( (rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff );
+    // SOLVFX: category colors come from Preferences > Nodegraph colors (defaults =
+    // SOLVFX palette); 3D nodes have no preference yet
+    if (!isBd && (majGroup == PLUGIN_GROUP_3D) && !iseffect->isReader() && !iseffect->isWriter()) {
+        color->setRgb(0x53, 0x7f, 0x35);
 
         return true;
     }
