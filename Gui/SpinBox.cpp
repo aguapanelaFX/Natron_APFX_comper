@@ -1031,6 +1031,17 @@ KnobSpinBox::wheelEvent(QWheelEvent* e)
 void
 KnobSpinBox::keyPressEvent(QKeyEvent* e)
 {
+    // SOLVFX: typing "=" opens the expression editor of this knob, like Nuke
+    if ( ( e->text() == QString::fromUtf8("=") ) && !isReadOnly() ) {
+        KnobGuiPtr k = knob.lock();
+        if (k) {
+            e->accept();
+            const int dim = k->getAllDimensionsVisible() ? dimension : -1;
+            k->openExpressionEditor(dim);
+
+            return;
+        }
+    }
     _dnd->keyPress(e);
     SpinBox::keyPressEvent(e);
 }

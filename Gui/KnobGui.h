@@ -341,9 +341,16 @@ public Q_SLOTS:
 
     void onViewerContextSecretChanged();
 
+    void onSolvfxAnimButtonClicked();
     void onRightClickClicked(const QPoint & pos);
 
     void showRightClickMenuForDimension(const QPoint & pos, int dimension);
+
+    // SOLVFX: animation button state (0 none, 1 animated, 2 keyframe here, 3 expression, 4 linked)
+    void solvfxRefreshAnimButton();
+
+    // open the (Python) expression editor for a dimension, -1 = all dimensions
+    void openExpressionEditor(int dimension);
 
     void setEnabledSlot();
 

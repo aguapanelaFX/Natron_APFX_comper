@@ -1125,3 +1125,13 @@ QFrame#SolvfxPanelHeader {
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
 }
+
+/* SOLVFX: per-knob animation button (state follows the knob) */
+QPushButton#SolvfxAnimButton {
+    padding: 0px;
+    border-radius: 6px;
+}
+QPushButton#SolvfxAnimButton[animState="1"] { background-color: #6b4a2a; border: 1px solid #e0743a; }
+QPushButton#SolvfxAnimButton[animState="2"] { background-color: #e0743a; }
+QPushButton#SolvfxAnimButton[animState="3"] { background-color: #24524a; border: 1px solid #5fd3bc; }
+QPushButton#SolvfxAnimButton[animState="4"] { background-color: #3f3358; border: 1px solid #b9a2f0; }

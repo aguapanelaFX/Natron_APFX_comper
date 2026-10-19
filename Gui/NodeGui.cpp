@@ -2381,7 +2381,7 @@ NodeGui::refreshStateIndicator()
     } else {
         showIndicator = false;
     }
-    if ( _boundingBox && !dynamic_cast<BackdropGui*>(this) ) {
+    if (_boundingBox) { // SOLVFX: backdrops too (yellow outline when selected)
         QPen bodyPen;
         if ( !message.isEmpty() && (type == 1) ) {
             bodyPen = QPen( QColor(0xe0, 0x30, 0x2b) );

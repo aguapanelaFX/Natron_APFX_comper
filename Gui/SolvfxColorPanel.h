@@ -37,6 +37,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QWidget>
+#include <QDialog>
 #include <QGradientStops>
 #include <QImage>
 #include <QString>
@@ -52,6 +53,7 @@ class QGridLayout;
 class QMouseEvent;
 class QKeyEvent;
 class QPaintEvent;
+class QCloseEvent;
 
 NATRON_NAMESPACE_ENTER
 
@@ -154,6 +156,18 @@ private:
     virtual void keyPressEvent(QKeyEvent* e) OVERRIDE FINAL;
 };
 
+// SOLVFX: modal color dialog with the SOLVFX color panel (node / overlay colors).
+// Esc = cancel (revert), closing the window = keep the color.
+class SolvfxColorDialog
+    : public QDialog
+{
+public:
+    explicit SolvfxColorDialog(QWidget* parent = 0);
+
+private:
+    virtual void closeEvent(QCloseEvent* e) OVERRIDE FINAL;
+};
+
 /// The full panel. Same signals/slots as Natron's ColorSelectorWidget so it
 /// can be used as a drop-in replacement in KnobGuiColor.
 class SolvfxColorPanel
@@ -166,6 +180,10 @@ public:
     explicit SolvfxColorPanel(bool withAlpha, QWidget* parent = 0);
 
     void getColor(float* r, float* g, float* b, float* a);
+
+    // SOLVFX: for UI colors (node color, overlay color): the values are display
+    // sRGB 0..1, the hex field and swatches use them as they are
+    void setDisplayMode(bool display);
 
 Q_SIGNALS:
 
@@ -214,11 +232,12 @@ private:
     void announce();
     void saveSettings() const;
 
-    static QColor toDisplay(double r, double g, double b);
+    QColor toDisplay(double r, double g, double b) const;
     static void rgbToHsv(double r, double g, double b, double* h, double* s, double* v);
     static void hsvToRgb(double h, double s, double v, double* r, double* g, double* b);
 
     bool _withAlpha;
+    bool _displayMode; // SOLVFX: values are display sRGB (UI colors), no OCIO/linear conversion
     double _r, _g, _b, _a;
     double _origR, _origG, _origB, _origA;
     double _lastHue; // keep the hue when saturation goes to 0

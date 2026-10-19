@@ -36,6 +36,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QCloseEvent>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -229,13 +230,62 @@ linearToHex(double r, double g, double b)
     return s;
 }
 
+// SOLVFX display-mode hex (UI colors: no color management)
+static bool
+hexToDisplay(const QString& text, double* r, double* g, double* b)
+{
+    QString t = text.trimmed();
+    if ( t.startsWith( QLatin1Char('#') ) ) {
+        t = t.mid(1);
+    }
+    if (t.size() == 3) {
+        QString e;
+        for (int i = 0; i < 3; ++i) {
+            e += t[i];
+            e += t[i];
+        }
+        t = e;
+    }
+    if (t.size() != 6) {
+        return false;
+    }
+    bool ok = false;
+    unsigned int v = t.toUInt(&ok, 16);
+    if (!ok) {
+        return false;
+    }
+    *r = ( (v >> 16) & 0xff ) / 255.;
+    *g = ( (v >> 8) & 0xff ) / 255.;
+    *b = (v & 0xff) / 255.;
+
+    return true;
+}
+
+static QString
+displayToHex(double r, double g, double b)
+{
+    const double c[3] = { r, g, b };
+    QString s = QString::fromUtf8("#");
+    for (int i = 0; i < 3; ++i) {
+        int v = (int)std::floor(std::max(0., std::min(1., c[i])) * 255. + 0.5);
+        s += QString::fromUtf8("%1").arg(v, 2, 16, QLatin1Char('0')).toUpper();
+    }
+
+    return s;
+}
+
 QColor
 SolvfxColorPanel::toDisplay(double r,
                             double g,
-                            double b)
+                            double b) const
 {
     QColor c;
 
+    if (_displayMode) {
+        c.setRgbF( std::max(0., std::min(1., r)), std::max(0., std::min(1., g)), std::max(0., std::min(1., b)) );
+
+        return c;
+    }
     c.setRgbF( srgbEncode(r), srgbEncode(g), srgbEncode(b) );
 
     return c;
@@ -755,6 +805,7 @@ SolvfxColorPanel::SolvfxColorPanel(bool withAlpha,
                                    QWidget* parent)
     : QWidget(parent)
     , _withAlpha(withAlpha)
+    , _displayMode(false)
     , _r(1.), _g(1.), _b(1.), _a(1.)
     , _origR(1.), _origG(1.), _origB(1.), _origA(1.)
     , _lastHue(0.)
@@ -1042,7 +1093,7 @@ SolvfxColorPanel::refreshAll(int skipRow)
     setSwatchColor( _currentSwatch, toDisplay(_r, _g, _b) );
     setSwatchColor( _originalSwatch, toDisplay(_origR, _origG, _origB) );
     if ( !_hexEdit->hasFocus() ) {
-        _hexEdit->setText( linearToHex(_r, _g, _b) );
+        _hexEdit->setText( _displayMode ? displayToHex(_r, _g, _b) : linearToHex(_r, _g, _b) );
     }
     refreshGradients();
     _refreshing = false;
@@ -1224,8 +1275,9 @@ SolvfxColorPanel::onHexEdited()
 {
     double r, g, b;
 
-    if ( !hexToLinear(_hexEdit->text(), &r, &g, &b) ) {
-        _hexEdit->setText( linearToHex(_r, _g, _b) ); // invalid: show the current color again
+    const bool hexOk = _displayMode ? hexToDisplay(_hexEdit->text(), &r, &g, &b) : hexToLinear(_hexEdit->text(), &r, &g, &b);
+    if (!hexOk) {
+        _hexEdit->setText( _displayMode ? displayToHex(_r, _g, _b) : linearToHex(_r, _g, _b) ); // invalid: show the current color again
         return;
     }
     if ( (std::abs(r - _r) < 1e-7) && (std::abs(g - _g) < 1e-7) && (std::abs(b - _b) < 1e-7) ) {
@@ -1323,6 +1375,28 @@ SolvfxColorWindow::SolvfxColorWindow(QWidget* parent)
 {
     QVBoxLayout* l = new QVBoxLayout(this);
     l->setContentsMargins(0, 0, 0, 0);
+}
+
+void
+SolvfxColorPanel::setDisplayMode(bool display)
+{
+    _displayMode = display;
+    refreshAll(-1);
+}
+
+SolvfxColorDialog::SolvfxColorDialog(QWidget* parent)
+    : QDialog(parent, Qt::Dialog | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | Qt::CustomizeWindowHint)
+{
+    QVBoxLayout* l = new QVBoxLayout(this);
+    l->setContentsMargins(0, 0, 0, 0);
+}
+
+void
+SolvfxColorDialog::closeEvent(QCloseEvent* e)
+{
+    // closing the window keeps the color (Esc cancels, see QDialog::reject)
+    e->ignore();
+    accept();
 }
 
 void

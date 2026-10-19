@@ -29,6 +29,7 @@
 
 #include <QApplication> // qApp
 #include <QColorDialog>
+#include <QCursor>
 #include <QSize>
 #include <QTimer>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
@@ -58,6 +59,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/WriteNode.h"
 
 #include "Gui/Button.h"
+#include "Gui/SolvfxColorPanel.h"
 #include "Gui/CurveGui.h"
 #include "Gui/DockablePanelPrivate.h"
 #include "Gui/DockablePanelTabWidget.h"
@@ -1467,22 +1469,40 @@ DockablePanel::onOverlayColorDialogColorChanged(const QColor& color)
     }
 }
 
+// SOLVFX: "Grade1" style name for the color window titles
+static QString
+solvfxPanelScriptName(DockablePanel* panel)
+{
+    NodeSettingsPanel* nodePanel = dynamic_cast<NodeSettingsPanel*>(panel);
+    if ( nodePanel && nodePanel->getNode() && nodePanel->getNode()->getNode() ) {
+        return QString::fromUtf8( nodePanel->getNode()->getNode()->getScriptName_mt_safe().c_str() );
+    }
+
+    return QString::fromUtf8("Panel");
+}
+
 void
 DockablePanel::onColorButtonClicked()
 {
-    QColorDialog dialog(this);
+    // SOLVFX: SOLVFX color window (display sRGB, live preview; Esc reverts, closing keeps)
+    SolvfxColorDialog dialog(this);
+    dialog.setWindowTitle( solvfxPanelScriptName(this) + QString::fromUtf8(".tile_color") );
+    SolvfxColorPanel* panel = new SolvfxColorPanel(false, &dialog);
+    panel->setDisplayMode(true);
+    dialog.layout()->addWidget(panel);
 
-    dialog.setOption(QColorDialog::DontUseNativeDialog);
-    QColor oldColor;
-    {
-        oldColor = getCurrentColor();
-        dialog.setCurrentColor(oldColor);
-    }
-    QObject::connect( &dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onColorDialogColorChanged(QColor)) );
+    const QColor oldColor = getCurrentColor();
+    panel->setColor( oldColor.redF(), oldColor.greenF(), oldColor.blueF(), 1.f );
+    QColor current = oldColor;
+    QObject::connect( panel, &SolvfxColorPanel::colorChanged, this, [this, &current](float r, float g, float b, float /*a*/) {
+        current.setRgbF( std::max(0.f, std::min(1.f, r)), std::max(0.f, std::min(1.f, g)), std::max(0.f, std::min(1.f, b)) );
+        onColorDialogColorChanged(current);
+    } );
+    dialog.adjustSize();
+    dialog.move( QCursor::pos() + QPoint(16, 16) );
 
     if ( dialog.exec() ) {
-        QColor c = dialog.currentColor();
-        Q_EMIT colorChanged(c);
+        Q_EMIT colorChanged(current);
     } else {
         onColorDialogColorChanged(oldColor);
     }
@@ -1500,21 +1520,30 @@ DockablePanel::onOverlayButtonClicked()
     if (!node) {
         return;
     }
-    QColorDialog dialog(this);
-    dialog.setOption(QColorDialog::DontUseNativeDialog);
-    dialog.setOption(QColorDialog::ShowAlphaChannel);
+    // SOLVFX: SOLVFX color window (display sRGB + alpha)
+    SolvfxColorDialog dialog(this);
+    dialog.setWindowTitle( solvfxPanelScriptName(this) + QString::fromUtf8(".overlay_color") );
+    SolvfxColorPanel* panel = new SolvfxColorPanel(true, &dialog);
+    panel->setDisplayMode(true);
+    dialog.layout()->addWidget(panel);
     QColor oldColor;
     bool hadOverlayColor;
     {
         QMutexLocker locker(&_imp->_currentColorMutex);
-        dialog.setCurrentColor(_imp->_overlayColor);
         oldColor = _imp->_overlayColor;
         hadOverlayColor = _imp->_hasOverlayColor;
     }
-    QObject::connect( &dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onOverlayColorDialogColorChanged(QColor)) );
+    panel->setColor( oldColor.redF(), oldColor.greenF(), oldColor.blueF(), oldColor.alphaF() );
+    QColor current = oldColor;
+    QObject::connect( panel, &SolvfxColorPanel::colorChanged, this, [this, &current](float r, float g, float b, float a) {
+        current.setRgbF( std::max(0.f, std::min(1.f, r)), std::max(0.f, std::min(1.f, g)), std::max(0.f, std::min(1.f, b)), std::max(0.f, std::min(1.f, a)) );
+        onOverlayColorDialogColorChanged(current);
+    } );
+    dialog.adjustSize();
+    dialog.move( QCursor::pos() + QPoint(16, 16) );
 
     if ( dialog.exec() ) {
-        QColor c = dialog.currentColor();
+        QColor c = current;
         {
             QMutexLocker locker(&_imp->_currentColorMutex);
             _imp->_overlayColor = c;

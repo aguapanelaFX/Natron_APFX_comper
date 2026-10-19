@@ -277,6 +277,7 @@ KnobGui::onKnobSlavedChanged(int /*dimension*/,
     } else {
         Q_EMIT keyFrameSet();
     }
+    solvfxRefreshAnimButton();
 }
 
 void
@@ -743,6 +744,7 @@ KnobGui::onAnimationLevelChanged(ViewSpec /*idx*/,
             }
         }
     }
+    solvfxRefreshAnimButton();
 }
 
 void
@@ -901,6 +903,7 @@ KnobGui::onExprChanged(int dimension)
     }
     onHelpChanged();
     updateGUI(dimension);
+    solvfxRefreshAnimButton();
 } // KnobGui::onExprChanged
 
 void

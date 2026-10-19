@@ -29,6 +29,8 @@
 
 #include <QStyle>
 #include <QPainter>
+#include <algorithm>
+#include <QPainterPath>
 #include <QStyleOption>
 #include "Gui/GuiMacros.h"
 // clang-format off
@@ -135,76 +137,78 @@ AnimatedCheckBox::getBackgroundColor(double *r,
 void
 AnimatedCheckBox::paintEvent(QPaintEvent* e)
 {
+    // SOLVFX: rounded square checkbox (3px corners). Channel checkboxes (custom
+    // color) are tinted by channel; checked = filled with a dark check mark.
     QFrame::paintEvent(e);
-    QStyleOption opt;
-
-    opt.initFrom(this);
     QPainter p(this);
-    QRectF bRect = rect();
-    double fw = frameWidth();
-    QPen pen = p.pen();
-    QColor activeColor;
+    p.setRenderHint(QPainter::Antialiasing, true);
 
-    ///Draw bg
-    QRectF bgRect = bRect.adjusted(fw / 2., fw / 2., -fw, -fw);
-    //bRect.adjust(fw, fw, -fw, -fw);
-    double bgR = 0., bgG = 0., bgB = 0.;
-    if (animation == 0) {
-        getBackgroundColor(&bgR, &bgG, &bgB);
-    } else if (animation == 1) {
-        appPTR->getCurrentSettings()->getInterpolatedColor(&bgR, &bgG, &bgB);
+    const double side = std::min( width(), height() ) - 2.;
+    QRectF box( (width() - side) / 2., (height() - side) / 2., side, side );
+
+    double tr = 0., tg = 0., tb = 0.;
+    getBackgroundColor(&tr, &tg, &tb);
+    QColor raised;
+    {
+        double rr, rg, rb;
+        appPTR->getCurrentSettings()->getRaisedColor(&rr, &rg, &rb);
+        raised.setRgbF(rr, rg, rb);
+    }
+    QColor tint;
+    tint.setRgbF(tr, tg, tb);
+    const bool hasTint = (tint != raised);
+    QColor onColor = hasTint ? tint : QColor(0xe0, 0x74, 0x3a);
+
+    // field states: animated / keyframe / expression / linked
+    QColor fill(0x26, 0x26, 0x26);
+    QColor border = hasTint ? tint : QColor(0x14, 0x14, 0x14);
+    if (animation == 1) {
+        fill = QColor(0x6b, 0x4a, 0x2a);
+        onColor = QColor(0xe0, 0x74, 0x3a);
     } else if (animation == 2) {
-        appPTR->getCurrentSettings()->getKeyframeColor(&bgR, &bgG, &bgB);
+        fill = QColor(0xe0, 0x74, 0x3a);
+        onColor = QColor(0xe0, 0x74, 0x3a);
     } else if (animation == 3) {
-        appPTR->getCurrentSettings()->getExprColor(&bgR, &bgG, &bgB);
+        fill = QColor(0x24, 0x52, 0x4a);
+        onColor = QColor(0x5f, 0xd3, 0xbc);
     }
-    activeColor.setRgbF(bgR, bgG, bgB);
-    pen.setColor(activeColor);
-    p.setPen(pen);
-
-    p.fillRect(bgRect, activeColor);
-
-
-    ///Draw tick
+    if (readOnly) {
+        onColor = onColor.darker(160);
+        border = border.darker(160);
+    }
     if (checked) {
-        if (animation == 3) {
-            activeColor = Qt::black;
-        } else if (readOnly) {
-            activeColor.setRgbF(0.5, 0.5, 0.5);
-        } else if (altered) {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getAltTextColor(&r, &g, &b);
-            activeColor.setRgbF(r, g, b);
-        } else if (dirty) {
-            activeColor = Qt::black;
-        } else {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);
-            activeColor.setRgbF(r, g, b);
-        }
-
-        pen.setColor(activeColor);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(pen);
-        p.drawLine( bRect.topLeft(), bRect.bottomRight() );
-        p.drawLine( bRect.bottomLeft(), bRect.topRight() );
+        fill = onColor;
+    }
+    if (dirty) {
+        fill = Qt::black;
     }
 
-
-    ///Draw frame
-    pen.setColor(Qt::black);
+    QPen pen(border);
+    pen.setWidthF( hasTint ? 1.5 : 1. );
     p.setPen(pen);
-    p.drawRect(bRect);
+    p.setBrush(fill);
+    p.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 3., 3.);
 
-    ///Draw focus highlight
+    if (checked) {
+        QPen check( QColor(0x14, 0x14, 0x14) );
+        check.setWidthF( std::max(1.5, side / 8.) );
+        check.setCapStyle(Qt::RoundCap);
+        check.setJoinStyle(Qt::RoundJoin);
+        p.setPen(check);
+        QPainterPath path;
+        path.moveTo( box.left() + side * 0.22, box.top() + side * 0.53 );
+        path.lineTo( box.left() + side * 0.42, box.top() + side * 0.72 );
+        path.lineTo( box.left() + side * 0.78, box.top() + side * 0.30 );
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(path);
+    }
+
     if ( hasFocus() ) {
-        double selR, selG, selB;
-        appPTR->getCurrentSettings()->getSelectionColor(&selR, &selG, &selB);
-        QRectF focusRect = bRect.adjusted(fw, fw, -fw, -fw);
-        activeColor.setRgbF(selR, selG, selB);
-        pen.setColor(activeColor);
-        p.setPen(pen);
-        p.drawRect(focusRect);
+        QPen focus( QColor(0xe0, 0x74, 0x3a) );
+        focus.setWidthF(1.);
+        p.setPen(focus);
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(box.adjusted(-1., -1., 1., 1.), 4., 4.);
     }
 } // AnimatedCheckBox::paintEvent
 

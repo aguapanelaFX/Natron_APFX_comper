@@ -39,6 +39,9 @@
 #include "Gui/GuiDefines.h"
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/ClickableLabel.h"
+#include "Gui/Button.h"
+#include <QStyle>
+#include <QPixmap>
 
 
 NATRON_NAMESPACE_ENTER
@@ -238,6 +241,23 @@ KnobGui::createGUI(QWidget* fieldContainer,
         createWidget(layout);
         onHasModificationsChanged();
         updateToolTip();
+
+        // SOLVFX: Nuke-like animation button at the end of animatable knobs: opens the
+        // knob animation menu (keys, curve editor, interpolation, expression, link, copy/paste)
+        const bool animatableType = dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() ) ||
+                                    dynamic_cast<KnobBool*>( knob.get() ) || dynamic_cast<KnobChoice*>( knob.get() );
+        if ( animatableType && knob->isAnimationEnabled() && !_imp->isInViewerUIKnob && knob->getHolder() && knob->getHolder()->getApp() ) {
+            QPixmap pix( QString::fromUtf8(":/Resources/Images/solvfx_anim.png") );
+            _imp->solvfxAnimButton = new Button( QIcon(pix), QString(), fieldContainer );
+            _imp->solvfxAnimButton->setObjectName( QString::fromUtf8("SolvfxAnimButton") );
+            _imp->solvfxAnimButton->setFixedSize( TO_DPIX(22), TO_DPIY(20) );
+            _imp->solvfxAnimButton->setIconSize( QSize( TO_DPIX(14), TO_DPIY(14) ) );
+            _imp->solvfxAnimButton->setFocusPolicy(Qt::NoFocus);
+            _imp->solvfxAnimButton->setToolTip( tr("Animation menu: keys, curve editor, interpolation, expression, link, copy/paste.") );
+            QObject::connect( _imp->solvfxAnimButton, SIGNAL(clicked()), this, SLOT(onSolvfxAnimButtonClicked()) );
+            layout->addSpacing( TO_DPIX(3) );
+            layout->addWidget(_imp->solvfxAnimButton);
+        }
     }
 
 
@@ -253,7 +273,58 @@ KnobGui::createGUI(QWidget* fieldContainer,
             onAnimationLevelChanged(ViewSpec::all(), i);
            }*/
     }
+    solvfxRefreshAnimButton();
 } // KnobGui::createGUI
+
+void
+KnobGui::onSolvfxAnimButtonClicked()
+{
+    KnobIPtr knob = getKnob();
+    if ( !knob || knob->getIsSecret() || !_imp->solvfxAnimButton ) {
+        return;
+    }
+    createAnimationMenu(_imp->copyRightClickMenu, 0);
+    addRightClickMenuEntries(_imp->copyRightClickMenu);
+    _imp->copyRightClickMenu->exec( _imp->solvfxAnimButton->mapToGlobal( _imp->solvfxAnimButton->rect().bottomLeft() ) );
+    solvfxRefreshAnimButton();
+}
+
+void
+KnobGui::solvfxRefreshAnimButton()
+{
+    if (!_imp->solvfxAnimButton) {
+        return;
+    }
+    KnobIPtr knob = getKnob();
+    if (!knob) {
+        return;
+    }
+    int state = 0;
+    const int nDims = knob->getDimension();
+    for (int i = 0; i < nDims; ++i) {
+        int s = 0;
+        if ( !knob->getExpression(i).empty() ) {
+            s = 3;
+        } else if ( knob->isSlave(i) ) {
+            s = 4;
+        } else {
+            AnimationLevelEnum lvl = knob->getAnimationLevel(i);
+            s = (lvl == eAnimationLevelOnKeyframe) ? 2 : (lvl == eAnimationLevelInterpolatedValue ? 1 : 0);
+        }
+        // priority: expression > linked > keyframe > animated
+        static const int rank[5] = { 0, 1, 2, 4, 3 };
+        if (rank[s] > rank[state]) {
+            state = s;
+        }
+    }
+    QVariant v(state);
+    if (_imp->solvfxAnimButton->property("animState") != v) {
+        _imp->solvfxAnimButton->setProperty("animState", v);
+        _imp->solvfxAnimButton->style()->unpolish(_imp->solvfxAnimButton);
+        _imp->solvfxAnimButton->style()->polish(_imp->solvfxAnimButton);
+        _imp->solvfxAnimButton->update();
+    }
+}
 
 void
 KnobGui::updateGuiInternal(int dimension)

@@ -281,19 +281,19 @@ KnobGuiBool::onLabelChangedInternal()
 
     if ( (label == "R") || (label == "r") || (label == "red") ) {
         QColor color;
-        color.setRgbF(0.851643, 0.196936, 0.196936);
+        color = QColor(0xd3, 0x3a, 0x3a); // SOLVFX channel tints
         _checkBox->setCustomColor(color, true);
     } else if ( (label == "G") || (label == "g") || (label == "green") ) {
         QColor color;
-        color.setRgbF(0, 0.654707, 0);
+        color = QColor(0x2f, 0xa8, 0x4f);
         _checkBox->setCustomColor(color, true);
     } else if ( (label == "B") || (label == "b") || (label == "blue") ) {
         QColor color;
-        color.setRgbF(0.345293, 0.345293, 1);
+        color = QColor(0x55, 0x77, 0xff);
         _checkBox->setCustomColor(color, true);
     } else if ( (label == "A") || (label == "a") || (label == "alpha") ) {
         QColor color;
-        color.setRgbF(0.398979, 0.398979, 0.398979);
+        color = QColor(0xc8, 0xc8, 0xc8);
         _checkBox->setCustomColor(color, true);
     } else {
         _checkBox->setCustomColor(Qt::black, false);

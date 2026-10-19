@@ -119,6 +119,16 @@ KnobGui::onSetExprActionTriggered()
     assert(action);
 
     int dim = action->data().toInt();
+    openExpressionEditor(dim);
+}
+
+void
+KnobGui::openExpressionEditor(int dim)
+{
+    // SOLVFX: also opened by typing "=" in a knob field (like Nuke)
+    if ( !getKnob() || (dim >= getKnob()->getDimension()) ) {
+        return;
+    }
     EditExpressionDialog* dialog = new EditExpressionDialog(getGui(), dim, shared_from_this(), _imp->field);
     dialog->create(QString::fromUtf8( getKnob()->getExpression(dim == -1 ? 0 : dim).c_str() ), true);
     QObject::connect( dialog, SIGNAL(accepted()), this, SLOT(onEditExprDialogFinished()) );

@@ -118,6 +118,7 @@ struct KnobGuiPrivate
     std::map<KnobGui::KnobWarningEnum, QString> warningsMapping;
     bool isOnNewLine;
     CustomParamInteract* customInteract;
+    QPushButton* solvfxAnimButton; // SOLVFX: Nuke-like animation menu button
     std::vector< std::shared_ptr<Curve> > guiCurves;
     bool guiRemoved;
 

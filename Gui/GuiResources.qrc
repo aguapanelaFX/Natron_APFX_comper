@@ -125,6 +125,7 @@
         <file>Resources/Images/centerViewer.png</file>
         <file>Resources/Images/checkbox.png</file>
         <file>Resources/Images/solvfx_check.png</file>
+        <file>Resources/Images/solvfx_anim.png</file>
         <file>Resources/Images/checkbox_animation1_checked.png</file>
         <file>Resources/Images/checkbox_animation1_checked_hovered.png</file>
         <file>Resources/Images/checkbox_animation1_unchecked.png</file>
