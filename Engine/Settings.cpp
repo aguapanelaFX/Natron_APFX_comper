@@ -1184,6 +1184,32 @@ Settings::initializeKnobsNodeGraph()
                                                 "with the inputs and output nodes.") );
     _nodegraphTab->addKnob(_snapNodesToConnections);
 
+    // SOLVFX: dotted grid behind the nodes, optional snap to its cells
+    _nodeGraphShowGrid = AppManager::createKnob<KnobBool>( this, tr("Show grid") );
+    _nodeGraphShowGrid->setName("solvfxShowGrid");
+    _nodeGraphShowGrid->setHintToolTip( tr("Draw a dotted grid behind the nodes of the node graph.") );
+    _nodegraphTab->addKnob(_nodeGraphShowGrid);
+
+    _nodeGraphGridWidth = AppManager::createKnob<KnobInt>( this, tr("Grid cell width") );
+    _nodeGraphGridWidth->setName("solvfxGridWidth");
+    _nodeGraphGridWidth->disableSlider();
+    _nodeGraphGridWidth->setMinimum(10);
+    _nodeGraphGridWidth->setAddNewLine(false);
+    _nodeGraphGridWidth->setHintToolTip( tr("Width of a grid cell, in node graph units.") );
+    _nodegraphTab->addKnob(_nodeGraphGridWidth);
+
+    _nodeGraphGridHeight = AppManager::createKnob<KnobInt>( this, tr("height") );
+    _nodeGraphGridHeight->setName("solvfxGridHeight");
+    _nodeGraphGridHeight->disableSlider();
+    _nodeGraphGridHeight->setMinimum(10);
+    _nodeGraphGridHeight->setHintToolTip( tr("Height of a grid cell, in node graph units.") );
+    _nodegraphTab->addKnob(_nodeGraphGridHeight);
+
+    _nodeGraphSnapToGrid = AppManager::createKnob<KnobBool>( this, tr("Snap to grid") );
+    _nodeGraphSnapToGrid->setName("solvfxSnapToGrid");
+    _nodeGraphSnapToGrid->setHintToolTip( tr("When moving nodes, snap their center to the center of the grid cells.") );
+    _nodegraphTab->addKnob(_nodeGraphSnapToGrid);
+
 
     _maxUndoRedoNodeGraph = AppManager::createKnob<KnobInt>( this, tr("Maximum undo/redo for the node graph") );
     _maxUndoRedoNodeGraph->setName("maxUndoRedo");
@@ -1563,6 +1589,10 @@ Settings::setDefaultValues()
     _autoScroll->setDefaultValue(false);
     _autoTurbo->setDefaultValue(false);
     _snapNodesToConnections->setDefaultValue(true);
+    _nodeGraphShowGrid->setDefaultValue(true);
+    _nodeGraphGridWidth->setDefaultValue(110);
+    _nodeGraphGridHeight->setDefaultValue(44);
+    _nodeGraphSnapToGrid->setDefaultValue(false);
     _useBWIcons->setDefaultValue(false);
     _maxUndoRedoNodeGraph->setDefaultValue(20, 0);
     _disconnectedArrowLength->setDefaultValue(30);
@@ -2919,6 +2949,30 @@ Settings::isSnapToNodeEnabled() const
 }
 
 bool
+Settings::isNodeGraphGridVisible() const
+{
+    return _nodeGraphShowGrid->getValue();
+}
+
+int
+Settings::getNodeGraphGridWidth() const
+{
+    return std::max(10, _nodeGraphGridWidth->getValue());
+}
+
+int
+Settings::getNodeGraphGridHeight() const
+{
+    return std::max(10, _nodeGraphGridHeight->getValue());
+}
+
+bool
+Settings::isNodeGraphSnapToGridEnabled() const
+{
+    return _nodeGraphSnapToGrid->getValue();
+}
+
+bool
 Settings::isCheckForUpdatesEnabled() const
 {
     return _checkForUpdates->getValue();
@@ -3405,7 +3459,8 @@ Settings::setAutoDeclaredVariablePrintEnabled(bool enabled)
 bool
 Settings::isPluginIconActivatedOnNodeGraph() const
 {
-    return _usePluginIconsInNodeGraph->getValue();
+    // SOLVFX: nodes never show the plugin icon (locked node look)
+    return false;
 }
 
 bool

@@ -346,6 +346,38 @@ NodeGui::getColorFromGrouping(QColor* color)
     internalNode->getPluginGrouping(&grouping);
     std::string majGroup = grouping.empty() ? "" : grouping.front();
 
+    // SOLVFX: locked category colors (bottom color of the node gradient).
+    // Backdrops keep the preference color.
+    if (!isBd) {
+        unsigned int rgb = 0x969696; // other
+        if ( iseffect->isReader() || iseffect->isGenerator() ) {
+            rgb = 0xa8a8a8; // image I/O
+        } else if ( iseffect->isWriter() ) {
+            rgb = 0xd9bd33;
+        } else if (majGroup == PLUGIN_GROUP_COLOR) {
+            rgb = 0x7792c6;
+        } else if (majGroup == PLUGIN_GROUP_FILTER) {
+            rgb = 0xd4844a;
+        } else if (majGroup == PLUGIN_GROUP_CHANNEL) {
+            rgb = 0x98406d;
+        } else if (majGroup == PLUGIN_GROUP_KEYER) {
+            rgb = 0x1cbf3a;
+        } else if (majGroup == PLUGIN_GROUP_MERGE) {
+            rgb = 0x4c62bc;
+        } else if (majGroup == PLUGIN_GROUP_PAINT) {
+            rgb = 0x62b862;
+        } else if (majGroup == PLUGIN_GROUP_TIME) {
+            rgb = 0xa89c7f;
+        } else if (majGroup == PLUGIN_GROUP_TRANSFORM) {
+            rgb = 0xad80c8;
+        } else if (majGroup == PLUGIN_GROUP_3D) {
+            rgb = 0x537f35;
+        }
+        color->setRgb( (rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff );
+
+        return true;
+    }
+
     if ( iseffect->isReader() ) {
         settings->getReaderColor(&r, &g, &b);
     } else if (isBd) {
@@ -603,13 +635,23 @@ NodeGui::createGui()
     if (!node) {
         return; // throw exception instead?
     }
-    int cornerRadiusPx = 0;
+    // SOLVFX: rounded nodes (10px), backdrops 8px, Viewer as a pill; gradient body
+    const bool isBackdropNode = dynamic_cast<BackdropGui*>(this) != 0;
+    const bool isViewerNode = dynamic_cast<ViewerInstance*>( node->getEffectInstance().get() ) != 0;
+    int cornerRadiusPx = isBackdropNode ? TO_DPIX(8) : TO_DPIX(10);
     _boundingBox = new NodeGraphRectItem(this, cornerRadiusPx);
     _boundingBox->setZValue(depth);
+    _boundingBox->setSolvfxLook(!isBackdropNode, isViewerNode);
+    {
+        QPen bodyPen( QColor(0x14, 0x14, 0x14) );
+        bodyPen.setWidthF(1.);
+        _boundingBox->setPen(bodyPen);
+    }
 
     if ( mustFrameName() ) {
         _nameFrame = new QGraphicsRectItem(this);
         _nameFrame->setZValue(depth + 1);
+        _nameFrame->setPen(Qt::NoPen); // SOLVFX: backdrop title sits on the body, no separate frame
     }
 
     if ( mustAddResizeHandle() ) {
@@ -658,7 +700,8 @@ NodeGui::createGui()
     _persistentMessage = new NodeGraphSimpleTextItem(getDagGui(), this, false);
     _persistentMessage->setZValue(depth + 3);
     QFont f = _persistentMessage->font();
-    f.setPointSize(25);
+    f.setPixelSize( TO_DPIY(17) ); // SOLVFX: bold ERROR label under the node
+    f.setBold(true);
     bool antialias = appPTR->getCurrentSettings()->isNodeGraphAntiAliasingEnabled();
     if (!antialias) {
         f.setStyleStrategy(QFont::NoAntialias);
@@ -666,7 +709,8 @@ NodeGui::createGui()
     _persistentMessage->setFont(f);
     _persistentMessage->hide();
 
-    _stateIndicator = new NodeGraphRectItem(this, cornerRadiusPx);
+    _stateIndicator = new NodeGraphRectItem(this, cornerRadiusPx + TO_DPIX(NATRON_STATE_INDICATOR_OFFSET));
+    _stateIndicator->setPen(Qt::NoPen);
     _stateIndicator->setZValue(depth - 1);
     _stateIndicator->hide();
 
@@ -1019,7 +1063,8 @@ NodeGui::resize(int width,
     }
 
     QString persistentMessage = _persistentMessage->text();
-    f.setPixelSize(25);
+    f.setPixelSize( TO_DPIY(17) );
+    f.setBold(true);
     metrics = QFontMetrics(f, 0);
     int pMWidth = metrics.horizontalAdvance(persistentMessage);
     int midNodeX = topLeft.x() + iconWidth + (width - iconWidth) / 2;
@@ -1037,7 +1082,8 @@ NodeGui::resize(int width,
     }
 
     int indicatorOffset = TO_DPIX(NATRON_STATE_INDICATOR_OFFSET);
-    _persistentMessage->setPos(midNodeX - (pMWidth / 2), topLeft.y() + height / 2 - metrics.height() / 2);
+    // SOLVFX: ERROR / WARNING label below the node
+    _persistentMessage->setPos( midNodeX - (pMWidth / 2), topLeft.y() + height + TO_DPIY(2) );
     _stateIndicator->setRect(topLeft.x() - indicatorOffset, topLeft.y() - indicatorOffset,
                              width + indicatorOffset * 2, height + indicatorOffset * 2);
 
@@ -1085,6 +1131,20 @@ NodeGui::refreshPosition(double x,
                          bool skipMagnet,
                          const QPointF & mouseScenePos)
 {
+    // SOLVFX: snap the node center to the center of the grid cells
+    if ( !skipMagnet && appPTR->getCurrentSettings()->isNodeGraphSnapToGridEnabled() ) {
+        const SettingsPtr& settings = appPTR->getCurrentSettings();
+        const double gw = settings->getNodeGraphGridWidth();
+        const double gh = settings->getNodeGraphGridHeight();
+        QSize size = getSize();
+        const double cx = x + size.width() / 2.;
+        const double cy = y + size.height() / 2.;
+        const double snappedX = std::floor(cx / gw) * gw + gw / 2.;
+        const double snappedY = std::floor(cy / gh) * gh + gh / 2.;
+        refreshPositionEnd( snappedX - size.width() / 2., snappedY - size.height() / 2. );
+
+        return;
+    }
     if (appPTR->getCurrentSettings()->isSnapToNodeEnabled() && !skipMagnet) {
         QSize size = getSize();
         ///handle magnetic grid
@@ -1742,7 +1802,7 @@ NodeGui::applyBrush(const QBrush & brush)
 {
     _boundingBox->setBrush(brush);
     if ( mustFrameName() ) {
-        _nameFrame->setBrush(brush);
+        _nameFrame->setBrush(Qt::NoBrush); // SOLVFX: see createGui()
     }
     if ( mustAddResizeHandle() ) {
         _resizeHandle->setBrush(brush);
@@ -2183,11 +2243,11 @@ NodeGui::onPersistentMessageChanged()
     } else {
         if (type == 1) {
             _persistentMessage->setText( tr("ERROR") );
-            QColor errColor(128, 0, 0, 255);
+            QColor errColor(0xff, 0x6b, 0x61, 255); // SOLVFX
             _persistentMessage->setBrush(errColor);
         } else if (type == 2) {
             _persistentMessage->setText( tr("WARNING") );
-            QColor warColor(180, 180, 0, 255);
+            QColor warColor(0xe0, 0xc0, 0x40, 255); // SOLVFX
             _persistentMessage->setBrush(warColor);
         } else {
             return;
@@ -2312,20 +2372,32 @@ NodeGui::refreshStateIndicator()
     bool showIndicator = true;
     int value = node->getIsNodeRenderingCounter();
     bool isSelected = getIsSelected();
+    // SOLVFX: selection and errors are shown on the node outline (yellow 2px / red 3px);
+    // the halo behind the node is only used while rendering and for the merge hint
     if (value >= 1) {
-        _stateIndicator->setBrush(Qt::yellow);
+        _stateIndicator->setBrush( QColor(0xe0, 0x74, 0x3a, 160) );
     } else if (_mergeHintActive) {
-        _stateIndicator->setBrush(Qt::green);
-    } else if (isSelected) {
-        _stateIndicator->setBrush(Qt::white);
-    } else if ( !message.isEmpty() && ( (type == 1) || (type == 2) ) ) {
-        if (type == 1) {
-            _stateIndicator->setBrush( QColor(128, 0, 0, 255) ); //< error
-        } else if (type == 2) {
-            _stateIndicator->setBrush( QColor(80, 180, 0, 255) ); //< warning
-        }
+        _stateIndicator->setBrush( QColor(0x4f, 0xd3, 0x6b) );
     } else {
         showIndicator = false;
+    }
+    if ( _boundingBox && !dynamic_cast<BackdropGui*>(this) ) {
+        QPen bodyPen;
+        if ( !message.isEmpty() && (type == 1) ) {
+            bodyPen = QPen( QColor(0xe0, 0x30, 0x2b) );
+            bodyPen.setWidthF(3.);
+        } else if (isSelected) {
+            bodyPen = QPen( QColor(0xff, 0xd2, 0x57) );
+            bodyPen.setWidthF(2.);
+        } else if ( !message.isEmpty() && (type == 2) ) {
+            bodyPen = QPen( QColor(0xe0, 0xc0, 0x40) );
+            bodyPen.setWidthF(2.);
+        } else {
+            bodyPen = QPen( QColor(0x14, 0x14, 0x14) );
+            bodyPen.setWidthF(1.);
+        }
+        _boundingBox->setPen(bodyPen);
+        _boundingBox->setSelectedLook(isSelected);
     }
 
     if (_outputEdge) {
@@ -3086,7 +3158,7 @@ NodeGui::setNameItemHtml(const QString & name,
             if (endFontTag != -1) {
                 endFontTag += toFind.size();
             }
-            QString toInsert = name.trimmed();
+            QString toInsert = QString::fromUtf8("<b>") + name.trimmed() + QString::fromUtf8("</b>"); // SOLVFX: bold name
             int labelEndPos = -1;
             // is there really something before the closing font tag? if yes, insert a newline
             if (endFontTag != -1) {
@@ -3105,7 +3177,7 @@ NodeGui::setNameItemHtml(const QString & name,
             }
             labelCopy.insert(endFontTag == -1 ? 0 : endFontTag, toInsert);
         } else {
-            labelCopy.prepend( name.trimmed() + QLatin1Char('\n') );
+            labelCopy.prepend( QString::fromUtf8("<b>") + name.trimmed() + QString::fromUtf8("</b>") + QLatin1Char('\n') ); // SOLVFX: bold name
             if ( !_channelsExtraLabel.isEmpty() ) {
                 labelCopy.append( QLatin1Char('\n') + _channelsExtraLabel.trimmed() );
             }
@@ -3125,7 +3197,7 @@ NodeGui::setNameItemHtml(const QString & name,
                            .arg( QColor(Qt::black).name() )
                            .arg(QApplication::font().family()));
            textLabel.append(fontTag);*/
-        textLabel.append(name + QLatin1Char('\n') + _channelsExtraLabel);
+        textLabel.append( QString::fromUtf8("<b>") + name + QString::fromUtf8("</b>") + QLatin1Char('\n') + _channelsExtraLabel ); // SOLVFX: bold name
         //textLabel.append("</font>");
     }
     QString finalText;

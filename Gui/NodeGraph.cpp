@@ -42,6 +42,8 @@
 #include "Engine/NodeGroup.h"
 #include "Engine/Project.h"
 #include "Engine/Settings.h"
+#include <cmath>
+#include <QPainter>
 #include "Engine/TimeLine.h"
 
 #include "Gui/BackdropGui.h"
@@ -272,6 +274,46 @@ NodeGraph::resizeEvent(QResizeEvent* e)
 {
     _imp->_refreshOverlays = true;
     QGraphicsView::resizeEvent(e);
+}
+
+void
+NodeGraph::drawBackground(QPainter* painter,
+                          const QRectF& rect)
+{
+    // SOLVFX: flat background + dotted grid (cells 110x44 by default), drawn in
+    // scene coordinates so it pans and zooms with the nodes
+    painter->fillRect( rect, QColor(0x32, 0x32, 0x32) );
+    const SettingsPtr& settings = appPTR->getCurrentSettings();
+    if ( !settings->isNodeGraphGridVisible() ) {
+        return;
+    }
+    const double gw = settings->getNodeGraphGridWidth();
+    const double gh = settings->getNodeGraphGridHeight();
+    // skip the grid when zoomed out so far that it would be a gray blur
+    const double zoom = transform().m11();
+    if ( (gw * zoom < 8.) || (gh * zoom < 8.) ) {
+        return;
+    }
+    QPen pen( QColor(0x4a, 0x4a, 0x4a) );
+    pen.setCosmetic(true);
+    pen.setWidthF(1.);
+    QVector<qreal> dash;
+    dash << 2. << 3.;
+    pen.setDashPattern(dash);
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, false);
+    painter->setPen(pen);
+    const double left = std::floor(rect.left() / gw) * gw;
+    const double top = std::floor(rect.top() / gh) * gh;
+    QVector<QLineF> lines;
+    for (double x = left; x <= rect.right(); x += gw) {
+        lines.push_back( QLineF( x, top, x, rect.bottom() ) ); // grid-aligned start: dots don't crawl when panning
+    }
+    for (double y = top; y <= rect.bottom(); y += gh) {
+        lines.push_back( QLineF( left, y, rect.right(), y ) );
+    }
+    painter->drawLines(lines);
+    painter->restore();
 }
 
 void

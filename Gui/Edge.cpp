@@ -100,8 +100,8 @@ struct EdgePrivate
         , arrowHead()
         , dest()
         , source()
-        , defaultColor(Qt::black)
-        , renderingColor(243, 149, 0)
+        , defaultColor(0x0e, 0x0e, 0x0e) // SOLVFX pipe color
+        , renderingColor(0xe0, 0x74, 0x3a)
         , useRenderingColor(false)
         , useHighlight(false)
         , useSelected(false)
@@ -128,7 +128,7 @@ Edge::Edge(int inputNb_,
 {
     _imp->dest = dest_;
 
-    setPen( QPen(Qt::black, 2.5, Qt::SolidLine, Qt::SquareCap, Qt::BevelJoin) ); // SOLVFX: slightly thicker (was 2)
+    setPen( QPen(QColor(0x0e, 0x0e, 0x0e), 3., Qt::SolidLine, Qt::SquareCap, Qt::BevelJoin) ); // SOLVFX: 3px pipes (was 2)
     _imp->initLabel();
     setAcceptedMouseButtons(Qt::LeftButton);
     initLine();
@@ -145,11 +145,8 @@ EdgePrivate::initLabel()
     if ( (inputNb != -1) && dst ) {
         label = new NodeGraphSimpleTextItem(dst->getDagGui(), _publicInterface, false);
         label->setText( QString::fromUtf8( dst->getNode()->getInputLabel(inputNb).c_str() ) );
-        QColor txt;
-        double r, g, b;
-        appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);
-        txt.setRgbF( Image::clamp(r, 0., 1.), Image::clamp(g, 0., 1.), Image::clamp(b, 0., 1.) );
-        label->setBrush(txt);
+        // SOLVFX: A / B / mask input labels in tan
+        label->setBrush( QColor(0xe3, 0xa6, 0x60) );
         QFont f = qApp->font();
         bool antialias = appPTR->getCurrentSettings()->isNodeGraphAntiAliasingEnabled();
         if (!antialias) {
@@ -167,7 +164,7 @@ Edge::Edge(const NodeGuiPtr & src,
 {
     _imp->source = src;
     assert(src);
-    setPen( QPen(Qt::black, 2.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin) ); // SOLVFX: slightly thicker (was 2)
+    setPen( QPen(QColor(0x0e, 0x0e, 0x0e), 3., Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin) ); // SOLVFX: 3px pipes (was 2)
     setAcceptedMouseButtons(Qt::LeftButton);
     initLine();
     //setFlag(QGraphicsItem::ItemStacksBehindParent);
@@ -767,7 +764,27 @@ Edge::paint(QPainter *painter,
         }
     }
 
-    if (_imp->paintWithDash) {
+    // SOLVFX: links into a Viewer are dotted and 25% opaque; the input the viewer
+    // currently shows (A or B) is yellow
+    bool viewerLink = false;
+    bool activeViewerLink = false;
+    if ( dst && _imp->source.lock() && (_imp->inputNb >= 0) ) {
+        NodePtr dstNode = dst->getNode();
+        ViewerInstance* viewer = dstNode ? dynamic_cast<ViewerInstance*>( dstNode->getEffectInstance().get() ) : 0;
+        if (viewer) {
+            viewerLink = true;
+            int a = -1, b = -1;
+            viewer->getActiveInputs(a, b);
+            activeViewerLink = (_imp->inputNb == a) || (_imp->inputNb == b);
+        }
+    }
+
+    if (viewerLink) {
+        QVector<qreal> dotStyle;
+        dotStyle << 0.6 << 1.6;
+        myPen.setDashPattern(dotStyle);
+        myPen.setCapStyle(Qt::RoundCap);
+    } else if (_imp->paintWithDash) {
         QVector<qreal> dashStyle;
         qreal space = 4;
         dashStyle << 3 << space;
@@ -777,10 +794,14 @@ Edge::paint(QPainter *painter,
     }
 
     QColor color, arrowColor;
-    if (_imp->useSelected) {
-        color = arrowColor = Qt::white;
+    if (viewerLink) {
+        color = activeViewerLink ? QColor(0xff, 0xd2, 0x57) : _imp->defaultColor;
+        color.setAlphaF(0.25);
+        arrowColor = color;
+    } else if (_imp->useSelected) {
+        color = arrowColor = QColor(0xff, 0xd2, 0x57); // SOLVFX: selection yellow
     } else if (_imp->useHighlight) {
-        color = arrowColor = Qt::green;
+        color = arrowColor = QColor(0x4f, 0xd3, 0x6b); // SOLVFX: insert highlight
     } else if (_imp->useRenderingColor) {
         color = arrowColor = _imp->renderingColor;
     } else {

@@ -1196,6 +1196,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( gui->getApp()->getProject().get(), SIGNAL(frameRangeChanged(int,int)), _imp->timeLineGui, SLOT(onProjectFrameRangeChanged(int,int)) );
     QObject::connect( _imp->timeFormat, SIGNAL(currentIndexChanged(int)), _imp->timeLineGui, SLOT(onTimeFormatChanged(int)) );
     _imp->timeLineGui->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    // SOLVFX 3.3: room above the playhead so the current frame number isn't clipped
+    _imp->timeLineGui->setMinimumHeight( TO_DPIY(58) );
 
     // SOLVFX: Nuke-style layout. Transport row on top, then the timeline row:
     // range dropdown | in point | timeline | out point
@@ -1217,7 +1219,32 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
             delete item;
         }
         QBoxLayout* l = _imp->playerLayout;
-        l->setSpacing( TO_DPIX(3) ); // SOLVFX: small gap between playback buttons, like Nuke
+        l->setSpacing( TO_DPIX(4) ); // SOLVFX: gap between playback buttons
+        {
+            // SOLVFX 3.3: wider playback buttons and fields (were cramped)
+            const QSize transportSize( TO_DPIX(32), TO_DPIY(24) );
+            QWidget* transport[] = {
+                _imp->firstFrame_Button, _imp->previousKeyFrame_Button, _imp->play_Backward_Button, _imp->previousFrame_Button,
+                _imp->nextFrame_Button, _imp->play_Forward_Button, _imp->nextKeyFrame_Button, _imp->lastFrame_Button,
+                _imp->previousIncrement_Button, _imp->nextIncrement_Button, _imp->playbackMode_Button, _imp->turboButton,
+                _imp->tripleSyncButton
+            };
+            for (QWidget* w : transport) {
+                if (w) {
+                    w->setFixedSize(transportSize);
+                    if ( QAbstractButton* b = qobject_cast<QAbstractButton*>(w) ) {
+                        b->setIconSize( QSize( TO_DPIX(16), TO_DPIY(16) ) );
+                    }
+                }
+            }
+            QWidget* fields[] = { _imp->currentFrameBox, _imp->incrementSpinBox, _imp->fpsBox };
+            for (QWidget* w : fields) {
+                if (w) {
+                    w->setMinimumWidth( TO_DPIX(56) );
+                    w->setFixedHeight( TO_DPIY(24) );
+                }
+            }
+        }
         l->addWidget(_imp->currentFrameBox);
         l->addWidget(_imp->tripleSyncButton);
         l->addStretch();

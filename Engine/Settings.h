@@ -183,6 +183,12 @@ public:
 
     bool isSnapToNodeEnabled() const;
 
+    // SOLVFX: node graph dotted grid and snap-to-grid
+    bool isNodeGraphGridVisible() const;
+    int getNodeGraphGridWidth() const;
+    int getNodeGraphGridHeight() const;
+    bool isNodeGraphSnapToGridEnabled() const;
+
     bool isCheckForUpdatesEnabled() const;
 
     void setCheckUpdatesEnabled(bool enabled);
@@ -545,6 +551,10 @@ private:
     KnobBoolPtr _autoScroll;
     KnobBoolPtr _autoTurbo;
     KnobBoolPtr _snapNodesToConnections;
+    KnobBoolPtr _nodeGraphShowGrid; // SOLVFX
+    KnobIntPtr _nodeGraphGridWidth;
+    KnobIntPtr _nodeGraphGridHeight;
+    KnobBoolPtr _nodeGraphSnapToGrid;
     KnobBoolPtr _useBWIcons;
     KnobIntPtr _maxUndoRedoNodeGraph;
     KnobIntPtr _disconnectedArrowLength;

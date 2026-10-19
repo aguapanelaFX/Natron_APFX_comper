@@ -96,7 +96,7 @@ CLANG_DIAG_ON(uninitialized)
 
 #define NATRON_ELLIPSE_WARN_DIAMETER 10
 
-#define DOT_GUI_DIAMETER 15
+#define DOT_GUI_DIAMETER 12 // SOLVFX (was 15)
 
 #define NATRON_PLUGIN_ICON_SIZE 20
 #define PLUGIN_ICON_OFFSET 2
@@ -131,6 +131,7 @@ DotGui::createGui()
     int stateOffset = TO_DPIX(NATRON_STATE_INDICATOR_OFFSET);
 
     diskShape->setRect( QRectF(topLeft.x(), topLeft.y(), diam, diam) );
+    diskShape->setPen( QPen(QColor(0x14, 0x14, 0x14), 1.) ); // SOLVFX
 
     ellipseIndicator = new QGraphicsEllipseItem(this);
     ellipseIndicator->setRect( QRectF(topLeft.x() - stateOffset,
@@ -143,13 +144,11 @@ DotGui::createGui()
 void
 DotGui::refreshStateIndicator()
 {
-    bool showIndicator = true;
-
-    if ( getIsSelected() ) {
-        ellipseIndicator->setBrush( QColor(255, 255, 255, 128) );
-    } else {
-        showIndicator = false;
-    }
+    // SOLVFX: selected Dot = yellow outline, no halo
+    bool showIndicator = false;
+    QPen dotPen( getIsSelected() ? QColor(0xff, 0xd2, 0x57) : QColor(0x14, 0x14, 0x14) );
+    dotPen.setWidthF( getIsSelected() ? 2. : 1. );
+    diskShape->setPen(dotPen);
 
     if ( showIndicator && !ellipseIndicator->isVisible() ) {
         ellipseIndicator->show();

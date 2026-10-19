@@ -44,7 +44,30 @@ class NodeGraphRectItem
 : public QGraphicsRectItem
 {
     int _cornerRadiusPx;
+    bool _solvfxLook; // SOLVFX: vertical gradient body (node graph look)
+    bool _pill; // SOLVFX: corner radius = half the height (Viewer node)
+    bool _selectedLook; // SOLVFX: lighter fill when selected
 public:
+
+    // SOLVFX: top color of the body gradient for a node color (bottom color).
+    // The category colors use the exact pairs of the locked style sheet.
+    static QColor solvfxTopColor(const QColor& bottom);
+
+    void setSolvfxLook(bool look, bool pill = false)
+    {
+        _solvfxLook = look;
+        _pill = pill;
+        update();
+    }
+
+    void setSelectedLook(bool selected)
+    {
+        if (_selectedLook != selected) {
+            _selectedLook = selected;
+            update();
+        }
+    }
+
 
     NodeGraphRectItem(QGraphicsItem *parent,
                       int cornerRadiusPx);
