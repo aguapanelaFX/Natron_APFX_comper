@@ -98,6 +98,9 @@ public:
     void setUseLineColor(bool use, const QColor& color);
     void setUseSliderColor(bool use, const QColor &color);
 
+    // SOLVFX: show this value (usually the knob default) in the middle of the slider
+    void setDefaultPivot(double pivot);
+
 Q_SIGNALS:
     void editingFinished(bool hasMovedOnce);
     void positionChanged(double);
@@ -120,6 +123,7 @@ private:
 
 
     void centerOn(double left, double right);
+    void centerOnAxisRange(); // SOLVFX
 
     virtual void mousePressEvent(QMouseEvent* e) OVERRIDE FINAL;
     virtual void mouseMoveEvent(QMouseEvent* e) OVERRIDE FINAL;

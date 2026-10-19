@@ -288,16 +288,21 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
                 r = g = b = 0x26 / 255.;
                 break;
             }
+            // SOLVFX field states: animated / keyframe / expression / linked
             case 1: {
-                appPTR->getCurrentSettings()->getInterpolatedColor(&r, &g, &b);
+                r = 0x6b / 255.; g = 0x4a / 255.; b = 0x2a / 255.;
                 break;
             }
             case 2: {
-                appPTR->getCurrentSettings()->getKeyframeColor(&r, &g, &b);
+                r = 0xe0 / 255.; g = 0x74 / 255.; b = 0x3a / 255.;
                 break;
             }
             case 3: {
-                appPTR->getCurrentSettings()->getExprColor(&r, &g, &b);
+                r = 0x24 / 255.; g = 0x52 / 255.; b = 0x4a / 255.;
+                break;
+            }
+            case 4: {
+                r = 0x3f / 255.; g = 0x33 / 255.; b = 0x58 / 255.;
                 break;
             }
             }
@@ -331,6 +336,8 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         textColor.setRgbF(aR, aG, aB);
     } else if (!_enabled) {
         textColor = Qt::black;
+    } else if (_animation == 2) {
+        textColor = QColor(0x14, 0x14, 0x14); // SOLVFX: dark text on the orange keyframe field
     } else {
         double r, g, b;
         appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);

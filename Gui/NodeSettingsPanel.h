@@ -93,6 +93,12 @@ public:
 
     virtual void setPyPlugUIEnabled(bool enabled) OVERRIDE FINAL;
 
+protected:
+
+    virtual void paintEvent(QPaintEvent* e) OVERRIDE FINAL; // SOLVFX: outline in the node color
+
+public:
+
 private:
 
 

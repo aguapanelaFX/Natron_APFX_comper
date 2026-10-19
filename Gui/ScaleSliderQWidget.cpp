@@ -81,6 +81,31 @@ struct ScaleSliderQWidgetPrivate
     QColor lineColor;
     bool allowDraftModeSetting;
     std::vector<std::pair<double, QString> > customTicks; // SOLVFX
+    bool usePivot; // SOLVFX: default value drawn in the middle of the slider
+    double pivot;
+
+    // value <-> slider axis (0..1 with the pivot at 0.5 when usePivot)
+    double toAxis(double v) const
+    {
+        if (!usePivot) {
+            return v;
+        }
+        if (v <= pivot) {
+            return (pivot > minimum) ? 0.5 * (v - minimum) / (pivot - minimum) : 0.5;
+        }
+        return (maximum > pivot) ? 0.5 + 0.5 * (v - pivot) / (maximum - pivot) : 0.5;
+    }
+
+    double fromAxis(double s) const
+    {
+        if (!usePivot) {
+            return s;
+        }
+        if (s <= 0.5) {
+            return minimum + (s / 0.5) * (pivot - minimum);
+        }
+        return pivot + ( (s - 0.5) / 0.5 ) * (maximum - pivot);
+    }
 
     ScaleSliderQWidgetPrivate(QWidget* parent,
                               double min,
@@ -112,6 +137,8 @@ struct ScaleSliderQWidgetPrivate
         , useSliderColor(false)
         , lineColor(Qt::black)
         , allowDraftModeSetting(allowDraftModeSetting)
+        , usePivot(false)
+        , pivot(0.)
     {
         font.setPointSize( (font.pointSize() * NATRON_FONT_SIZE_10) / NATRON_FONT_SIZE_13 );
         assert( std::isfinite(minimum) && std::isfinite(maximum) && std::isfinite(initialPos) );
@@ -199,7 +226,8 @@ ScaleSliderQWidget::mousePressEvent(QMouseEvent* e)
             QPoint newClick =  e->pos();
             _imp->oldClick = newClick;
             QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( newClick.x(), newClick.y() );
-            double v = _imp->dataType == eDataTypeInt ? std::floor(newClick_opengl.x() + 0.5) : newClick_opengl.x();
+            const double av = _imp->fromAxis( newClick_opengl.x() );
+            double v = _imp->dataType == eDataTypeInt ? std::floor(av + 0.5) : av;
             seekInternal(v);
         }
     }
@@ -212,7 +240,8 @@ ScaleSliderQWidget::mouseMoveEvent(QMouseEvent* e)
     if (!_imp->readOnly) {
         QPoint newClick =  e->pos();
         QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( newClick.x(), newClick.y() );
-        double v = _imp->dataType == eDataTypeInt ? std::floor(newClick_opengl.x() + 0.5) : newClick_opengl.x();
+        const double av = _imp->fromAxis( newClick_opengl.x() );
+        double v = _imp->dataType == eDataTypeInt ? std::floor(av + 0.5) : av;
         if (_imp->gui && _imp->allowDraftModeSetting) {
             _imp->gui->setDraftRenderEnabled(true);
         }
@@ -266,12 +295,12 @@ ScaleSliderQWidget::zoomRange()
         assert(_imp->currentZoom != 0);
         double effectiveZoom = scale / _imp->currentZoom;
         _imp->currentZoom = scale;
-        _imp->zoomCtx.zoomx(_imp->value, 0, effectiveZoom);
+        _imp->zoomCtx.zoomx(_imp->toAxis(_imp->value), 0, effectiveZoom);
     } else {
-        _imp->zoomCtx.zoomx(_imp->value, 0, 1. / _imp->currentZoom);
+        _imp->zoomCtx.zoomx(_imp->toAxis(_imp->value), 0, 1. / _imp->currentZoom);
         _imp->currentZoom = 1.;
         if (_imp->minimum < _imp->maximum) {
-            centerOn(_imp->minimum, _imp->maximum);
+            centerOnAxisRange();
         }
     }
     update();
@@ -404,9 +433,35 @@ ScaleSliderQWidget::setMinimumAndMaximum(double min,
     assert(std::isfinite(min) && std::isfinite(max) && min < max);
     _imp->minimum = min;
     _imp->maximum = max;
+    if ( _imp->usePivot && ( (_imp->pivot <= min) || (_imp->pivot >= max) ) ) {
+        _imp->usePivot = false; // SOLVFX: pivot no longer inside the range
+    }
     if (_imp->minimum < _imp->maximum) {
+        centerOnAxisRange();
+    }
+}
+
+void
+ScaleSliderQWidget::centerOnAxisRange()
+{
+    if (_imp->usePivot) {
+        centerOn(0., 1.);
+    } else if (_imp->minimum < _imp->maximum) {
         centerOn(_imp->minimum, _imp->maximum);
     }
+}
+
+void
+ScaleSliderQWidget::setDefaultPivot(double pivot)
+{
+    // SOLVFX: draw the default value in the middle of the slider (piecewise linear)
+    const bool use = (pivot > _imp->minimum) && (pivot < _imp->maximum);
+    _imp->usePivot = use;
+    _imp->pivot = pivot;
+    if (!_imp->mustInitializeSliderPosition) {
+        centerOnAxisRange();
+    }
+    update();
 }
 
 void
@@ -430,7 +485,7 @@ ScaleSliderQWidget::resizeEvent(QResizeEvent* e)
         _imp->zoomCtx.setScreenSize( e->size().width(), e->size().height() );
     }
     if ( !_imp->mustInitializeSliderPosition && (_imp->minimum < _imp->maximum) ) {
-        centerOn(_imp->minimum, _imp->maximum);
+        centerOnAxisRange();
     }
     QWidget::resizeEvent(e);
 }
@@ -440,7 +495,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
 {
     if (_imp->mustInitializeSliderPosition) {
         if (_imp->minimum < _imp->maximum) {
-            centerOn(_imp->minimum, _imp->maximum);
+            centerOnAxisRange();
         }
         _imp->mustInitializeSliderPosition = false;
         seekScalePosition(_imp->value);
@@ -472,7 +527,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     QFontMetrics fontM(_imp->font, 0);
 
     if (!_imp->useLineColor) {
-        p.setPen(scaleColor);
+        p.setPen( QColor(0x7a, 0x7a, 0x7a) ); // SOLVFX: thin gray track
     } else {
         p.setPen(_imp->lineColor);
     }
@@ -513,14 +568,24 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     const double largestTickSize = range * largestTickSizePixel / rangePixel;
     const double minTickSizeTextPixel = fontM.horizontalAdvance( QLatin1String("00") ); // AXIS-SPECIFIC
     const double minTickSizeText = range * minTickSizeTextPixel / rangePixel;
-    if ( !_imp->customTicks.empty() ) {
+    std::vector<std::pair<double, QString> > pivotTicks;
+    if ( _imp->customTicks.empty() && _imp->usePivot ) {
+        // SOLVFX: ticks at min, halfway, default, halfway, max
+        const double vals[5] = { _imp->minimum, (_imp->minimum + _imp->pivot) / 2., _imp->pivot,
+                                 (_imp->pivot + _imp->maximum) / 2., _imp->maximum };
+        for (int i = 0; i < 5; ++i) {
+            pivotTicks.push_back( std::make_pair( vals[i], QString::number(vals[i], 'g', 3) ) );
+        }
+    }
+    const std::vector<std::pair<double, QString> >& fixedTicks = _imp->customTicks.empty() ? pivotTicks : _imp->customTicks;
+    if ( !fixedTicks.empty() ) {
         // SOLVFX: fixed ticks with custom labels
         QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
         QPen pen(c);
         pen.setWidthF(1.);
         p.setFont(_imp->font);
-        for (std::size_t i = 0; i < _imp->customTicks.size(); ++i) {
-            const double value = _imp->customTicks[i].first;
+        for (std::size_t i = 0; i < fixedTicks.size(); ++i) {
+            const double value = _imp->toAxis(fixedTicks[i].first);
             if ( (value < range_min) || (value > range_max) ) {
                 continue;
             }
@@ -528,7 +593,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
             QPointF tickBottomPos = _imp->zoomCtx.toWidgetCoordinates(value, tickBottom);
             QPointF tickTopPos = _imp->zoomCtx.toWidgetCoordinates(value, tickTop);
             p.drawLine(tickBottomPos, tickTopPos);
-            const QString& s = _imp->customTicks[i].second;
+            const QString& s = fixedTicks[i].second;
             if ( s.isEmpty() ) {
                 continue;
             }
@@ -540,7 +605,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
             p.drawText(textX, textY, s);
         }
     }
-    for (int i = m1; _imp->customTicks.empty() && i <= m2; ++i) {
+    for (int i = m1; fixedTicks.empty() && i <= m2; ++i) {
         double value = i * smallTickSize + offset;
         const double tickSize = ticks[i - m1] * smallTickSize;
         const double alpha = ticks_alpha(smallestTickSize, largestTickSize, tickSize);
@@ -594,13 +659,11 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
             }
         }
     }
-    double positionValue = _imp->zoomCtx.toWidgetCoordinates(_imp->value, 0).x();
+    double positionValue = _imp->zoomCtx.toWidgetCoordinates(_imp->toAxis(_imp->value), 0).x();
 
     SettingsPtr settings = appPTR->getCurrentSettings();
     if (!_imp->useSliderColor) {
-        double sliderColorRGB[3];
-        settings->getSliderColor(&sliderColorRGB[0], &sliderColorRGB[1], &sliderColorRGB[2]);
-        _imp->sliderColor.setRgbF(sliderColorRGB[0], sliderColorRGB[1], sliderColorRGB[2]);
+        _imp->sliderColor = QColor(0xbd, 0xbd, 0xbd); // SOLVFX handle
     } else {
         _imp->sliderColor = _imp->customSliderColor;
     }
@@ -659,8 +722,15 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         //p.setOpacity(0.8); // also sets opacity of the brush/fill!
         p.setPen(pen);
     }
-    // the magic 2.8 factor is here so that the full antialiased circle is not clipped
-    p.drawEllipse(QPointF(positionValue, lineYpos), TO_DPIX(SLIDER_HEIGHT/2.8), TO_DPIX(SLIDER_HEIGHT/2.8));
+    // SOLVFX: small 6x12 handle with 1px corners, centered on the track
+    {
+        const double hw = TO_DPIX(6) / 2.;
+        const double hh = TO_DPIY(12) / 2.;
+        if ( !hasFocus() || _imp->readOnly ) {
+            p.setPen( QColor(0x14, 0x14, 0x14) );
+        }
+        p.drawRoundedRect( QRectF(positionValue - hw, lineYpos - hh, hw * 2., hh * 2.), 1., 1. );
+    }
     p.setRenderHints(rh);
 #endif
 } // paintEvent

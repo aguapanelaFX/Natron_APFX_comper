@@ -1079,3 +1079,49 @@ AutoHideToolBar QToolButton:pressed,
 Natron--AutoHideToolBar QToolButton:pressed {
     background-color: #2a2a2a;
 }
+
+/* SOLVFX 3.4: knob field states
+   1 animated (between keys) / 2 keyframe on this frame / 3 expression / 4 linked */
+SpinBox[animation="1"], Natron--SpinBox[animation="1"],
+LineEdit[animation="1"], Natron--LineEdit[animation="1"],
+AnimatingTextEdit[animation="1"], Natron--AnimatingTextEdit[animation="1"] {
+    background-color: #6b4a2a;
+    color: #f3b483;
+}
+SpinBox[animation="2"], Natron--SpinBox[animation="2"],
+LineEdit[animation="2"], Natron--LineEdit[animation="2"],
+AnimatingTextEdit[animation="2"], Natron--AnimatingTextEdit[animation="2"] {
+    background-color: #e0743a;
+    color: #141414;
+}
+SpinBox[animation="3"], Natron--SpinBox[animation="3"],
+LineEdit[animation="3"], Natron--LineEdit[animation="3"],
+AnimatingTextEdit[animation="3"], Natron--AnimatingTextEdit[animation="3"] {
+    background-color: #24524a;
+    color: #5fd3bc;
+}
+SpinBox[animation="4"], Natron--SpinBox[animation="4"],
+LineEdit[animation="4"], Natron--LineEdit[animation="4"],
+AnimatingTextEdit[animation="4"], Natron--AnimatingTextEdit[animation="4"] {
+    background-color: #3f3358;
+    color: #b9a2f0;
+}
+ClickableLabel[dirty="false"][animation="1"], Natron--ClickableLabel[dirty="false"][animation="1"] { background-color: #6b4a2a; color: #f3b483; }
+ClickableLabel[dirty="false"][animation="2"], Natron--ClickableLabel[dirty="false"][animation="2"] { background-color: #e0743a; color: #141414; }
+ClickableLabel[dirty="false"][animation="3"], Natron--ClickableLabel[dirty="false"][animation="3"] { background-color: #24524a; color: #5fd3bc; }
+ClickableLabel[dirty="false"][animation="4"], Natron--ClickableLabel[dirty="false"][animation="4"] { background-color: #3f3358; color: #b9a2f0; }
+
+/* SOLVFX 3.4: properties panels. The 2px outline in the node color is painted in
+   NodeSettingsPanel::paintEvent; the border here only reserves its space. */
+NodeSettingsPanel[_selected="true"], Natron--NodeSettingsPanel[_selected="true"],
+NodeSettingsPanel[_selected="false"], Natron--NodeSettingsPanel[_selected="false"] {
+    border: 2px solid transparent;
+    border-radius: 10px;
+}
+QFrame#SolvfxPanelHeader {
+    background-color: #3b3b3b;
+    border: none;
+    border-bottom: 1px solid #222222;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}

@@ -25,6 +25,8 @@
 
 #include "KnobGuiValue.h"
 
+#include <cmath>
+
 #include <limits>
 #include <algorithm> // min, max
 #include <stdexcept>
@@ -730,6 +732,19 @@ KnobGuiValue::onDisplayMinMaxChanged(const double mini,
         }
         if (sliderMax > sliderMin) {
             _imp->slider->setMinimumAndMaximum(sliderMin, sliderMax);
+            // SOLVFX: the default value sits in the middle of the slider (e.g. gain 0..4
+            // with 1 centered, gamma with 1 centered). Spatial knobs keep a linear slider.
+            if ( (index == 0) && !isSpatialType() ) {
+                KnobDoubleBasePtr dk = _imp->getKnobAsDouble();
+                KnobIntBasePtr ik = _imp->getKnobAsInt();
+                double def = dk ? valueAccordingToType( false, 0, dk->getDefaultValue(0) ) : (ik ? (double)ik->getDefaultValue(0) : sliderMin);
+                const double mid = (sliderMin + sliderMax) / 2.;
+                if ( (def > sliderMin) && (def < sliderMax) && ( std::abs(def - mid) > (sliderMax - sliderMin) * 1e-3 ) ) {
+                    _imp->slider->setDefaultPivot(def);
+                } else {
+                    _imp->slider->setDefaultPivot(sliderMin - 1.); // off
+                }
+            }
         }
     }
 } // KnobGuiValue::onDisplayMinMaxChanged
@@ -865,9 +880,43 @@ KnobGuiValue::reflectAnimationLevel(int dimension,
         value = 0;
         break;
     }
+    // SOLVFX: linked (slaved) knobs have their own color
+    KnobIPtr knob = _imp->getKnob();
+    if ( knob && knob->isSlave(dimension) ) {
+        value = 4;
+    }
     if ( value != _imp->spinBoxes[dimension].first->getAnimation() ) {
         _imp->spinBoxes[dimension].first->setAnimation(value);
     }
+    if (dimension == 0) {
+        solvfxRefreshSliderColor(value);
+    }
+}
+
+void
+KnobGuiValue::solvfxRefreshSliderColor(int animation)
+{
+    // SOLVFX: slider handle follows the field state:
+    // 1 animated / 2 keyframe = orange, 3 expression = teal, 4 linked = lilac
+    if (!_imp->slider) {
+        return;
+    }
+    switch (animation) {
+    case 1:
+    case 2:
+        _imp->slider->setUseSliderColor( true, QColor(0xe0, 0x74, 0x3a) );
+        break;
+    case 3:
+        _imp->slider->setUseSliderColor( true, QColor(0x5f, 0xd3, 0xbc) );
+        break;
+    case 4:
+        _imp->slider->setUseSliderColor( true, QColor(0xb9, 0xa2, 0xf0) );
+        break;
+    default:
+        _imp->slider->setUseSliderColor( false, QColor() );
+        break;
+    }
+    _imp->slider->update();
 }
 
 void
@@ -1074,6 +1123,16 @@ KnobGuiValue::setEnabled()
 
     for (std::size_t i = 0; i < _imp->spinBoxes.size(); ++i) {
         bool b = knob->isEnabled(i) && !knob->isSlave(i);
+        // SOLVFX: show the linked (slaved) state in the field color
+        if ( knob->getExpression(i).empty() ) {
+            int anim = knob->isSlave(i) ? 4 : (int)knob->getAnimationLevel(i);
+            if ( anim != _imp->spinBoxes[i].first->getAnimation() ) {
+                _imp->spinBoxes[i].first->setAnimation(anim);
+            }
+            if (i == 0) {
+                solvfxRefreshSliderColor(anim);
+            }
+        }
         _imp->spinBoxes[i].first->setReadOnly_NoFocusRect(!b);
         if (_imp->spinBoxes[i].second) {
             _imp->spinBoxes[i].second->setReadOnly(!b);
@@ -1119,13 +1178,20 @@ KnobGuiValue::reflectExpressionState(int dimension,
 
     if (hasExpr) {
         _imp->spinBoxes[dimension].first->setAnimation(3);
+        if (dimension == 0) {
+            solvfxRefreshSliderColor(3);
+        }
         //_spinBoxes[dimension].first->setReadOnly_NoFocusRect(true);
         if (_imp->slider) {
             _imp->slider->setReadOnly(true);
         }
     } else {
         AnimationLevelEnum lvl = knob->getAnimationLevel(dimension);
-        _imp->spinBoxes[dimension].first->setAnimation( (int)lvl );
+        int anim = knob->isSlave(dimension) ? 4 : (int)lvl; // SOLVFX: linked state
+        _imp->spinBoxes[dimension].first->setAnimation(anim);
+        if (dimension == 0) {
+            solvfxRefreshSliderColor(anim);
+        }
         bool isEnabled = knob->isEnabled(dimension);
         _imp->spinBoxes[dimension].first->setReadOnly_NoFocusRect(!isEnabled);
         if (_imp->slider) {

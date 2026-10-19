@@ -33,6 +33,8 @@
 #include <stdexcept>
 
 #include <QStyle>
+#include <QPainter>
+#include <QPaintEvent>
 
 #include "Global/FStreamsSupport.h"
 
@@ -95,6 +97,29 @@ NodeSettingsPanel::NodeSettingsPanel(const MultiInstancePanelPtr & multiPanel,
     _settingsButton->setFocusPolicy(Qt::NoFocus);
     QObject::connect( _settingsButton, SIGNAL(clicked()), this, SLOT(onSettingsButtonClicked()) );
     insertHeaderWidget(1, _settingsButton);
+
+    // SOLVFX: repaint the outline when the node color changes
+    QObject::connect( NodeUi.get(), SIGNAL(colorChanged(QColor)), this, SLOT(update()) );
+}
+
+void
+NodeSettingsPanel::paintEvent(QPaintEvent* e)
+{
+    DockablePanel::paintEvent(e);
+    // SOLVFX: 2px outline in the node color (custom node colors included), so several
+    // open panels can be told apart; the space is reserved by the style sheet border
+    QColor c = getCurrentColor();
+    if ( !c.isValid() ) {
+        return;
+    }
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(c);
+    pen.setWidthF(2.);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+    const double r = TO_DPIX(10);
+    p.drawRoundedRect( QRectF( rect() ).adjusted(1., 1., -1., -1.), r, r );
 }
 
 NodeSettingsPanel::~NodeSettingsPanel()

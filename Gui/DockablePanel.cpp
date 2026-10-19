@@ -184,11 +184,13 @@ DockablePanel::DockablePanel(Gui* gui,
     QColor currentColor;
     if (headerMode != eHeaderModeNoHeader) {
         _imp->_headerWidget = new QFrame(this);
-        _imp->_headerWidget->setFrameShape(QFrame::Box);
+        // SOLVFX: flat header (#3b3b3b, rounded top) styled in mainstyle.qss
+        _imp->_headerWidget->setObjectName( QString::fromUtf8("SolvfxPanelHeader") );
+        _imp->_headerWidget->setFrameShape(QFrame::NoFrame);
         _imp->_headerLayout = new QHBoxLayout(_imp->_headerWidget);
-        _imp->_headerLayout->setContentsMargins(0, 0, 0, 0);
+        _imp->_headerLayout->setContentsMargins( TO_DPIX(6), TO_DPIY(4), TO_DPIX(6), TO_DPIY(4) );
         _imp->_headerWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-        _imp->_headerLayout->setSpacing(2);
+        _imp->_headerLayout->setSpacing( TO_DPIX(4) );
         _imp->_headerWidget->setLayout(_imp->_headerLayout);
 
         if (isEffect) {
