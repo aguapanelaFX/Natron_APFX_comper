@@ -359,7 +359,9 @@ NodeGraph::moveRootInternal(double dx,
     _imp->_lastSelectionStartPointScene.ry() += dy;
 
     _imp->_root->moveBy(dx, dy);
-    // SOLVFX: the grid is drawn relative to the root item, redraw the whole background
+    // SOLVFX: the grid is drawn relative to the root item. The view caches its
+    // background (CacheBackground), so drop the cache or the old grid is reused.
+    resetCachedContent();
     viewport()->update();
 }
 
