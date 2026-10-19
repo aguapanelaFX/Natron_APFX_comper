@@ -440,10 +440,18 @@ ViewerGL::Implementation::initializeGL()
     _this->makeCurrent();
     initAndCheckGlExtensions();
 
+    // SOLVFX: create the display textures with the viewer's bit depth (float), so the
+    // first image doesn't have to replace them
     int format, internalFormat, glType;
-    Texture::getRecommendedTexParametersForRGBAByteTexture(&format, &internalFormat, &glType);
-    displayTextures[0].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, Texture::eDataTypeByte, format, internalFormat, glType) );
-    displayTextures[1].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, Texture::eDataTypeByte, format, internalFormat, glType) );
+    Texture::DataTypeEnum startType = Texture::eDataTypeByte;
+    if (_this->getBitDepth() == eImageBitDepthByte) {
+        Texture::getRecommendedTexParametersForRGBAByteTexture(&format, &internalFormat, &glType);
+    } else {
+        startType = Texture::eDataTypeFloat;
+        Texture::getRecommendedTexParametersForRGBAFloatTexture(&format, &internalFormat, &glType);
+    }
+    displayTextures[0].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, startType, format, internalFormat, glType) );
+    displayTextures[1].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, startType, format, internalFormat, glType) );
 
 
     // glGenVertexArrays(1, &_vaoId);

@@ -1612,6 +1612,8 @@ ViewerGL::transferBufferFromRAMtoGPU(const unsigned char* ramBuffer,
                 Texture::getRecommendedTexParametersForRGBAByteTexture(&format, &internalFormat, &glType);
             }
             _imp->displayTextures[textureIndex].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, dataType, format, internalFormat, glType) );
+            // SOLVFX: upload into the new texture, not the replaced one (first image was black)
+            tex = _imp->displayTextures[textureIndex].texture;
         }
         textureRectangle.set(roiRoundedToTileSize);
         _imp->displayTextures[textureIndex].roiNotRoundedToTileSize.set(roi);
