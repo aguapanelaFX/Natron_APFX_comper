@@ -485,7 +485,7 @@ QTabBar::tab {
 
 QTabBar::tab#DockablePanelTabWidget,
 QTabBar::tab#Natron--DockablePanelTabWidget {
-    min-width: 3em;
+    min-width: 0px;
 }
 
 QTabBar::tab:hover {
@@ -1018,10 +1018,12 @@ QTabBar::tab {
     color: #8e8e8e;
     border: 1px solid #151515;
     border-bottom-style: none;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    padding: 3px 12px 3px 14px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 1px 8px 1px 9px;
     margin-right: 2px;
+    min-width: 0px;
+    font-size: 11px;
 }
 QTabBar::tab:hover {
     background: #333333;
