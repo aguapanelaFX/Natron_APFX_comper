@@ -2164,6 +2164,25 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
     bool foundAll = foundEnabled[0] && foundEnabled[1] && foundEnabled[2] && foundEnabled[3];
     bool isWriter = _imp->effect->isWriter();
 
+    // SOLVFX: Nuke-style channels row: "channels [layer] red green blue alpha".
+    // The output layer menu moves in front of the checkboxes.
+    int firstIndex = 0;
+    KnobChoicePtr outputLayer;
+    {
+        std::map<int, ChannelSelector>::iterator found = _imp->channelsSelectors.find(-1);
+        if ( found != _imp->channelsSelectors.end() ) {
+            outputLayer = found->second.layer.lock();
+        }
+    }
+    if ( outputLayer && !isWriter && (outputLayer->getParentKnob() == mainPage) ) {
+        mainPage->removeKnob( outputLayer.get() );
+        mainPage->insertKnob(0, outputLayer);
+        outputLayer->setLabel( tr("channels").toStdString() );
+        outputLayer->setAddNewLine(false);
+        firstIndex = 1;
+    }
+    static const char* solvfxChannelLabels[4] = { "red", "green", "blue", "alpha" };
+
     if (foundAll) {
         for (int i = 0; i < 4; ++i) {
             // Writers already have their checkboxes places correctly
@@ -2171,8 +2190,9 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
                 if (foundEnabled[i]->getParentKnob() == mainPage) {
                     //foundEnabled[i]->setAddNewLine(i == 3);
                     mainPage->removeKnob( foundEnabled[i].get() );
-                    mainPage->insertKnob(i, foundEnabled[i]);
+                    mainPage->insertKnob(firstIndex + i, foundEnabled[i]);
                 }
+                foundEnabled[i]->setLabel( std::string(solvfxChannelLabels[i]) ); // SOLVFX: Nuke labels
             }
             _imp->enabledChan[i] = foundEnabled[i];
         }
@@ -2194,7 +2214,8 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
                 foundEnabled[i]->setAddNewLine(i == 3);
                 foundEnabled[i]->setDefaultValue(pluginDefaultPref[i]);
                 foundEnabled[i]->setHintToolTip(channelHints[i]);
-                mainPage->insertKnob(i, foundEnabled[i]);
+                foundEnabled[i]->setLabel( std::string(solvfxChannelLabels[i]) ); // SOLVFX: Nuke labels
+                mainPage->insertKnob(firstIndex + i, foundEnabled[i]);
                 _imp->enabledChan[i] = foundEnabled[i];
             }
             foundAll = true;
@@ -2213,7 +2234,7 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
                                            "may be incorrect because the alpha channel changed but their value did not. "
                                            "To fix this, either check all RGB channels (or uncheck alpha) or unpremultiply the "
                                            "input image first.").toStdString() );
-        mainPage->insertKnob(4, premultWarning);
+        mainPage->insertKnob(firstIndex + 4, premultWarning);
         _imp->premultWarning = premultWarning;
     }
 } // Node::findOrCreateChannelEnabled

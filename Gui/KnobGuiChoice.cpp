@@ -236,6 +236,49 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
         return;
     }
     _comboBox->setCascading( knob->isCascading() );
+    // SOLVFX: Nuke-style short names for layer / channel menus ("Color.RGBA" -> "rgba")
+    {
+        const std::string& n = knob->getName();
+        const bool isLayerMenu = (n == "channels") || ( (n.size() > 9) && (n.compare(n.size() - 9, 9, "_channels") == 0) );
+        const bool isChannelMenu = (n.compare(0, 11, "maskChannel") == 0);
+        if (isLayerMenu) {
+            _comboBox->setDisplayTextTransform([](const QString& t) -> QString {
+                int dot = t.indexOf( QLatin1Char('.') );
+                if (dot < 0) {
+                    return t.toLower();
+                }
+                QString plane = t.left(dot);
+                QString chans = t.mid(dot + 1).toLower();
+                if ( plane == QString::fromUtf8("Color") ) {
+                    if ( (chans == QString::fromUtf8("a")) || (chans == QString::fromUtf8("alpha")) ) {
+                        return QString::fromUtf8("alpha");
+                    }
+                    return chans; // rgba, rgb
+                }
+                return plane.toLower();
+            });
+        } else if (isChannelMenu) {
+            _comboBox->setDisplayTextTransform([](const QString& t) -> QString {
+                int dot = t.lastIndexOf( QLatin1Char('.') );
+                if (dot < 0) {
+                    return t.toLower();
+                }
+                QString plane = t.left(dot);
+                QString chan = t.mid(dot + 1).toLower();
+                // drop an input prefix like "A." / "Mask." if present
+                int pdot = plane.lastIndexOf( QLatin1Char('.') );
+                QString prefix;
+                if (pdot >= 0) {
+                    prefix = plane.left(pdot + 1);
+                    plane = plane.mid(pdot + 1);
+                }
+                if ( plane == QString::fromUtf8("Color") ) {
+                    plane = QString::fromUtf8("rgba");
+                }
+                return prefix + plane.toLower() + QLatin1Char('.') + chan;
+            });
+        }
+    }
     onEntriesPopulated();
 
     QObject::connect( _comboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(onCurrentIndexChanged(int)) );
