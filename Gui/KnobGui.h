@@ -356,6 +356,9 @@ public Q_SLOTS:
     // SOLVFX: set a key at the current frame (dimension, -1 = all); used by Alt+click on a field
     void setKeyAtCurrentTime(int dimension);
 
+    // SOLVFX: put a checkbox label after the checkbox, in the field column (Nuke-like checkbox rows)
+    void setSolvfxInlineLabel(bool inlineLabel);
+
     void setEnabledSlot();
 
     void hide();

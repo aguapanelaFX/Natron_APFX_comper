@@ -708,6 +708,24 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
         QWidget *labelContainer = 0;
         QHBoxLayout *labelLayout = 0;
         const bool hasLabel = ret->shouldCreateLabel();
+        // SOLVFX: a row made only of checkboxes ("[ ] reverse  [ ] black clamp  [ ] white clamp")
+        // starts in the field column, each checkbox followed by its text (Nuke-like)
+        bool solvfxInlineBool = false;
+        if ( hasLabel && makeNewLine && dynamic_cast<KnobBool*>( knob.get() ) && !knob->isNewLineActivated() ) {
+            int nOthers = 0;
+            bool allBools = true;
+            for (KnobsVec::const_iterator itS = knobsOnSameLine.begin(); itS != knobsOnSameLine.end(); ++itS) {
+                if ( (*itS)->getIsSecret() ) {
+                    continue;
+                }
+                ++nOthers;
+                if ( !dynamic_cast<KnobBool*>( itS->get() ) ) {
+                    allBools = false;
+                }
+            }
+            solvfxInlineBool = allBools && (nOthers > 0);
+        }
+        ret->setSolvfxInlineLabel(solvfxInlineBool);
         if (hasLabel) {
             if (makeNewLine) {
                 labelContainer = new QWidget(page->tab);
@@ -759,7 +777,7 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
             QObject::connect( label, SIGNAL(clicked(bool)), ret.get(), SIGNAL(labelClicked(bool)) );
 
 
-            if (makeNewLine) {
+            if (makeNewLine && !solvfxInlineBool) {
                 labelLayout->addWidget(warningLabel);
                 labelLayout->addWidget(label);
             }

@@ -119,6 +119,7 @@ struct KnobGuiPrivate
     bool isOnNewLine;
     CustomParamInteract* customInteract;
     QPushButton* solvfxAnimButton; // SOLVFX: Nuke-like animation menu button
+    bool solvfxInlineLabel; // SOLVFX: checkbox label drawn after the checkbox, in the field column
     std::vector< std::shared_ptr<Curve> > guiCurves;
     bool guiRemoved;
 

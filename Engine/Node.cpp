@@ -2255,6 +2255,127 @@ Node::createChannelSelectors(const std::vector<std::pair<bool, bool> >& hasMaskC
     _imp->createChannelSelector(-1, "Output", true, mainPage, lastKnobBeforeAdvancedOption);
 }
 
+// SOLVFX: Nuke-like bottom block of the node panel:
+//   [ ] reverse  [ ] black clamp  [ ] white clamp
+//   ───────────────────────────────
+//   mask [■] [rgba.alpha ▾]  [ ] invert
+//   (un)premult by [ ]
+//   mix [1] ──────────────
+static void
+solvfxArrangeMaskMixBlock(EffectInstance* effect,
+                          const KnobPagePtr& page)
+{
+    if (!effect || !page) {
+        return;
+    }
+    KnobsVec children = page->getChildren();
+    KnobIPtr maskInvert, premult, premultChannel, mix;
+    std::vector<KnobIPtr> masks;
+    const std::string enablePrefix = std::string(kEnableMaskKnobName) + "_";
+    const std::string channelPrefix = std::string(kMaskChannelKnobName) + "_";
+
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        const KnobIPtr& k = children[i];
+        const std::string& n = k->getName();
+        if ( (n == "reverse") && dynamic_cast<KnobBool*>( k.get() ) ) {
+            k->setLabel( std::string("reverse") );
+        } else if ( (n == "clampBlack") && dynamic_cast<KnobBool*>( k.get() ) ) {
+            k->setLabel( std::string("black clamp") );
+        } else if ( (n == "clampWhite") && dynamic_cast<KnobBool*>( k.get() ) ) {
+            k->setLabel( std::string("white clamp") );
+        } else if ( (n == kOfxMaskInvertParamName) && dynamic_cast<KnobBool*>( k.get() ) ) {
+            maskInvert = k;
+        } else if ( (n == "premult") && dynamic_cast<KnobBool*>( k.get() ) ) {
+            premult = k;
+        } else if ( (n == "premultChannel") && dynamic_cast<KnobChoice*>( k.get() ) ) {
+            premultChannel = k;
+        } else if ( ( (n == kOfxMixParamName) || (n == "hostMix") ) && dynamic_cast<KnobDouble*>( k.get() ) && (k->getDimension() == 1) ) {
+            if (!mix || (n == kOfxMixParamName)) {
+                mix = k;
+            }
+        } else if ( (n.compare(0, enablePrefix.size(), enablePrefix) == 0) || (n.compare(0, channelPrefix.size(), channelPrefix) == 0) ) {
+            masks.push_back(k);
+        }
+    }
+    if ( masks.empty() && !maskInvert && !premult && !mix ) {
+        return;
+    }
+
+    std::vector<KnobIPtr> block;
+    for (std::size_t i = 0; i < masks.size(); ++i) {
+        block.push_back(masks[i]);
+    }
+    if (maskInvert) {
+        block.push_back(maskInvert);
+    }
+    if (premult) {
+        block.push_back(premult);
+    }
+    if (premultChannel && premult) {
+        block.push_back(premultChannel);
+    }
+    if (mix) {
+        block.push_back(mix);
+    }
+    for (std::size_t i = 0; i < block.size(); ++i) {
+        page->removeKnob( block[i].get() );
+    }
+
+    // Divider above the block, unless the last visible knob already is one
+    children = page->getChildren();
+    KnobIPtr lastVisible;
+    for (int i = (int)children.size() - 1; i >= 0; --i) {
+        if ( !children[i]->getIsSecret() ) {
+            lastVisible = children[i];
+            break;
+        }
+    }
+    if ( !children.empty() ) {
+        children.back()->setAddNewLine(true);
+    }
+    if ( lastVisible && !dynamic_cast<KnobSeparator*>( lastVisible.get() ) ) {
+        KnobSeparatorPtr sep = AppManager::createKnob<KnobSeparator>(effect, std::string(), 1, false);
+        sep->setName("solvfxMaskSep");
+        page->addKnob(sep);
+    }
+
+    // Mask rows
+    std::vector<KnobIPtr> channelKnobs;
+    for (std::size_t i = 0; i < masks.size(); ++i) {
+        const std::string& n = masks[i]->getName();
+        if (n.compare(0, enablePrefix.size(), enablePrefix) == 0) {
+            masks[i]->setAddNewLine(false);
+            masks[i]->setLabel( QString::fromUtf8( masks[i]->getLabel().c_str() ).toLower().toStdString() );
+        } else {
+            masks[i]->setAddNewLine(true);
+            channelKnobs.push_back(masks[i]);
+        }
+        page->addKnob(masks[i]);
+    }
+    if ( maskInvert && !channelKnobs.empty() ) {
+        channelKnobs.back()->setAddNewLine(false);
+    }
+    if (maskInvert) {
+        maskInvert->setLabel( std::string("invert") );
+        maskInvert->setAddNewLine(true);
+        page->addKnob(maskInvert);
+    }
+    if (premult) {
+        premult->setLabel( std::string("(un)premult by") );
+        premult->setAddNewLine(true);
+        page->addKnob(premult);
+        if (premultChannel) {
+            premultChannel->setAddNewLine(true);
+            page->addKnob(premultChannel);
+        }
+    }
+    if (mix) {
+        mix->setLabel( std::string("mix") );
+        mix->setAddNewLine(true);
+        page->addKnob(mix);
+    }
+} // solvfxArrangeMaskMixBlock
+
 void
 Node::initializeDefaultKnobs(bool loadingSerialization)
 {
@@ -2399,6 +2520,11 @@ Node::initializeDefaultKnobs(bool loadingSerialization)
         }
     }
 
+
+    // SOLVFX: Nuke-like mask / premult / mix block
+    if (mainPage && !isBackdropNode) {
+        solvfxArrangeMaskMixBlock(_imp->effect.get(), mainPage);
+    }
 
     createNodePage(settingsPage);
 

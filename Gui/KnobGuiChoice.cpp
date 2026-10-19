@@ -280,6 +280,13 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
         }
     }
     onEntriesPopulated();
+    // SOLVFX: mask channel menus have one fixed width so the mask rows line up (Nuke-like)
+    {
+        const std::string& n = knob->getName();
+        if ( (n.compare(0, 11, "maskChannel") == 0) || (n.compare(0, 12, "inputChannel") == 0) ) {
+            _comboBox->setFixedWidth( TO_DPIX(150) );
+        }
+    }
 
     QObject::connect( _comboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(onCurrentIndexChanged(int)) );
     QObject::connect( _comboBox, SIGNAL(itemNewSelected()), this, SLOT(onItemNewSelected()) );

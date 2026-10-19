@@ -203,6 +203,8 @@ KnobGui::createGUI(QWidget* fieldContainer,
     _imp->descriptionLabel = label;
     _imp->warningIndicator = warningIndicator;
     _imp->isOnNewLine = isOnNewLine;
+    // SOLVFX: checkboxes show their text after the box, like Nuke
+    const bool solvfxLabelAfter = label && dynamic_cast<KnobBool*>( knob.get() ) && (!isOnNewLine || _imp->solvfxInlineLabel);
     if (!isOnNewLine) {
         //layout->addStretch();
         int spacing;
@@ -220,7 +222,7 @@ KnobGui::createGUI(QWidget* fieldContainer,
         if (spacing > 0) {
             layout->addSpacing( TO_DPIX(spacing) );
         }
-        if (label) {
+        if (label && !solvfxLabelAfter) {
             if (_imp->warningIndicator) {
                 layout->addWidget(_imp->warningIndicator);
             }
@@ -241,13 +243,20 @@ KnobGui::createGUI(QWidget* fieldContainer,
         layout->addWidget(_imp->customInteract);
     } else {
         createWidget(layout);
+        if (solvfxLabelAfter) {
+            if (_imp->warningIndicator) {
+                layout->addWidget(_imp->warningIndicator);
+            }
+            layout->addSpacing( TO_DPIX(2) );
+            layout->addWidget(label);
+        }
         onHasModificationsChanged();
         updateToolTip();
 
         // SOLVFX: Nuke-like animation button at the end of animatable knobs: opens the
         // knob animation menu (keys, curve editor, interpolation, expression, link, copy/paste)
-        const bool animatableType = dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() ) ||
-                                    dynamic_cast<KnobBool*>( knob.get() ) || dynamic_cast<KnobChoice*>( knob.get() );
+        // (numeric knobs only, like Nuke; checkboxes and menus keep it on right-click)
+        const bool animatableType = dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() );
         if ( animatableType && knob->isAnimationEnabled() && !_imp->isInViewerUIKnob && knob->getHolder() && knob->getHolder()->getApp() ) {
             QPixmap pix( QString::fromUtf8(":/Resources/Images/solvfx_anim.png") );
             _imp->solvfxAnimButton = new Button( QIcon(pix), QString(), fieldContainer );
@@ -277,6 +286,12 @@ KnobGui::createGUI(QWidget* fieldContainer,
     }
     solvfxRefreshAnimButton();
 } // KnobGui::createGUI
+
+void
+KnobGui::setSolvfxInlineLabel(bool inlineLabel)
+{
+    _imp->solvfxInlineLabel = inlineLabel;
+}
 
 void
 KnobGui::onSolvfxAnimButtonClicked()
