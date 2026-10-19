@@ -35,6 +35,7 @@
 #include <QApplication> // qApp
 
 #include <QOpenGLShaderProgram>
+#include <QTimer>
 
 #include "Engine/Lut.h" // Color
 #include "Engine/Settings.h"
@@ -859,6 +860,10 @@ ViewerGL::Implementation::activateShaderRGB(int texIndex)
         if ( ocioViewer.bind( (float)displayTextures[texIndex].gain, (float)displayTextures[texIndex].offset,
                               (float)displayTextures[texIndex].gamma, (float)displaySaturation ) ) {
             ocioBound = true;
+            // SOLVFX: if the program had to be built during this draw, draw once more
+            if ( ocioViewer.takeBuiltDuringBind() ) {
+                QTimer::singleShot( 0, _this, SLOT(update()) );
+            }
 
             return;
         }

@@ -61,6 +61,7 @@ struct SolvfxOcioViewerShader::Imp
     std::string display, view;
     bool dirty = true;
     bool failed = false;
+    bool builtDuringBind = false;
     std::unique_ptr<QOpenGLShaderProgram> program;
 #ifdef SOLVFX_HAS_OCIO
     std::vector<LutTexture> textures;
@@ -361,10 +362,8 @@ SolvfxOcioViewerShader::bind(float gain,
         return false;
     }
     if (_imp->dirty) {
-        _imp->dirty = false;
-        if ( !_imp->build() ) {
-            _imp->failed = true;
-
+        _imp->builtDuringBind = true;
+        if ( !prepare() ) {
             return false;
         }
     }
@@ -409,6 +408,40 @@ SolvfxOcioViewerShader::bind(float gain,
     return true;
 #endif // SOLVFX_HAS_OCIO
 } // bind
+
+bool
+SolvfxOcioViewerShader::prepare()
+{
+#ifndef SOLVFX_HAS_OCIO
+
+    return false;
+#else
+    if ( !isActive() ) {
+        return false;
+    }
+    if (_imp->dirty) {
+        _imp->dirty = false;
+        if ( !_imp->build() ) {
+            _imp->failed = true;
+            qDebug() << "SOLVFX OCIO viewer: could not build" << _imp->view.c_str() << "(" << _imp->display.c_str() << "), using the built-in display";
+
+            return false;
+        }
+        qDebug() << "SOLVFX OCIO viewer: built" << _imp->view.c_str() << "(" << _imp->display.c_str() << ")";
+    }
+
+    return _imp->program != nullptr;
+#endif
+}
+
+bool
+SolvfxOcioViewerShader::takeBuiltDuringBind()
+{
+    const bool b = _imp->builtDuringBind;
+    _imp->builtDuringBind = false;
+
+    return b;
+}
 
 void
 SolvfxOcioViewerShader::release()

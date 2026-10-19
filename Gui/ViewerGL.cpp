@@ -1219,6 +1219,10 @@ ViewerGL::initializeGL()
         throw std::runtime_error("OpenGL was not loaded");
     }
     _imp->initializeGL();
+    // SOLVFX: build the OCIO view program up front if a view was already chosen
+    if (_imp->ocioRequested) {
+        _imp->ocioViewer.prepare();
+    }
 }
 
 GLuint
@@ -1729,6 +1733,12 @@ ViewerGL::setOcioDisplayView(const std::string& display,
     assert( qApp && qApp->thread() == QThread::currentThread() );
     _imp->ocioViewer.setDisplayView(display, view);
     _imp->ocioRequested = !display.empty();
+    // SOLVFX: build the OCIO program now, not in the middle of the next image draw
+    if ( _imp->ocioRequested && isValid() ) {
+        makeCurrent();
+        _imp->ocioViewer.prepare();
+        doneCurrent();
+    }
     update();
 }
 

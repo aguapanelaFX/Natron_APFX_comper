@@ -65,6 +65,13 @@ public:
     bool bind(float gain, float offset, float gamma, float saturation);
     void release();
 
+    // SOLVFX: builds the program now if needed (GL context must be current),
+    // so the first image draw doesn't have to. Returns true if usable.
+    bool prepare();
+
+    // true once if bind() had to build the program during a draw
+    bool takeBuiltDuringBind();
+
     // call when the GL context is about to be destroyed
     void destroyGL();
 
