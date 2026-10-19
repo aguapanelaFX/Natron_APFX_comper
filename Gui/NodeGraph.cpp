@@ -303,8 +303,11 @@ NodeGraph::drawBackground(QPainter* painter,
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setPen(pen);
-    const double left = std::floor(rect.left() / gw) * gw;
-    const double top = std::floor(rect.top() / gh) * gh;
+    // Panning moves the root item (all nodes), not the view: anchor the grid to the
+    // root so it pans with the nodes, and node snapping uses the same cells.
+    const QPointF origin = _imp->_root ? _imp->_root->scenePos() : QPointF(0, 0);
+    const double left = origin.x() + std::floor( (rect.left() - origin.x()) / gw ) * gw;
+    const double top = origin.y() + std::floor( (rect.top() - origin.y()) / gh ) * gh;
     QVector<QLineF> lines;
     for (double x = left; x <= rect.right(); x += gw) {
         lines.push_back( QLineF( x, top, x, rect.bottom() ) ); // grid-aligned start: dots don't crawl when panning
