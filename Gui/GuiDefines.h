@@ -48,8 +48,9 @@
 #define NATRON_WHEEL_ZOOM_PER_DELTA 1.00152 // 120 wheel deltas (one click on a standard wheel mouse) is x1.2
 //#define NATRON_FONT "Helvetica"
 //#define NATRON_FONT_ALT "Times"
-#define NATRON_FONT "Droid Sans"
-#define NATRON_FONT_ALT "Droid Sans"
+#define NATRON_FONT "Source Sans 3" // SOLVFX
+#define NATRON_FONT_ALT "Source Sans 3"
+#define SOLVFX_LEGACY_FONT "Droid Sans" // Natron default, migrated to NATRON_FONT
 #define NATRON_SCRIPT_FONT "Courier New"
 #define NATRON_FONT_SIZE_6 6
 #define NATRON_FONT_SIZE_8 8

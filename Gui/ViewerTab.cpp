@@ -701,22 +701,31 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->addWidget(_imp->zoomCombobox);
         l->addWidget(_imp->centerViewerButton);
 
+        // SOLVFX: the exposure / gamma / saturation sliders share all the free width
+        // up to the right-side buttons (exposure gets the biggest share)
+        {
+            ScaleSliderQWidget* sliders[3] = { _imp->gainSlider, _imp->gammaSlider, _imp->saturationSlider };
+            for (int i = 0; i < 3; ++i) {
+                sliders[i]->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+                sliders[i]->setMinimumWidth( TO_DPIX(70) );
+            }
+        }
         l = _imp->secondRowLayout;
         l->addWidget(_imp->toggleGainButton);
         l->addWidget(_imp->gainDownButton);
         l->addWidget(_imp->gainBox);
         l->addWidget(_imp->gainUpButton);
-        l->addWidget(_imp->gainSlider);
+        l->addWidget(_imp->gainSlider, 4);
         l->addWidget(_imp->autoContrast);
         addSpacer(l);
         l->addWidget(_imp->toggleGammaButton);
         l->addWidget(_imp->gammaBox);
-        l->addWidget(_imp->gammaSlider);
+        l->addWidget(_imp->gammaSlider, 3);
         addSpacer(l);
         l->addWidget(_imp->toggleSaturationButton);
         l->addWidget(_imp->saturationBox);
-        l->addWidget(_imp->saturationSlider);
-        l->addStretch();
+        l->addWidget(_imp->saturationSlider, 3);
+        l->addSpacing( TO_DPIX(10) );
         l->addWidget(_imp->activateRenderScale);
         l->addWidget(_imp->renderScaleCombo);
         l->addWidget(_imp->clipToProjectFormatButton);

@@ -2819,6 +2819,9 @@ Settings::populateSystemFonts(const QSettings& settings,
         QString name = QString::fromUtf8( _systemFontChoice->getName().c_str() );
         if ( settings.contains(name) ) {
             std::string value = settings.value(name).toString().toStdString();
+            if (value == "Droid Sans") {
+                value = NATRON_FONT; // SOLVFX: migrate the old Natron default font
+            }
             for (U32 i = 0; i < fonts.size(); ++i) {
                 if (fonts[i] == value) {
                     _systemFontChoice->setValue(i);

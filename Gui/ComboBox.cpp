@@ -284,7 +284,8 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
             switch (_animation) {
             case 0:
             default: {
-                appPTR->getCurrentSettings()->getRaisedColor(&r, &g, &b);
+                // SOLVFX: dark field like the other inputs (locked UI look)
+                r = g = b = 0x26 / 255.;
                 break;
             }
             case 1: {
@@ -305,29 +306,21 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
                               Color::floatToInt<256>(b) );
         }
 
-        double fw = frameWidth();
+        // SOLVFX: rounded field (6px corners), dark border, orange border when focused
         QPen pen;
-        if ( !hasFocus() ) {
-            pen.setColor(Qt::black);
-        } else {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getSelectionColor(&r, &g, &b);
-            QColor c;
-            c.setRgb( Color::floatToInt<256>(r),
-                      Color::floatToInt<256>(g),
-                      Color::floatToInt<256>(b) );
-            fw = 2;
-        }
+        pen.setWidthF(1.);
+        pen.setColor( hasFocus() ? QColor(0xe0, 0x74, 0x3a) : QColor(0x14, 0x14, 0x14) );
+        p.setRenderHint(QPainter::Antialiasing, true);
         p.setPen(pen);
-
-
-        QRectF roundedRect = bRect.adjusted(fw / 2., fw / 2., -fw, -fw);
-        bRect.adjust(fw, fw, -fw, -fw);
-        p.fillRect(bRect, fillColor);
-        double roundPixels = 3;
+        p.setBrush(fillColor);
+        QRectF roundedRect = bRect.adjusted(0.5, 0.5, -0.5, -0.5);
+        const double roundPixels = TO_DPIX(6);
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
         p.drawPath(path);
+        p.setBrush(Qt::NoBrush);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        bRect.adjust(1., 1., -1., -1.);
     }
     QColor textColor;
     if (_readOnly) {

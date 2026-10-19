@@ -790,3 +790,292 @@ QToolButton#ColorSelectorButton:pressed {
     top: 0px;
     left: 0px;
 }
+
+/* ======================================================================
+   SOLVFX look (step 3.1). Locked style sheet: "SOLVFX UI style sheet".
+   These rules come last so they override the Natron rules above.
+   ====================================================================== */
+
+QMenuBar {
+    background-color: #262626;
+    border-bottom: 1px solid #151515;
+}
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 9px;
+}
+QMenuBar::item:selected {
+    background: #e0743a;
+    color: #141414;
+    border-radius: 4px;
+}
+
+QMenu {
+    background-color: #2b2b2b;
+    border: 1px solid #0f0f0f;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 4px 22px 4px 22px;
+    border-radius: 4px;
+}
+QMenu::item:selected {
+    background-color: #e0743a;
+    color: #141414;
+}
+QMenu::item:!enabled {
+    color: #6a6a6a;
+}
+QMenu::separator {
+    height: 1px;
+    background: #1a1a1a;
+    margin: 3px 4px;
+}
+
+QToolTip {
+    color: #dcdcdc;
+    background-color: #1b1b1b;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    padding: 4px 6px;
+}
+
+/* Buttons: 6px corners everywhere */
+QPushButton {
+    background-color: #444444;
+    color: #dcdcdc;
+    border: 1px solid #141414;
+    border-radius: 6px;
+    padding: 2px 6px;
+}
+QPushButton:hover {
+    background-color: #545454;
+    border: 1px solid #141414;
+}
+QPushButton:pressed {
+    background-color: #2a2a2a;
+}
+QPushButton:focus {
+    border: 1px solid #141414;
+}
+QPushButton:checked {
+    background-color: #e0743a;
+    color: #141414;
+}
+QPushButton:checked:hover {
+    background-color: #ec8650;
+}
+QPushButton:!enabled {
+    background-color: #3a3a3a;
+    color: #6a6a6a;
+    border: 1px solid #1d1d1d;
+}
+QDialogButtonBox QPushButton:default {
+    background-color: #e0743a;
+    color: #141414;
+}
+
+/* Fields: 3px corners, dark */
+QLineEdit {
+    background-color: #262626;
+    border: 1px solid #141414;
+    border-radius: 3px;
+    padding: 1px 4px;
+    selection-background-color: #e0743a;
+    selection-color: #141414;
+}
+QLineEdit:focus {
+    border: 1px solid #e0743a;
+    border-radius: 3px;
+}
+SpinBox[animation="0"],
+Natron--SpinBox[animation="0"],
+LineEdit[animation="0"],
+Natron--LineEdit[animation="0"] {
+    background-color: #262626;
+}
+QTextEdit, QPlainTextEdit {
+    background-color: #262626;
+    border: 1px solid #141414;
+    border-radius: 3px;
+    selection-background-color: #e0743a;
+    selection-color: #141414;
+}
+QTextEdit:focus {
+    border: 1px solid #e0743a;
+    border-radius: 3px;
+    padding: 0px;
+}
+
+/* Qt combo boxes (Natron's own ComboBox is drawn in code) */
+QComboBox {
+    background-color: #262626;
+    border: 1px solid #141414;
+    border-radius: 6px;
+    padding: 1px 18px 1px 7px;
+    selection-background-color: #e0743a;
+}
+QComboBox QAbstractItemView {
+    background-color: #2b2b2b;
+    border: 1px solid #0f0f0f;
+    selection-background-color: #e0743a;
+    selection-color: #141414;
+    color: #dcdcdc;
+}
+
+/* Checkboxes: 15px, 3px corners, orange when on */
+QCheckBox::indicator {
+    width: 13px;
+    height: 13px;
+    border: 1px solid #141414;
+    border-radius: 3px;
+    background-color: #262626;
+}
+QCheckBox::indicator:unchecked,
+QCheckBox::indicator:unchecked:hover,
+QCheckBox::indicator:unchecked:focus {
+    image: none;
+    background-color: #262626;
+}
+QCheckBox::indicator:unchecked:hover {
+    border: 1px solid #5a5a5a;
+}
+QCheckBox::indicator:checked,
+QCheckBox::indicator:checked:hover,
+QCheckBox::indicator:checked:focus {
+    image: url(:/Resources/Images/solvfx_check.png);
+    background-color: #e0743a;
+}
+QCheckBox::indicator:disabled {
+    background-color: #2e2e2e;
+    border: 1px solid #1d1d1d;
+}
+
+/* Thin rounded scrollbars, no arrows */
+QScrollBar:vertical {
+    border: none;
+    background: #262626;
+    width: 10px;
+    margin: 0px;
+    border-radius: 5px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: #262626;
+    height: 10px;
+    margin: 0px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    image: none;
+    background: #5a5a5a;
+    min-height: 24px;
+    margin: 2px;
+    border-radius: 3px;
+}
+QScrollBar::handle:horizontal {
+    image: none;
+    background: #5a5a5a;
+    min-width: 24px;
+    margin: 2px;
+    border-radius: 3px;
+}
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {
+    background: #8a8a8a;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+    height: 0px;
+}
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+    image: none;
+    width: 0px;
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* Splitters: dark, orange while dragging */
+QSplitter::handle:horizontal,
+QSplitter::handle:vertical {
+    background-color: #151515;
+}
+QSplitter::handle:horizontal:pressed,
+QSplitter::handle:vertical:pressed {
+    background-color: #e0743a;
+}
+
+/* Pane tabs: 8px top corners */
+QTabBar::tab {
+    background: #2a2a2a;
+    color: #8e8e8e;
+    border: 1px solid #151515;
+    border-bottom-style: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 3px 12px 3px 14px;
+    margin-right: 2px;
+}
+QTabBar::tab:hover {
+    background: #333333;
+    color: #e6e6e6;
+}
+QTabBar::tab:selected {
+    background: #353535;
+    color: #e6e6e6;
+}
+QTabWidget::pane {
+    border: 1px solid #151515;
+}
+
+/* Lists, trees, headers */
+QTreeView, QListView {
+    background-color: #2b2b2b;
+    selection-background-color: #e0743a;
+    selection-color: #141414;
+}
+QTreeWidget::item:selected,
+QTreeWidget::branch:selected {
+    background: #e0743a;
+    color: #141414;
+}
+QHeaderView::section {
+    background-color: #2b2b2b;
+    color: #8e8e8e;
+    border: none;
+    border-bottom: 1px solid #1a1a1a;
+    padding: 3px 6px;
+}
+
+/* Left node toolbar: all icons gray, 6px corners */
+AutoHideToolBar,
+Natron--AutoHideToolBar {
+    background-color: #262626;
+    border-right: 1px solid #151515;
+    spacing: 4px;
+    padding: 4px 0px;
+}
+AutoHideToolBar QToolButton,
+Natron--AutoHideToolBar QToolButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5a5a5a, stop:1 #4a4a4a);
+    color: #d6d6d6;
+    border: 1px solid #151515;
+    border-radius: 6px;
+    margin: 1px 4px;
+    padding: 2px;
+}
+AutoHideToolBar QToolButton:hover,
+Natron--AutoHideToolBar QToolButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a6a6a, stop:1 #585858);
+}
+AutoHideToolBar QToolButton:pressed,
+Natron--AutoHideToolBar QToolButton:pressed {
+    background-color: #2a2a2a;
+}

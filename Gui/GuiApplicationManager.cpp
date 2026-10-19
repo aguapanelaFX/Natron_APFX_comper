@@ -86,7 +86,8 @@ void
 GuiApplicationManager::getIcon(PixmapEnum e,
                                QPixmap* pix) const
 {
-    int iconSet = appPTR->getCurrentSettings()->getIconsBlackAndWhite() ? 2 : 3;
+    // SOLVFX: node toolbar icons are always the gray set (locked UI look)
+    int iconSet = 2;
     std::string iconSetStr = QString::number(iconSet).toStdString();
 
     if ( !QPixmapCache::find(QString::number(e), pix) ) {
@@ -857,6 +858,11 @@ GuiApplicationManager::initGui(const CLArgs& args)
 
     fontFilenames << fontResource.arg( QString::fromUtf8("DroidSans") );
     fontFilenames << fontResource.arg( QString::fromUtf8("DroidSans-Bold") );
+    // SOLVFX: UI font
+    fontFilenames << fontResource.arg( QString::fromUtf8("SourceSans3-Regular") );
+    fontFilenames << fontResource.arg( QString::fromUtf8("SourceSans3-Semibold") );
+    fontFilenames << fontResource.arg( QString::fromUtf8("SourceSans3-Bold") );
+    fontFilenames << fontResource.arg( QString::fromUtf8("SourceSans3-It") );
     Q_FOREACH (const QString &fontFilename, fontFilenames) {
         int fontID = QFontDatabase::addApplicationFont(fontFilename);
 
@@ -870,6 +876,10 @@ GuiApplicationManager::initGui(const CLArgs& args)
     if ( settings.contains( QString::fromUtf8(kQSettingsSoftwareMajorVersionSettingName) ) && (settings.value( QString::fromUtf8(kQSettingsSoftwareMajorVersionSettingName) ).toInt() >= 2) ) {
         if ( settings.contains( QString::fromUtf8("systemFont") ) ) {
             fontFamily = settings.value( QString::fromUtf8("systemFont") ).toString();
+            // SOLVFX: the old Natron default font is replaced by the SOLVFX one
+            if ( fontFamily == QString::fromUtf8(SOLVFX_LEGACY_FONT) ) {
+                fontFamily = QString::fromUtf8(NATRON_FONT);
+            }
         }
     }
 

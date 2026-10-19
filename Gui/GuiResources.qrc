@@ -66,6 +66,10 @@
         <file alias="LICENSE-hoedown.txt">../tools/license/components/LICENSE-hoedown.txt</file>
         <file>Resources/Fonts/DroidSans-Bold.ttf</file>
         <file>Resources/Fonts/DroidSans.ttf</file>
+        <file>Resources/Fonts/SourceSans3-Regular.ttf</file>
+        <file>Resources/Fonts/SourceSans3-Semibold.ttf</file>
+        <file>Resources/Fonts/SourceSans3-Bold.ttf</file>
+        <file>Resources/Fonts/SourceSans3-It.ttf</file>
         <file>Resources/Images/GroupingIcons/Set1/color_grouping_1.png</file>
         <file>Resources/Images/GroupingIcons/Set1/deep_grouping_1.png</file>
         <file>Resources/Images/GroupingIcons/Set1/filter_grouping_1.png</file>
@@ -120,6 +124,7 @@
         <file>Resources/Images/bounce.png</file>
         <file>Resources/Images/centerViewer.png</file>
         <file>Resources/Images/checkbox.png</file>
+        <file>Resources/Images/solvfx_check.png</file>
         <file>Resources/Images/checkbox_animation1_checked.png</file>
         <file>Resources/Images/checkbox_animation1_checked_hovered.png</file>
         <file>Resources/Images/checkbox_animation1_unchecked.png</file>
