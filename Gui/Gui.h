@@ -215,6 +215,7 @@ public:
 
     /*set the curve editor as the active widget of its pane*/
     void setCurveEditorOnTop();
+    void setDopeSheetOnTop(); // SOLVFX
 
     ///Make the layout of the application as it is the first time Natron is opened
     void createDefaultLayout1();

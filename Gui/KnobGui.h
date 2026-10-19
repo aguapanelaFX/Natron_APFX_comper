@@ -342,6 +342,7 @@ public Q_SLOTS:
     void onViewerContextSecretChanged();
 
     void onSolvfxAnimButtonClicked();
+    void onSolvfxShowDopeSheetTriggered();
     void onRightClickClicked(const QPoint & pos);
 
     void showRightClickMenuForDimension(const QPoint & pos, int dimension);
@@ -351,6 +352,9 @@ public Q_SLOTS:
 
     // open the (Python) expression editor for a dimension, -1 = all dimensions
     void openExpressionEditor(int dimension);
+
+    // SOLVFX: set a key at the current frame (dimension, -1 = all); used by Alt+click on a field
+    void setKeyAtCurrentTime(int dimension);
 
     void setEnabledSlot();
 
@@ -507,6 +511,7 @@ private:
     virtual void updateToolTip() {}
 
     void createAnimationMenu(QMenu* menu, int dimension);
+    void createSolvfxOptionsMenu(QMenu* menu, int dimension); // SOLVFX
     Menu* createInterpolationMenu(QMenu* menu, int dimension, bool isEnabled);
 
     void setInterpolationForDimensions(QAction* action, KeyframeTypeEnum interp);

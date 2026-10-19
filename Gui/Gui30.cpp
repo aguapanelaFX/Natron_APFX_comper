@@ -47,6 +47,7 @@
 #include "Engine/Utils.h" // convertFromPlainText
 #include "Engine/ViewIdx.h"
 
+#include "Gui/DopeSheetEditor.h"
 #include "Gui/CurveEditor.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/GuiApplicationManager.h" // appPTR
@@ -626,6 +627,23 @@ Gui::setCurveEditorOnTop()
         assert(cur);
         for (int i = 0; i < cur->count(); ++i) {
             if (cur->tabAt(i) == _imp->_curveEditor) {
+                cur->makeCurrentTab(i);
+                break;
+            }
+        }
+    }
+}
+
+void
+Gui::setDopeSheetOnTop()
+{
+    QMutexLocker l(&_imp->_panesMutex);
+
+    for (std::list<TabWidget*>::iterator it = _imp->_panes.begin(); it != _imp->_panes.end(); ++it) {
+        TabWidget* cur = (*it);
+        assert(cur);
+        for (int i = 0; i < cur->count(); ++i) {
+            if (cur->tabAt(i) == _imp->_dopeSheetEditor) {
                 cur->makeCurrentTab(i);
                 break;
             }

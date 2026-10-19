@@ -40,6 +40,8 @@
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/ClickableLabel.h"
 #include "Gui/Button.h"
+#include "Gui/Gui.h"
+#include "Gui/Menu.h"
 #include <QStyle>
 #include <QPixmap>
 
@@ -283,8 +285,7 @@ KnobGui::onSolvfxAnimButtonClicked()
     if ( !knob || knob->getIsSecret() || !_imp->solvfxAnimButton ) {
         return;
     }
-    createAnimationMenu(_imp->copyRightClickMenu, 0);
-    addRightClickMenuEntries(_imp->copyRightClickMenu);
+    createSolvfxOptionsMenu(_imp->copyRightClickMenu, -1);
     _imp->copyRightClickMenu->exec( _imp->solvfxAnimButton->mapToGlobal( _imp->solvfxAnimButton->rect().bottomLeft() ) );
     solvfxRefreshAnimButton();
 }
@@ -394,10 +395,112 @@ KnobGui::showRightClickMenuForDimension(const QPoint &,
         return;
     }
 
-    createAnimationMenu(_imp->copyRightClickMenu, dimension);
-    addRightClickMenuEntries(_imp->copyRightClickMenu);
+    createSolvfxOptionsMenu(_imp->copyRightClickMenu, dimension);
     _imp->copyRightClickMenu->exec( QCursor::pos() );
 } // showRightClickMenuForDimension
+
+void
+KnobGui::createSolvfxOptionsMenu(QMenu* menu,
+                                 int dimension)
+{
+    // SOLVFX: Nuke-like knob options menu (animation button and right-click):
+    // Set key, Delete key, No animation, Set to default, Curve editor, Dope sheet,
+    // Edit expressions (=), Interpolation, Copy, Paste, Link; Natron's full menu under "More".
+    KnobIPtr knob = getKnob();
+    const int nDims = knob->getDimension();
+    if ( (nDims == 1) || ( (dimension == 0) && !getAllDimensionsVisible() ) ) {
+        dimension = (nDims == 1) ? 0 : -1;
+    }
+    menu->clear();
+    const bool isAppKnob = knob->getHolder() && knob->getHolder()->getApp();
+    const bool animEnabled = knob->isAnimationEnabled() && isAppKnob;
+    bool isEnabled = true, anyKeyHere = false, anyAnim = false, anyExpr = false, anySlaved = false;
+    for (int i = 0; i < nDims; ++i) {
+        if ( (dimension != -1) && (i != dimension) ) {
+            continue;
+        }
+        if ( !knob->isEnabled(i) ) {
+            isEnabled = false;
+        }
+        if (knob->getAnimationLevel(i) == eAnimationLevelOnKeyframe) {
+            anyKeyHere = true;
+        }
+        if (knob->getKeyFramesCount(ViewIdx(0), i) > 0) {
+            anyAnim = true;
+        }
+        if ( !knob->getExpression(i).empty() ) {
+            anyExpr = true;
+        }
+        if ( knob->isSlave(i) ) {
+            anySlaved = true;
+        }
+    }
+    const QVariant dimData(dimension);
+    auto add = [&](QMenu* m, const QString& text, const char* slot, bool enabled) -> QAction* {
+        QAction* a = new QAction(text, m);
+        a->setData(dimData);
+        QObject::connect( a, SIGNAL(triggered()), this, slot );
+        a->setEnabled(enabled);
+        m->addAction(a);
+        return a;
+    };
+
+    add( menu, tr("Set key"), SLOT(onSetKeyActionTriggered()), animEnabled && isEnabled && !anySlaved );
+    add( menu, tr("Delete key"), SLOT(onRemoveKeyActionTriggered()), animEnabled && isEnabled && anyKeyHere );
+    add( menu, tr("No animation"), SLOT(onRemoveAnimationActionTriggered()), animEnabled && isEnabled && anyAnim );
+    add( menu, tr("Set to default"), SLOT(onResetDefaultValuesActionTriggered()), isEnabled && !anySlaved );
+    add( menu, tr("Curve editor..."), SLOT(onShowInCurveEditorActionTriggered()), isAppKnob );
+    add( menu, tr("Dope sheet..."), SLOT(onSolvfxShowDopeSheetTriggered()), isAppKnob );
+    add( menu, tr("Edit expressions...") + QString::fromUtf8("\t="), SLOT(onSetExprActionTriggered()), isAppKnob && isEnabled && !anySlaved );
+    if (anyExpr) {
+        add( menu, tr("Clear expression"), SLOT(onClearExprActionTriggered()), isEnabled );
+    }
+    menu->addSeparator();
+    if (animEnabled) {
+        createInterpolationMenu(menu, dimension, isEnabled && anyAnim);
+    }
+    {
+        Menu* copyMenu = new Menu(menu);
+        copyMenu->setTitle( tr("Copy") );
+        add( copyMenu, tr("Values"), SLOT(onCopyValuesActionTriggered()), true );
+        add( copyMenu, tr("Animation"), SLOT(onCopyAnimationActionTriggered()), anyAnim );
+        add( copyMenu, tr("Links"), SLOT(onCopyLinksActionTriggered()), isAppKnob );
+        menu->addAction( copyMenu->menuAction() );
+    }
+    {
+        Menu* pasteMenu = new Menu(menu);
+        pasteMenu->setTitle( tr("Paste") );
+        add( pasteMenu, tr("Paste"), SLOT(onPasteActionTriggered()), isEnabled );
+        menu->addAction( pasteMenu->menuAction() );
+    }
+    if (isAppKnob) {
+        menu->addSeparator();
+        if (anySlaved) {
+            add( menu, tr("Unlink"), SLOT(onUnlinkActionTriggered()), true );
+        } else {
+            add( menu, tr("Link to..."), SLOT(onLinkToActionTriggered()), isEnabled );
+        }
+    }
+    // Natron's complete menu (aliases, per-dimension actions, knob extras)
+    {
+        Menu* more = new Menu(menu);
+        more->setTitle( tr("More") );
+        createAnimationMenu(more, dimension == -1 ? 0 : dimension);
+        addRightClickMenuEntries(more);
+        if ( !more->isEmpty() ) {
+            menu->addSeparator();
+            menu->addAction( more->menuAction() );
+        }
+    }
+} // createSolvfxOptionsMenu
+
+void
+KnobGui::onSolvfxShowDopeSheetTriggered()
+{
+    if ( getGui() ) {
+        getGui()->setDopeSheetOnTop();
+    }
+}
 
 Menu*
 KnobGui::createInterpolationMenu(QMenu* menu,

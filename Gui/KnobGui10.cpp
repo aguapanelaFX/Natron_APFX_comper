@@ -389,10 +389,17 @@ KnobGui::onSetKeyActionTriggered()
     QAction* action = qobject_cast<QAction*>( sender() );
 
     assert(action);
-    int dim = action->data().toInt();
+    setKeyAtCurrentTime( action->data().toInt() );
+}
+
+void
+KnobGui::setKeyAtCurrentTime(int dim)
+{
     KnobIPtr knob = getKnob();
 
-    assert( knob->getHolder()->getApp() );
+    if ( !knob || !knob->getHolder() || !knob->getHolder()->getApp() || !knob->isAnimationEnabled() ) {
+        return;
+    }
     //get the current time on the global timeline
     SequenceTime time = knob->getHolder()->getApp()->getTimeLine()->currentFrame();
     AddKeysCommand::KeysToAddList toAdd;

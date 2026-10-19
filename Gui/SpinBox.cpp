@@ -1056,6 +1056,16 @@ KnobSpinBox::keyReleaseEvent(QKeyEvent* e)
 void
 KnobSpinBox::mousePressEvent(QMouseEvent* e)
 {
+    // SOLVFX: Alt+click on the number sets a keyframe at the current frame (Houdini-like)
+    if ( (e->button() == Qt::LeftButton) && (e->modifiers() == Qt::AltModifier) && !isReadOnly() ) {
+        KnobGuiPtr k = knob.lock();
+        if (k) {
+            e->accept();
+            k->setKeyAtCurrentTime( k->getAllDimensionsVisible() ? dimension : -1 );
+
+            return;
+        }
+    }
     if ( !_dnd->mousePress(e) ) {
         SpinBox::mousePressEvent(e);
     }
