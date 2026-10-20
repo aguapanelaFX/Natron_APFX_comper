@@ -168,6 +168,8 @@ struct ViewerGL::Implementation
     ViewerTab* const viewerTab; /*!< Pointer to the viewer tab GUI*/
     bool zoomOrPannedSinceLastFit; //< true if the user zoomed or panned the image since the last call to fitToRoD
     QPoint oldClick;
+    QPoint solvfxPressPos;        // SOLVFX: where the button went down
+    bool solvfxMovedSincePress = false; // SOLVFX: moved more than a few pixels
     ViewerColorSpaceEnum displayingImageLut;
     double displaySaturation = 1.; // SOLVFX: viewer saturation, preview only
     SolvfxOcioViewerShader ocioViewer; // SOLVFX: OCIO display/view in the viewer

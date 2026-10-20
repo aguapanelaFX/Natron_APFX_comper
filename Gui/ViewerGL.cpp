@@ -1799,6 +1799,8 @@ ViewerGL::mousePressEvent(QMouseEvent* e)
     }
 
     _imp->oldClick = e->pos();
+    _imp->solvfxPressPos = e->pos();
+    _imp->solvfxMovedSincePress = false;
     _imp->lastMousePosition = e->pos();
     QPointF zoomPos;
     double zoomScreenPixelWidth, zoomScreenPixelHeight; // screen pixel size in zoom coordinates
@@ -2066,7 +2068,7 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
 
     // SOLVFX: middle click (no drag) frames the image, like F
     bool solvfxFrameOnRelease = (_imp->ms == eMouseStateDraggingImage) && (e->button() == Qt::MiddleButton) &&
-                                ( (e->pos() - _imp->oldClick).manhattanLength() < 4 );
+                                !_imp->solvfxMovedSincePress && ( (e->pos() - _imp->solvfxPressPos).manhattanLength() < 4 );
 
     if (_imp->ms == eMouseStateSelecting) {
         if (_imp->hasMovedSincePress) {
@@ -2108,6 +2110,9 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
 void
 ViewerGL::mouseMoveEvent(QMouseEvent* e)
 {
+    if ( (e->buttons() != Qt::NoButton) && ( (e->pos() - _imp->solvfxPressPos).manhattanLength() >= 4 ) ) {
+        _imp->solvfxMovedSincePress = true;
+    }
     if ( !penMotionInternal(e->x(), e->y(), /*pressure=*/ 1., currentTimeForEvent(e), e) ) {
         QOpenGLWidget::mouseMoveEvent(e);
     }
