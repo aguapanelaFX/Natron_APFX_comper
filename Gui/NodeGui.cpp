@@ -1374,6 +1374,11 @@ NodeGui::markInputNull(Edge* e)
 void
 NodeGui::updatePreviewImage(double time)
 {
+    // SOLVFX: thumbnails are static: grabbed once (first real image), then only
+    // refreshed by the Node Graph right-click "Refresh thumbnails"
+    if (_solvfxThumbCaptured) {
+        return;
+    }
     NodePtr node = getNode();
 
     if ( isVisible() && node && node->isPreviewEnabled() && node->isActivated() && node->getApp()->getProject()->isAutoPreviewEnabled() ) {
@@ -1393,6 +1398,9 @@ NodeGui::updatePreviewImage(double time)
 void
 NodeGui::forceComputePreview(double time)
 {
+    if (_solvfxThumbCaptured) {
+        return; // SOLVFX: static thumbnail (see updatePreviewImage)
+    }
     NodePtr node = getNode();
 
     if ( !node || !node->isActivated() ) {
@@ -1409,6 +1417,13 @@ NodeGui::forceComputePreview(double time)
         assert(thisShared);
         appPTR->appendTaskToPreviewThread(thisShared, time);
     }
+}
+
+void
+NodeGui::solvfxRefreshThumbnail(double time)
+{
+    _solvfxThumbCaptured = false;
+    forceComputePreview(time);
 }
 
 void
@@ -1447,6 +1462,13 @@ NodeGui::copyPreviewImageBuffer(const std::vector<unsigned int>& data,
         _previewData = data;
         _previewW = width;
         _previewH = height;
+    }
+    // SOLVFX: the first real image (not an empty / black frame) is kept as the static thumbnail
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        if ( (data[i] & 0x00ffffffu) != 0 ) {
+            _solvfxThumbCaptured = true;
+            break;
+        }
     }
     Q_EMIT previewImageComputed();
 }

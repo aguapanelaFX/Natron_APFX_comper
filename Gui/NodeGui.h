@@ -28,6 +28,7 @@
 
 #include "Global/Macros.h"
 
+#include <atomic>
 #include <map>
 #include <set>
 #include <list>
@@ -472,6 +473,9 @@ public Q_SLOTS:
     /*Updates the preview image no matter what*/
     void forceComputePreview(double time);
 
+    // SOLVFX: right-click "Refresh thumbnails": re-grab the still thumbnail at this frame
+    void solvfxRefreshThumbnail(double time);
+
     void setName(const QString & _nameItem);
 
     void onInternalNameChanged(const QString &);
@@ -615,6 +619,7 @@ private:
     QGraphicsPixmapItem* _previewPixmap;
     mutable QMutex _previewDataMutex;
     std::vector<unsigned int> _previewData;
+    std::atomic<bool> _solvfxThumbCaptured{false}; // SOLVFX: thumbnail grabbed once, then static
     int _previewW, _previewH;
     QGraphicsSimpleTextItem* _persistentMessage;
     NodeGraphRectItem* _stateIndicator;

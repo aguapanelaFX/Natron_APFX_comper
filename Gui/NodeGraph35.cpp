@@ -45,6 +45,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Node.h"
 #include "Engine/Project.h"
 #include "Engine/Settings.h"
+#include "Engine/TimeLine.h"
 #include "Engine/FileSystemModel.h"
 
 #include "Gui/ActionShortcuts.h"
@@ -339,6 +340,8 @@ NodeGraph::showMenu(const QPoint & pos)
     if (solvfxReadNode) {
         solvfxRangeFromRead = _imp->_menu->addAction( tr("Set Comp range from this Read") );
     }
+    // SOLVFX: thumbnails are static; this is the only way to update them
+    QAction* solvfxRefreshThumbs = _imp->_menu->addAction( _imp->_selection.empty() ? tr("Refresh thumbnails") : tr("Refresh thumbnails (selected)") );
 
 
     //QFont font(appFont,appFontSize);
@@ -508,7 +511,15 @@ NodeGraph::showMenu(const QPoint & pos)
     }
 
     QAction* ret = _imp->_menu->exec(pos);
-    if ( ret && (ret == solvfxRangeFromRead) && solvfxReadNode ) {
+    if ( ret && (ret == solvfxRefreshThumbs) ) {
+        const double t = getGui()->getApp()->getTimeLine()->currentFrame();
+        const NodesGuiList nodes = _imp->_selection.empty() ? getAllActiveNodes() : _imp->_selection;
+        for (NodesGuiList::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+            if (*it) {
+                (*it)->solvfxRefreshThumbnail(t);
+            }
+        }
+    } else if ( ret && (ret == solvfxRangeFromRead) && solvfxReadNode ) {
         NodePtr n = solvfxReadNode->getNode();
         EffectInstancePtr effect = n ? n->getEffectInstance() : EffectInstancePtr();
         if (effect) {
