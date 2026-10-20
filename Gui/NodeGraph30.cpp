@@ -46,6 +46,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/NodeGroup.h"
 #include "Engine/ViewerInstance.h"
 
+#include "Gui/SolvfxConsole.h"
 #include "Gui/CurveWidget.h"
 #include "Gui/Edge.h"
 #include "Gui/Gui.h"
@@ -189,6 +190,7 @@ NodeGraph::wheelEventInternal(bool ctrlDown,
 void
 NodeGraph::wheelEvent(QWheelEvent* e)
 {
+    SolvfxConsole::nodeGraphInteraction("zoom");
     if (e->angleDelta().x() != 0) {
         return;
     }

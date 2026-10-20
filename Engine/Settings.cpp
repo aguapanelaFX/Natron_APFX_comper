@@ -626,6 +626,14 @@ Settings::initializeKnobsUserInterface()
                                            "from the Layout menu. If empty, the default application layout is used.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
     _uiPage->addKnob(_defaultLayoutFile);
 
+    _solvfxShowConsole = AppManager::createKnob<KnobBool>( this, tr("Show console window") );
+    _solvfxShowConsole->setName("solvfxShowConsole");
+    _solvfxShowConsole->setHintToolTip( tr("When checked, %1 opens a console window next to the main window that prints "
+                                           "playback and node graph timing lines, for debugging. Takes effect on the next launch.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
+    _solvfxShowConsole->setDefaultValue(true);
+    _solvfxShowConsole->setAnimationEnabled(false);
+    _uiPage->addKnob(_solvfxShowConsole);
+
     _loadProjectsWorkspace = AppManager::createKnob<KnobBool>( this, tr("Load workspace embedded within projects") );
     _loadProjectsWorkspace->setName("loadProjectWorkspace");
     _loadProjectsWorkspace->setHintToolTip( tr("When checked, when loading a project, the workspace (windows layout) will also be loaded, otherwise it "

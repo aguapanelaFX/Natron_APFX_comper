@@ -63,6 +63,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/ViewIdx.h"
 #include "Engine/ViewerInstance.h"
 
+#include "Gui/SolvfxConsole.h"
 #include "Gui/ActionShortcuts.h" // kShortcutGroupViewer ...
 #include "Gui/CurveWidget.h"
 #include "Gui/Gui.h"
@@ -251,6 +252,7 @@ public:
 void
 ViewerGL::paintGL()
 {
+    SolvfxConsole::ScopedTimer solvfxTimer(SolvfxConsole::ePerfViewer);
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
 
@@ -1562,6 +1564,13 @@ ViewerGL::transferBufferFromRAMtoGPU(const unsigned char* ramBuffer,
                                      bool isFirstTile,
                                      TexturePtr* texture)
 {
+    SolvfxConsole::ScopedTimer solvfxTimer(SolvfxConsole::ePerfUpload);
+    if ( SolvfxConsole::isOpen() ) {
+        TimeLinePtr tl = getTimeline();
+        if (tl) {
+            SolvfxConsole::frameShown( tl->currentFrame() );
+        }
+    }
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
     assert( QOpenGLContext::currentContext() == context() );
@@ -2055,6 +2064,10 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
         updateRectangleColorPicker();
     }
 
+    // SOLVFX: middle click (no drag) frames the image, like F
+    bool solvfxFrameOnRelease = (_imp->ms == eMouseStateDraggingImage) && (e->button() == Qt::MiddleButton) &&
+                                ( (e->pos() - _imp->oldClick).manhattanLength() < 4 );
+
     if (_imp->ms == eMouseStateSelecting) {
         if (_imp->hasMovedSincePress) {
             Q_EMIT selectionRectangleChanged(true);
@@ -2070,6 +2083,10 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
     // Always redraw if mouse state changes (e.g. from hovering something)
     bool mustRedraw = (_imp->ms != eMouseStateUndefined);
     _imp->ms = eMouseStateUndefined;
+    if (solvfxFrameOnRelease) {
+        fitImageToFormat();
+        return;
+    }
     QPointF zoomPos;
     {
         QMutexLocker l(&_imp->zoomCtxMutex);

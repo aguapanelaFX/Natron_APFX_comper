@@ -494,6 +494,7 @@ private:
     KnobIntPtr _maxPanelsOpened;
     KnobBoolPtr _useCursorPositionIncrements;
     KnobFilePtr _defaultLayoutFile;
+    KnobBoolPtr _solvfxShowConsole; // SOLVFX: debug console window (read at startup)
     KnobBoolPtr _loadProjectsWorkspace;
 #ifdef Q_OS_WIN
     KnobBoolPtr _enableConsoleWindow;

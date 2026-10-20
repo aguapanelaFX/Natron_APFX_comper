@@ -49,6 +49,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/TimeLine.h"
 #include "Engine/ViewerInstance.h"
 
+#include "Gui/SolvfxConsole.h"
 #include "Gui/CurveEditor.h"
 #include "Gui/CurveWidget.h"
 #include "Gui/DopeSheetEditor.h"
@@ -347,6 +348,7 @@ typedef std::set<TimeLineKey, TimeLineKey_compare> TimeLineKeysSet;
 void
 TimeLineGui::paintGL()
 {
+    SolvfxConsole::ScopedTimer solvfxTimer(SolvfxConsole::ePerfTimeline);
     if (!_imp->gui) {
         return;
     }
@@ -909,10 +911,12 @@ TimeLineGui::mousePressEvent(QMouseEvent* e)
 {
     _imp->mousePressX = e->x();
     _imp->mouseMoveX = _imp->mousePressX;
+    // SOLVFX: Nuke-like: middle-drag picks the visible range (middle click toggles it),
+    // right-drag pans
     if ( buttonDownIsMiddle(e) ) {
-        _imp->state = eTimelineStatePanning;
-    } else if ( buttonDownIsRight(e) ) {
         _imp->state = eTimelineStateSelectingZoomRange;
+    } else if ( buttonDownIsRight(e) ) {
+        _imp->state = eTimelineStatePanning;
     } else {
         _imp->lastMouseEventWidgetCoord = e->pos();
         const double t = toTimeLine(_imp->mousePressX);
@@ -1033,7 +1037,20 @@ TimeLineGui::leaveEvent(QEvent* e)
 void
 TimeLineGui::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (_imp->state == eTimelineStateSelectingZoomRange) {
+    if ( (_imp->state == eTimelineStateSelectingZoomRange) && _imp->viewerTab && !_imp->viewerTab->isFileDialogViewer() ) {
+        // SOLVFX: middle-drag = Visible range, middle click = toggle Visible / previous mode
+        int a = std::floor(toTimeLine(_imp->mousePressX) + 0.5);
+        int b = std::floor(toTimeLine( e->x() ) + 0.5);
+        if ( std::abs( e->x() - _imp->mousePressX ) < 4 ) {
+            _imp->viewerTab->solvfxToggleVisibleMode();
+        } else {
+            _imp->viewerTab->solvfxSetVisibleRange( std::min(a, b), std::max(a, b) );
+        }
+        if ( _imp->gui->isTripleSyncEnabled() ) {
+            _imp->updateEditorFrameRanges();
+            _imp->updateOpenedViewersFrameRanges();
+        }
+    } else if (_imp->state == eTimelineStateSelectingZoomRange) {
         // - if the last selected frame is the same as the first selected frame, zoom on the PROJECT range
         //   (NOT the playback range as in the following, and NOT adding margins as centerOn() does)
         // - if they are different, zoom on that range

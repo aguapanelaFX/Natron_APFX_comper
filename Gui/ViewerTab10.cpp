@@ -267,6 +267,9 @@ void
 ViewerTab::startPause(bool b)
 {
     abortRendering();
+    if ( b && solvfxStartEmptyPlayback(1) ) {
+        return;
+    }
     if (b) {
         Gui* gui = getGui();
         if (!gui) {
@@ -286,9 +289,107 @@ ViewerTab::startPause(bool b)
     }
 }
 
+bool
+ViewerTab::solvfxStartEmptyPlayback(int direction)
+{
+    // SOLVFX: with nothing connected to the viewer there is no render to drive
+    // playback, so step the timeline ourselves at the comp fps
+    if ( !_imp->viewerNode || !_imp->timeLineGui ) {
+        return false;
+    }
+    int a = -1, b = -1;
+    _imp->viewerNode->getActiveInputs(a, b);
+    if ( (a >= 0) || (b >= 0) ) {
+        return false;
+    }
+    double fps = 24.;
+    {
+        QMutexLocker k(&_imp->fpsLockedMutex);
+        if (!_imp->fpsLocked) {
+            fps = _imp->userFps;
+        } else if ( getGui() && getGui()->getApp() ) {
+            fps = getGui()->getApp()->getProjectFrameRate();
+        }
+    }
+    if (fps <= 0.) {
+        fps = 24.;
+    }
+    if (!_imp->solvfxEmptyPlayTimer) {
+        _imp->solvfxEmptyPlayTimer = new QTimer(this);
+        _imp->solvfxEmptyPlayTimer->setTimerType(Qt::PreciseTimer);
+        QObject::connect( _imp->solvfxEmptyPlayTimer, SIGNAL(timeout()), this, SLOT(onSolvfxEmptyPlayTick()) );
+    }
+    _imp->solvfxEmptyPlayDir = (direction < 0) ? -1 : 1;
+    _imp->solvfxEmptyPlayTimer->start( std::max(1, (int)(1000. / fps + 0.5)) );
+    if (_imp->play_Forward_Button) {
+        _imp->play_Forward_Button->setDown(direction > 0);
+        _imp->play_Forward_Button->setChecked(direction > 0);
+    }
+    if (_imp->play_Backward_Button) {
+        _imp->play_Backward_Button->setDown(direction < 0);
+        _imp->play_Backward_Button->setChecked(direction < 0);
+    }
+
+    return true;
+}
+
+void
+ViewerTab::solvfxStopEmptyPlayback()
+{
+    if ( _imp->solvfxEmptyPlayTimer && _imp->solvfxEmptyPlayTimer->isActive() ) {
+        _imp->solvfxEmptyPlayTimer->stop();
+    }
+}
+
+void
+ViewerTab::onSolvfxEmptyPlayTick()
+{
+    if ( !_imp->timeLineGui || !_imp->viewerNode ) {
+        solvfxStopEmptyPlayback();
+        return;
+    }
+    // something got connected: hand over to the real playback
+    int a = -1, b = -1;
+    _imp->viewerNode->getActiveInputs(a, b);
+    if ( (a >= 0) || (b >= 0) ) {
+        const int dir = _imp->solvfxEmptyPlayDir;
+        solvfxStopEmptyPlayback();
+        if (dir > 0) {
+            startPause(true);
+        } else {
+            startBackward(true);
+        }
+        return;
+    }
+    SequenceTime first, last;
+    _imp->timeLineGui->getBounds(&first, &last);
+    int cur = _imp->viewerNode->getTimeline()->currentFrame();
+    int next = cur + _imp->solvfxEmptyPlayDir;
+    PlaybackModeEnum mode;
+    {
+        QMutexLocker k(&_imp->playbackModeMutex);
+        mode = _imp->playbackMode;
+    }
+    if ( (next > last) || (next < first) ) {
+        if (mode == ePlaybackModeLoop) {
+            next = (_imp->solvfxEmptyPlayDir > 0) ? first : last;
+        } else if (mode == ePlaybackModeBounce) {
+            _imp->solvfxEmptyPlayDir = -_imp->solvfxEmptyPlayDir;
+            next = cur + _imp->solvfxEmptyPlayDir;
+            next = std::max( (int)first, std::min( (int)last, next ) );
+        } else {
+            abortRendering();
+            return;
+        }
+    }
+    _imp->timeLineGui->seek(next);
+    _imp->currentFrameBox->setValue(next);
+}
+
 void
 ViewerTab::abortRendering()
 {
+    solvfxStopEmptyPlayback();
     if (_imp->play_Forward_Button) {
         _imp->play_Forward_Button->setDown(false);
         _imp->play_Forward_Button->setChecked(false);
@@ -341,6 +442,9 @@ ViewerTab::onEngineStarted(bool forward)
 void
 ViewerTab::onSetDownPlaybackButtonsTimeout()
 {
+    if ( _imp->solvfxEmptyPlayTimer && _imp->solvfxEmptyPlayTimer->isActive() ) {
+        return; // SOLVFX: playing without input
+    }
     if ( _imp->viewerNode && _imp->viewerNode->getRenderEngine() && !_imp->viewerNode->getRenderEngine()->isDoingSequentialRender() ) {
         const std::list<ViewerTab*>& viewers = getGui()->getViewersList();
         for (std::list<ViewerTab*>::const_iterator it = viewers.begin(); it != viewers.end(); ++it) {
@@ -401,6 +505,9 @@ void
 ViewerTab::startBackward(bool b)
 {
     abortRendering();
+    if ( b && solvfxStartEmptyPlayback(-1) ) {
+        return;
+    }
     if (b) {
         Gui* gui = getGui();
         if (!gui) {

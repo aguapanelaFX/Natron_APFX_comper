@@ -44,6 +44,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/Settings.h"
 #include "Engine/Utils.h" // convertFromPlainText
 
+#include "Gui/SolvfxConsole.h"
 #include "Gui/BackdropGui.h"
 #include "Gui/Edge.h"
 #include "Gui/GuiApplicationManager.h"
@@ -382,6 +383,10 @@ NodeGraph::moveSelectedNodesBy(bool shiftdown,
 void
 NodeGraph::mouseMoveEvent(QMouseEvent* e)
 {
+    if ( SolvfxConsole::isOpen() && (e->buttons() != Qt::NoButton) ) {
+        const bool pan = (e->buttons() & Qt::MiddleButton) || (e->modifiers() & Qt::AltModifier);
+        SolvfxConsole::nodeGraphInteraction(pan ? "pan" : "drag");
+    }
     QPointF newPos = mapToScene( e->pos() );
     QPointF lastMousePosScene = mapToScene( _imp->_lastMousePos.x(), _imp->_lastMousePos.y() );
     double dx, dy;

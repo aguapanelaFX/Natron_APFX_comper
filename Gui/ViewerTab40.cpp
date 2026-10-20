@@ -270,6 +270,33 @@ ViewerTab::solvfxClearInOutPoints(bool clearIn,
 }
 
 void
+ViewerTab::solvfxSetVisibleRange(int first,
+                                 int last)
+{
+    if (last < first) {
+        std::swap(first, last);
+    }
+    _imp->solvfxVisibleFirst = first;
+    _imp->solvfxVisibleLast = last;
+    _imp->solvfxVisibleSet = true;
+    if (_imp->timelineRangeMode != 3) {
+        _imp->timelineRangeCombo->setCurrentIndex(3); // -> onTimelineRangeModeChanged
+    } else {
+        _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+    }
+}
+
+void
+ViewerTab::solvfxToggleVisibleMode()
+{
+    if (_imp->timelineRangeMode == 3) {
+        _imp->timelineRangeCombo->setCurrentIndex(_imp->solvfxPrevRangeMode);
+    } else if (_imp->solvfxVisibleSet) {
+        _imp->timelineRangeCombo->setCurrentIndex(3);
+    }
+}
+
+void
 ViewerTab::solvfxRefitInOutView()
 {
     // SOLVFX: in In/Out mode the timeline shows the in / out range
@@ -1203,6 +1230,17 @@ ViewerTab::onGainSpinBoxValueChanged(double v)
 void
 ViewerTab::onTimelineRangeModeChanged(int index)
 {
+    if ( (index == 3) && (_imp->timelineRangeMode != 3) ) {
+        _imp->solvfxPrevRangeMode = _imp->timelineRangeMode;
+    }
+    if ( (index == 3) && !_imp->solvfxVisibleSet ) {
+        // nothing swept yet: start from what the previous mode shows
+        double f, l;
+        solvfxModeRange(&f, &l);
+        _imp->solvfxVisibleFirst = (int)f;
+        _imp->solvfxVisibleLast = (int)l;
+        _imp->solvfxVisibleSet = true;
+    }
     _imp->timelineRangeMode = index;
     applyTimelineRangeMode();
 }
@@ -1213,7 +1251,9 @@ ViewerTab::solvfxModeRange(double* firstOut,
 {
     double first = 0., last = 0.;
     getGui()->getApp()->getFrameRange(&first, &last); // Global, also the fallback
-    if ( (_imp->timelineRangeMode == 1) && _imp->viewerNode ) {
+    // Visible borrows the range of the mode it came from
+    const int mode = (_imp->timelineRangeMode == 3) ? _imp->solvfxPrevRangeMode : _imp->timelineRangeMode;
+    if ( (mode == 1) && _imp->viewerNode ) {
         // Input: frame range of the node connected to the viewer (input A)
         int a = -1, b = -1;
         _imp->viewerNode->getActiveInputs(a, b);
@@ -1257,6 +1297,8 @@ ViewerTab::applyTimelineRangeMode()
     _imp->timeLineGui->setFrameRangeEdited( (_imp->timelineRangeMode != 0) || _imp->inOutPointsSet );
     if (_imp->timelineRangeMode == 2) {
         _imp->timeLineGui->centerOn( (SequenceTime)in, (SequenceTime)out );
+    } else if ( (_imp->timelineRangeMode == 3) && _imp->solvfxVisibleSet ) {
+        _imp->timeLineGui->centerOn( (SequenceTime)_imp->solvfxVisibleFirst, (SequenceTime)_imp->solvfxVisibleLast );
     } else {
         _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
     }

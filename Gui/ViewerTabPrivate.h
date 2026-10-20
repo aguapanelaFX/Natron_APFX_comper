@@ -208,6 +208,11 @@ struct ViewerTabPrivate
     int inPoint = 0;  // SOLVFX: playback in point (I), the orange marker
     int outPoint = 0; // SOLVFX: playback out point (O)
     bool solvfxApplyingRange = false; // true while the dropdown sets the bounds
+    QTimer* solvfxEmptyPlayTimer = nullptr; // SOLVFX: plays the timeline when the viewer has no input
+    int solvfxEmptyPlayDir = 1;
+    int solvfxPrevRangeMode = 0;      // SOLVFX: mode to go back to from Visible
+    bool solvfxVisibleSet = false;
+    int solvfxVisibleFirst = 0, solvfxVisibleLast = 0;
 
     // This is all nodes that have a viewer context
     typedef std::map<NodeGuiWPtr, NodeViewerContextPtr, std::owner_less<NodeGuiWPtr>> NodeViewerContextsMap;

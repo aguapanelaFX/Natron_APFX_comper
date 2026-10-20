@@ -46,6 +46,7 @@
 #include <QPainter>
 #include "Engine/TimeLine.h"
 
+#include "Gui/SolvfxConsole.h"
 #include "Gui/BackdropGui.h"
 #include "Gui/DotGui.h"
 #include "Gui/Edge.h"
@@ -322,6 +323,7 @@ NodeGraph::drawBackground(QPainter* painter,
 void
 NodeGraph::paintEvent(QPaintEvent* e)
 {
+    SolvfxConsole::ScopedTimer solvfxTimer(SolvfxConsole::ePerfNodeGraph);
     AppInstancePtr app;
 
     if ( getGui() ) {

@@ -47,6 +47,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Settings.h"
 #include "Engine/EffectInstance.h" // PLUGINID_OFX_*
 #include "Engine/PluginActionShortcut.h"
+#include "Gui/SolvfxConsole.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
@@ -851,6 +852,11 @@ bool
 GuiApplicationManager::initGui(const CLArgs& args)
 {
     QSettings settings( QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME) );
+
+    // SOLVFX: debug console window (Preferences > User Interface > Show console window)
+    if ( settings.value( QString::fromUtf8("solvfxShowConsole"), QVariant(true) ).toBool() ) {
+        SolvfxConsole::open();
+    }
 
     //load custom fonts
     QString fontResource = QString::fromUtf8(":/Resources/Fonts/%1.ttf");
