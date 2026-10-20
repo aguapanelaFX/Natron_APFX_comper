@@ -774,6 +774,12 @@ ViewerTab::keyPressEvent(QKeyEvent* e)
         onPlaybackInButtonClicked();
     } else if ( isKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackOut, modifiers, key) ) {
         onPlaybackOutButtonClicked();
+    } else if ( isKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackInClear, modifiers, key) ) {
+        solvfxClearInOutPoints(true, false);
+    } else if ( isKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackOutClear, modifiers, key) ) {
+        solvfxClearInOutPoints(false, true);
+    } else if ( isKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackInOutClear, modifiers, key) ) {
+        solvfxClearInOutPoints(true, true);
     } else if ( isKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPrevKF, modifiers, key) ) {
         //prev key
         app->goToPreviousKeyframe();

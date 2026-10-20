@@ -205,8 +205,9 @@ struct ViewerTabPrivate
     QWidget* timelineRow = nullptr;
     int timelineRangeMode = 0; // 0 = Global, 1 = Input, 2 = In/Out
     bool inOutPointsSet = false;
-    int inPoint = 0;  // stored with I, used in In/Out mode
-    int outPoint = 0; // stored with O, used in In/Out mode
+    int inPoint = 0;  // SOLVFX: playback in point (I), the orange marker
+    int outPoint = 0; // SOLVFX: playback out point (O)
+    bool solvfxApplyingRange = false; // true while the dropdown sets the bounds
 
     // This is all nodes that have a viewer context
     typedef std::map<NodeGuiWPtr, NodeViewerContextPtr, std::owner_less<NodeGuiWPtr>> NodeViewerContextsMap;

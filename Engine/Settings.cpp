@@ -1230,7 +1230,7 @@ Settings::initializeKnobsNodeGraph()
     _nodegraphTab->addKnob(_disconnectedArrowLength);
 
     _hideOptionalInputsAutomatically = AppManager::createKnob<KnobBool>( this, tr("Auto hide masks inputs") );
-    _hideOptionalInputsAutomatically->setName("autoHideInputs");
+    _hideOptionalInputsAutomatically->setName("solvfxAutoHideInputs"); // SOLVFX: renamed so the old saved value (on) is not reused
     _hideOptionalInputsAutomatically->setHintToolTip( tr("When checked, any diconnected mask input of a node in the nodegraph "
                                                          "will be visible only when the mouse is hovering the node or when it is "
                                                          "selected.") );
@@ -1596,7 +1596,7 @@ Settings::setDefaultValues()
     _useBWIcons->setDefaultValue(false);
     _maxUndoRedoNodeGraph->setDefaultValue(20, 0);
     _disconnectedArrowLength->setDefaultValue(30);
-    _hideOptionalInputsAutomatically->setDefaultValue(true);
+    _hideOptionalInputsAutomatically->setDefaultValue(false); // SOLVFX: mask inputs always visible, like Nuke
     _useInputAForMergeAutoConnect->setDefaultValue(true);
     _usePluginIconsInNodeGraph->setDefaultValue(true);
     _useAntiAliasing->setDefaultValue(true);

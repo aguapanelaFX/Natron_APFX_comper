@@ -913,6 +913,9 @@ GuiApplicationManager::populateShortcuts()
 
     registerKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackIn, kShortcutDescActionPlayerPlaybackIn, Qt::NoModifier, Qt::Key_I); // SOLVFX: I like Nuke
     registerKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackOut, kShortcutDescActionPlayerPlaybackOut, Qt::NoModifier, Qt::Key_O); // SOLVFX: O like Nuke
+    registerKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackInClear, kShortcutDescActionPlayerPlaybackInClear, Qt::AltModifier, Qt::Key_I);
+    registerKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackOutClear, kShortcutDescActionPlayerPlaybackOutClear, Qt::AltModifier, Qt::Key_O);
+    registerKeybind(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackInOutClear, kShortcutDescActionPlayerPlaybackInOutClear, Qt::AltModifier, Qt::Key_U);
 
 
     ///Nodegraph

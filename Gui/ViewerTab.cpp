@@ -1278,10 +1278,10 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
         _imp->timelineRangeCombo = new ComboBox(_imp->timelineRow);
         _imp->timelineRangeCombo->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Frame range shown by the timeline: the project range (Global), "
-                                                                                       "the range of the viewer input (Input) or the playback in/out points (In/Out)."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+                                                                                       "or the range of the viewer input (Input). I / O set the playback in / out points, "
+                                                                                       "Alt+I / Alt+O / Alt+U clear them."), NATRON_NAMESPACE::WhiteSpaceNormal) );
         _imp->timelineRangeCombo->addItem( tr("Global") );
         _imp->timelineRangeCombo->addItem( tr("Input") );
-        _imp->timelineRangeCombo->addItem( tr("In/Out") );
         _imp->timelineRangeCombo->setCurrentIndex_no_emit(0);
         QObject::connect( _imp->timelineRangeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onTimelineRangeModeChanged(int)) );
 

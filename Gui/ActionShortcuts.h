@@ -404,6 +404,14 @@ CLANG_DIAG_ON(uninitialized)
 #define kShortcutIDActionPlayerPlaybackOut "pbOut"
 #define kShortcutDescActionPlayerPlaybackOut "Set Playback \"Out\" Point"
 
+// SOLVFX: clear in / out points (Nuke Alt+I / Alt+O / Alt+U)
+#define kShortcutIDActionPlayerPlaybackInClear "pbInClear"
+#define kShortcutDescActionPlayerPlaybackInClear "Clear Playback \"In\" Point"
+#define kShortcutIDActionPlayerPlaybackOutClear "pbOutClear"
+#define kShortcutDescActionPlayerPlaybackOutClear "Clear Playback \"Out\" Point"
+#define kShortcutIDActionPlayerPlaybackInOutClear "pbInOutClear"
+#define kShortcutDescActionPlayerPlaybackInOutClear "Clear Playback In and Out Points"
+
 
 ///////////NODEGRAPH SHORTCUTS
 #ifndef NATRON_ENABLE_IO_META_NODES

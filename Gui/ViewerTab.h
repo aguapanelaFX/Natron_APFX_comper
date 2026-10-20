@@ -443,6 +443,10 @@ public Q_SLOTS:
     // SOLVFX: timeline range dropdown
     void onTimelineRangeModeChanged(int index);
     void applyTimelineRangeMode();
+    // SOLVFX: range of the current dropdown mode (Global / Input)
+    void solvfxModeRange(double* first, double* last);
+    // SOLVFX: Alt+I / Alt+O / Alt+U
+    void solvfxClearInOutPoints(bool clearIn, bool clearOut);
 
     // SOLVFX: viewer saturation and f-stop steps
     void onSaturationToggled(bool clicked);
