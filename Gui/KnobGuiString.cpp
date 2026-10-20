@@ -515,6 +515,11 @@ bool
 KnobGuiString::isLabelOnSameColumn() const
 {
     KnobStringPtr knob = _knob.lock();
+    // SOLVFX: a text label used as a row heading ("A channels [rgba] red green ...")
+    // sits right-aligned in the label column like any other knob label
+    if ( knob && knob->isLabel() && !knob->isNewLineActivated() && knob->getIconLabel().empty() ) {
+        return false;
+    }
     return knob && knob->isLabel();
 }
 

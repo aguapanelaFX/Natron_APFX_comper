@@ -3300,8 +3300,8 @@ NodeGui::refreshNodeText(const QString & label)
         assert(_presetIcon);
         if (_presetIcon) {
             QPixmap pix;
-            getPixmapForMergeOperator(subLabelContent, &pix);
-            if ( pix.isNull() ) {
+            // SOLVFX: no operator icons on nodes, the operation stays as text under the name
+            if ( true ) {
                 _presetIcon->setVisible(false);
             } else {
                 _presetIcon->setVisible(true);

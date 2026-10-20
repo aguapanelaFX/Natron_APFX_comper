@@ -256,7 +256,8 @@ KnobGui::createGUI(QWidget* fieldContainer,
         // SOLVFX: Nuke-like animation button at the end of animatable knobs: opens the
         // knob animation menu (keys, curve editor, interpolation, expression, link, copy/paste)
         // (numeric knobs only, like Nuke; checkboxes and menus keep it on right-click)
-        const bool animatableType = dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() );
+        const bool animatableType = ( dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() ) ) &&
+                                    !dynamic_cast<KnobChoice*>( knob.get() );
         if ( animatableType && knob->isAnimationEnabled() && !_imp->isInViewerUIKnob && knob->getHolder() && knob->getHolder()->getApp() ) {
             QPixmap pix( QString::fromUtf8(":/Resources/Images/solvfx_anim.png") );
             _imp->solvfxAnimButton = new Button( QIcon(pix), QString(), fieldContainer );

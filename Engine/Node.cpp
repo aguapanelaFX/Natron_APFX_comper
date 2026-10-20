@@ -2237,6 +2237,31 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
         mainPage->insertKnob(firstIndex + 4, premultWarning);
         _imp->premultWarning = premultWarning;
     }
+    // SOLVFX: a lone "channels" menu (no red/green/blue/alpha after it) gets its own row
+    if ( (firstIndex == 1) && !foundAll && outputLayer ) {
+        outputLayer->setAddNewLine(true);
+    }
+    // SOLVFX: divider under the channels row (Nuke-like)
+    if ( !isWriter && (firstIndex == 1 || foundAll) ) {
+        KnobsVec children = mainPage->getChildren();
+        int lastIdx = -1;
+        KnobIPtr lastOfRow = foundAll ? KnobIPtr( _imp->enabledChan[3].lock() ) : KnobIPtr(outputLayer);
+        KnobIPtr warn = _imp->premultWarning.lock();
+        for (std::size_t i = 0; i < children.size(); ++i) {
+            if ( (children[i] == lastOfRow) || ( warn && (children[i] == warn) ) ) {
+                lastIdx = (int)i;
+            }
+        }
+        if ( lastIdx >= 0 ) {
+            children[lastIdx]->setAddNewLine(true);
+            bool nextIsSep = ( lastIdx + 1 < (int)children.size() ) && dynamic_cast<KnobSeparator*>( children[lastIdx + 1].get() );
+            if (!nextIsSep) {
+                KnobSeparatorPtr sep = AppManager::createKnob<KnobSeparator>(_imp->effect.get(), std::string(), 1, false);
+                sep->setName("solvfxChannelsSep");
+                mainPage->insertKnob(lastIdx + 1, sep);
+            }
+        }
+    }
 } // Node::findOrCreateChannelEnabled
 
 void
@@ -2254,6 +2279,112 @@ Node::createChannelSelectors(const std::vector<std::pair<bool, bool> >& hasMaskC
     ///Create output layer selectors
     _imp->createChannelSelector(-1, "Output", true, mainPage, lastKnobBeforeAdvancedOption);
 }
+
+// SOLVFX: Nuke-like Merge layout
+//   operation [over]  [ ] alpha masking
+//   set bbox to [union]
+//   ─────
+//   A channels [rgba] red green blue alpha
+//   B channels [rgba] red green blue alpha
+//   output [rgba] red green blue alpha
+static void
+solvfxArrangeMergeKnobs(EffectInstance* effect,
+                        const KnobPagePtr& page)
+{
+    if (!effect || !page) {
+        return;
+    }
+    KnobsVec children = page->getChildren();
+    std::map<std::string, KnobIPtr> byName;
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        byName[children[i]->getName()] = children[i];
+    }
+    if ( !byName.count("operation") || !byName.count("AChannels") || !byName.count("BChannels") || !byName.count("OutputChannels") ) {
+        return;
+    }
+    static const char* chanLabels[4] = { "red", "green", "blue", "alpha" };
+    static const char* suffix[4] = { "R", "G", "B", "A" };
+    std::vector<KnobIPtr> order;
+
+    KnobIPtr operation = byName["operation"];
+    KnobIPtr alphaMasking = byName.count("screenAlpha") ? byName["screenAlpha"] : KnobIPtr();
+    KnobIPtr bbox = byName.count("bbox") ? byName["bbox"] : KnobIPtr();
+    operation->setLabel( std::string("operation") );
+    if (alphaMasking) {
+        operation->setAddNewLine(false);
+        alphaMasking->setLabel( std::string("alpha masking") );
+        alphaMasking->setAddNewLine(true);
+        order.push_back(operation);
+        order.push_back(alphaMasking);
+    } else {
+        operation->setAddNewLine(true);
+        order.push_back(operation);
+    }
+    if (bbox) {
+        bbox->setLabel( std::string("set bbox to") );
+        bbox->setAddNewLine(true);
+        order.push_back(bbox);
+    }
+    KnobSeparatorPtr sep = AppManager::createKnob<KnobSeparator>(effect, std::string(), 1, false);
+    sep->setName("solvfxMergeSep");
+    order.push_back(sep);
+
+    const char* rows[3] = { "AChannels", "BChannels", "OutputChannels" };
+    const char* rowLabels[3] = { "A channels", "B channels", "output" };
+    const char* layers[3] = { "A_" kOutputChannelsKnobName, "B_" kOutputChannelsKnobName, kOutputChannelsKnobName };
+    for (int r = 0; r < 3; ++r) {
+        KnobIPtr head = byName[rows[r]];
+        KnobString* headStr = dynamic_cast<KnobString*>( head.get() );
+        if (headStr) {
+            headStr->setDefaultValue( std::string(rowLabels[r]) );
+        }
+        head->setAddNewLine(false);
+        order.push_back(head);
+        if ( byName.count(layers[r]) ) {
+            KnobIPtr layer = byName[layers[r]];
+            layer->setLabel( std::string() );
+            layer->setAddNewLine(false);
+            order.push_back(layer);
+        }
+        for (int c = 0; c < 4; ++c) {
+            std::string n = std::string(rows[r]) + suffix[c];
+            if ( !byName.count(n) ) {
+                continue;
+            }
+            KnobIPtr k = byName[n];
+            k->setLabel( std::string(chanLabels[c]) );
+            k->setAddNewLine(c == 3);
+            order.push_back(k);
+        }
+        order.back()->setAddNewLine(true);
+        if ( (r == 2) && byName.count(kNodeParamProcessAllLayers) ) {
+            KnobIPtr all = byName[kNodeParamProcessAllLayers];
+            all->setAddNewLine(true);
+            order.push_back(all);
+        }
+    }
+
+    // Move the arranged knobs to the top of the page, in this order
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        if ( order[i]->getParentKnob() == page ) {
+            page->removeKnob( order[i].get() );
+        }
+    }
+    children = page->getChildren();
+    int insertAt = 0;
+    // keep secret knobs declared first (e.g. the sublabel) where they are
+    while ( insertAt < (int)children.size() && children[insertAt]->getIsSecret() ) {
+        ++insertAt;
+    }
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        page->insertKnob(insertAt + (int)i, order[i]);
+    }
+    // the knob after the block starts a new row
+    children = page->getChildren();
+    if ( insertAt + (int)order.size() - 1 < (int)children.size() ) {
+        children[insertAt + order.size() - 1]->setAddNewLine(true);
+    }
+} // solvfxArrangeMergeKnobs
 
 // SOLVFX: Nuke-like bottom block of the node panel:
 //   [ ] reverse  [ ] black clamp  [ ] white clamp
@@ -2523,6 +2654,7 @@ Node::initializeDefaultKnobs(bool loadingSerialization)
 
     // SOLVFX: Nuke-like mask / premult / mix block
     if (mainPage && !isBackdropNode) {
+        solvfxArrangeMergeKnobs(_imp->effect.get(), mainPage);
         solvfxArrangeMaskMixBlock(_imp->effect.get(), mainPage);
     }
 
