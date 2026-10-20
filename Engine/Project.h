@@ -285,6 +285,9 @@ public:
 
     void unionFrameRangeWith(int first, int last);
 
+    // SOLVFX: set the comp frame range
+    void solvfxSetFrameRange(int first, int last);
+
     void recomputeFrameRangeFromReaders();
 
     void createViewer();

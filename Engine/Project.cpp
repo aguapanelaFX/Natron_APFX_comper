@@ -2697,6 +2697,19 @@ Project::unionFrameRangeWith(int first,
 }
 
 void
+Project::solvfxSetFrameRange(int first,
+                             int last)
+{
+    if (last < first) {
+        last = first;
+    }
+    beginChanges();
+    _imp->frameRange->setValue(first, ViewSpec::all(), 0);
+    _imp->frameRange->setValue(last, ViewSpec::all(), 1);
+    endChanges();
+}
+
+void
 Project::recomputeFrameRangeFromReaders()
 {
     int first = 1, last = 1;

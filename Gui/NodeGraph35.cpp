@@ -28,6 +28,7 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <climits>
 
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 CLANG_DIAG_OFF(deprecated)
@@ -40,6 +41,7 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/KnobSerialization.h" // createDefaultValueForParam
+#include "Engine/EffectInstance.h"
 #include "Engine/Node.h"
 #include "Engine/Project.h"
 #include "Engine/Settings.h"
@@ -324,6 +326,20 @@ NodeGraph::showMenu(const QPoint & pos)
                                                   kShortcutDescActionGraphCreateNode, _imp->_menu);
     _imp->_menu->addAction(createNode);
 
+    // SOLVFX: set the comp frame range from the selected Read
+    QAction* solvfxRangeFromRead = 0;
+    NodeGuiPtr solvfxReadNode;
+    for (NodesGuiList::const_iterator it = _imp->_selection.begin(); it != _imp->_selection.end(); ++it) {
+        NodePtr n = (*it)->getNode();
+        if ( n && n->getEffectInstance() && n->getEffectInstance()->isReader() ) {
+            solvfxReadNode = *it;
+            break;
+        }
+    }
+    if (solvfxReadNode) {
+        solvfxRangeFromRead = _imp->_menu->addAction( tr("Set Comp range from this Read") );
+    }
+
 
     //QFont font(appFont,appFontSize);
     Menu* editMenu = new Menu(tr("Edit"), _imp->_menu);
@@ -492,7 +508,17 @@ NodeGraph::showMenu(const QPoint & pos)
     }
 
     QAction* ret = _imp->_menu->exec(pos);
-    if (ret == findAction) {
+    if ( ret && (ret == solvfxRangeFromRead) && solvfxReadNode ) {
+        NodePtr n = solvfxReadNode->getNode();
+        EffectInstancePtr effect = n ? n->getEffectInstance() : EffectInstancePtr();
+        if (effect) {
+            double first = INT_MIN, last = INT_MAX;
+            effect->getFrameRange_public(effect->getHash(), &first, &last, true);
+            if ( (first > INT_MIN) && (last < INT_MAX) && (last >= first) ) {
+                getGui()->getApp()->getProject()->solvfxSetFrameRange( (int)first, (int)last );
+            }
+        }
+    } else if (ret == findAction) {
         popFindDialog();
     } else if (ret == createNode) {
             popCreateNodeDialog();

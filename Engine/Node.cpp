@@ -4748,8 +4748,9 @@ Node::onFileNameParameterChanged(KnobI* fileKnob)
         incrementKnobsAge(); //< since evaluate() is called after knobChanged we have to do this  by hand
         //computePreviewImage( getApp()->getTimeLine()->currentFrame() );
 
-        ///union the project frame range if not locked with the reader frame range
-        bool isLocked = getApp()->getProject()->isFrameRangeLocked();
+        // SOLVFX: like Nuke, loading a Read never changes the comp frame range
+        // (use the Node Graph right-click "Set Comp range from this Read")
+        const bool isLocked = true;
         if (!isLocked) {
             double leftBound = std::numeric_limits<int>::min(), rightBound = std::numeric_limits<int>::max();
             _imp->effect->getFrameRange_public(getHashValue(), &leftBound, &rightBound, true);
