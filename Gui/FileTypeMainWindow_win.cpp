@@ -46,6 +46,7 @@
 
 // —— general includes —————————————————————————
 #include <Dde.h>
+#include <shlobj.h> // SHChangeNotify
 
 #include <QMessageBox>
 #include <QApplication>
@@ -136,6 +137,20 @@ DocumentWindow::executeUnknownDdeCommand(const QString&,
     // then open, new and print via DDE and Explorer
 }
 
+// SOLVFX: the exe Explorer should start for project files. Portable builds with the
+// crash reporter start SOLVFX.exe, which runs the real app (this process) behind it.
+static QString
+solvfxLauncherPath()
+{
+    QString self = qApp->applicationFilePath();
+    QFileInfo fi(self);
+    QString launcher = fi.absolutePath() + QString::fromUtf8("/" NATRON_APPLICATION_NAME ".exe");
+    if ( (fi.fileName().compare(QString::fromUtf8(NATRON_APPLICATION_NAME ".exe"), Qt::CaseInsensitive) != 0) && QFileInfo(launcher).exists() ) {
+        return QDir::toNativeSeparators(launcher);
+    }
+    return QDir::toNativeSeparators(self);
+}
+
 void
 DocumentWindow::registerFileType(const QString& documentId,
                                  const QString& fileTypeName,
@@ -150,14 +165,14 @@ DocumentWindow::registerFileType(const QString& documentId,
     }
 
     if ( !SetHkcrUserRegKey( QString::fromUtf8("%1\\DefaultIcon").arg(documentId),
-                             QString::fromUtf8("\"%1\",%2").arg( QDir::toNativeSeparators( qApp->applicationFilePath() ) ).arg(appIconIndex) ) ) {
+                             QString::fromUtf8("\"%1\",%2").arg( solvfxLauncherPath() ).arg(appIconIndex) ) ) {
         return;
     }
 
     m_registerForDDE = registerForDDE;
 
     if (commands & DDEOpen) {
-        registerCommand( QString::fromUtf8("Open"), documentId, QString::fromUtf8(" %1"), QString::fromUtf8("[open(\"%1\")]") );
+        registerCommand( QString::fromUtf8("Open"), documentId, QString::fromUtf8("\"%1\""), QString::fromUtf8("[open(\"%1\")]") );
     }
     if (commands & DDENew) {
         registerCommand( QString::fromUtf8("New"), documentId, QString::fromUtf8("-new %1"), QString::fromUtf8("[new(\"%1\")]") );
@@ -185,6 +200,8 @@ DocumentWindow::registerFileType(const QString& documentId,
 
         SetHkcrUserRegKey( QString::fromUtf8("%1\\ShellNew").arg(fileExtension), QLatin1String(""), QLatin1String("NullFile") );
     }
+    // SOLVFX: tell Explorer that file associations changed, so the project icon shows up
+    ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
 void
@@ -193,7 +210,7 @@ DocumentWindow::registerCommand(const QString& command,
                                 const QString cmdLineArg,
                                 const QString ddeCommand)
 {
-    QString commandLine = QDir::toNativeSeparators( qApp->applicationFilePath() );
+    QString commandLine = solvfxLauncherPath();
 
     commandLine.prepend( QLatin1String("\"") );
     commandLine.append( QLatin1String("\"") );
