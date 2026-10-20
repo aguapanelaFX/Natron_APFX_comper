@@ -39,6 +39,9 @@
 #include <QCursor>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QFile>
+#include <QDebug>
+#include <sstream>
 
 #include "Global/FStreamsSupport.h"
 
@@ -101,6 +104,34 @@ Gui::createDefaultLayoutInternal(bool wipePrevious)
     }
 
     std::string fileLayout = appPTR->getCurrentSettings()->getDefaultLayoutFile();
+    if ( fileLayout.empty() ) {
+        // SOLVFX: built-in default layout (Viewer left; Node Graph over Progress /
+        // Curve Editor / Dope Sheet on the right). Falls back to Natron's layout on error.
+        QFile res( QString::fromUtf8(":/Resources/Layout/SOLVFXDefault.nl") );
+        if ( res.open(QIODevice::ReadOnly) ) {
+            std::istringstream iss( res.readAll().toStdString() );
+            res.close();
+            try {
+                boost::archive::xml_iarchive iArchive(iss);
+                GuiLayoutSerialization s;
+                iArchive >> boost::serialization::make_nvp("Layout", s);
+                // keep the main window where / as big as it is: only the panes come from the file
+                const Qt::WindowStates winState = windowState();
+                const QRect winGeom = geometry();
+                restoreLayout(false, false, s);
+                if ( winState & (Qt::WindowMaximized | Qt::WindowFullScreen) ) {
+                    setWindowState(winState);
+                } else {
+                    setGeometry(winGeom);
+                }
+
+                return;
+            } catch (const std::exception & e) {
+                qDebug() << "SOLVFX default layout could not be loaded:" << e.what();
+                wipeLayout();
+            }
+        }
+    }
     if ( !fileLayout.empty() ) {
         std::ifstream ifile;
         ifile.open( fileLayout.c_str() );
