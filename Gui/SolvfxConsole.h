@@ -28,6 +28,11 @@ enum PerfKindEnum
     ePerfCount
 };
 
+// SOLVFX: the UI thread runs one step above normal priority so the node graph, viewer
+// and timeline stay responsive while all cores render (render threads stay normal).
+// Call once from the GUI thread.
+void raiseUiThreadPriority();
+
 // Opens the console window (Windows) and starts the monitor. Call once from the GUI thread.
 void open();
 

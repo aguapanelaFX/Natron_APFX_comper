@@ -44,6 +44,7 @@
 #include "Engine/Settings.h"
 #include <cmath>
 #include <QPainter>
+#include <QImage>
 #include "Engine/TimeLine.h"
 
 #include "Gui/SolvfxConsole.h"
@@ -295,28 +296,41 @@ NodeGraph::drawBackground(QPainter* painter,
     if ( (gw * zoom < 8.) || (gh * zoom < 8.) ) {
         return;
     }
-    QPen pen( QColor(0x4a, 0x4a, 0x4a) );
-    pen.setCosmetic(true);
-    pen.setWidthF(1.);
-    QVector<qreal> dash;
-    dash << 2. << 3.;
-    pen.setDashPattern(dash);
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing, false);
-    painter->setPen(pen);
+    // Drawn in screen pixels with a tiny dot texture (2 on / 3 off) per grid line:
+    // same look as a dashed pen but much cheaper (the background is redrawn on every pan)
+    static QBrush vDots, hDots;
+    if ( vDots.style() == Qt::NoBrush ) {
+        QImage v(1, 5, QImage::Format_ARGB32_Premultiplied);
+        QImage h(5, 1, QImage::Format_ARGB32_Premultiplied);
+        v.fill(Qt::transparent);
+        h.fill(Qt::transparent);
+        const QRgb c = qRgb(0x4a, 0x4a, 0x4a);
+        v.setPixel(0, 0, c); v.setPixel(0, 1, c);
+        h.setPixel(0, 0, c); h.setPixel(1, 0, c);
+        vDots = QBrush(v);
+        hDots = QBrush(h);
+    }
     // Panning moves the root item (all nodes), not the view: anchor the grid to the
     // root so it pans with the nodes, and node snapping uses the same cells.
     const QPointF origin = _imp->_root ? _imp->_root->scenePos() : QPointF(0, 0);
     const double left = origin.x() + std::floor( (rect.left() - origin.x()) / gw ) * gw;
     const double top = origin.y() + std::floor( (rect.top() - origin.y()) / gh ) * gh;
-    QVector<QLineF> lines;
+    const QTransform xf = painter->worldTransform();
+    const QRect devRect = xf.mapRect(rect).toAlignedRect();
+    const QPointF devOrigin = xf.map(origin);
+    painter->save();
+    painter->resetTransform();
+    painter->setRenderHint(QPainter::Antialiasing, false);
+    painter->setPen(Qt::NoPen);
+    painter->setBrushOrigin( QPoint( (int)std::floor( devOrigin.x() ), (int)std::floor( devOrigin.y() ) ) );
     for (double x = left; x <= rect.right(); x += gw) {
-        lines.push_back( QLineF( x, top, x, rect.bottom() ) ); // grid-aligned start: dots don't crawl when panning
+        const int dx = (int)std::floor( xf.map( QPointF(x, 0) ).x() );
+        painter->fillRect( QRect( dx, devRect.top(), 1, devRect.height() ), vDots );
     }
     for (double y = top; y <= rect.bottom(); y += gh) {
-        lines.push_back( QLineF( left, y, rect.right(), y ) );
+        const int dy = (int)std::floor( xf.map( QPointF(0, y) ).y() );
+        painter->fillRect( QRect( devRect.left(), dy, devRect.width(), 1 ), hDots );
     }
-    painter->drawLines(lines);
     painter->restore();
 }
 

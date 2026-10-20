@@ -853,6 +853,9 @@ GuiApplicationManager::initGui(const CLArgs& args)
 {
     QSettings settings( QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME) );
 
+    // SOLVFX: keep the UI responsive while rendering / caching uses every core
+    SolvfxConsole::raiseUiThreadPriority();
+
     // SOLVFX: debug console window (Preferences > User Interface > Show console window)
     if ( settings.value( QString::fromUtf8("solvfxShowConsole"), QVariant(true) ).toBool() ) {
         SolvfxConsole::open();

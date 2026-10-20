@@ -145,6 +145,14 @@ heartbeat()
 } // anon namespace
 
 void
+raiseUiThreadPriority()
+{
+#ifdef __NATRON_WIN32__
+    ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+#endif
+}
+
+void
 open()
 {
     State& s = st();
