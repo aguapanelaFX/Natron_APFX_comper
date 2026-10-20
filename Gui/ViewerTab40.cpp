@@ -223,6 +223,7 @@ ViewerTab::onPlaybackInButtonClicked()
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged(in, out);
     _imp->timeLineGui->setFrameRangeEdited(true);
+    solvfxRefitInOutView();
 }
 
 void
@@ -239,6 +240,7 @@ ViewerTab::onPlaybackOutButtonClicked()
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged(in, out);
     _imp->timeLineGui->setFrameRangeEdited(true);
+    solvfxRefitInOutView();
 }
 
 void
@@ -264,6 +266,18 @@ ViewerTab::solvfxClearInOutPoints(bool clearIn,
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged(in, out);
     _imp->timeLineGui->setFrameRangeEdited( (_imp->timelineRangeMode != 0) || _imp->inOutPointsSet );
+    solvfxRefitInOutView();
+}
+
+void
+ViewerTab::solvfxRefitInOutView()
+{
+    // SOLVFX: in In/Out mode the timeline shows the in / out range
+    if ( (_imp->timelineRangeMode == 2) && _imp->timeLineGui ) {
+        SequenceTime in, out;
+        _imp->timeLineGui->getBounds(&in, &out);
+        _imp->timeLineGui->centerOn(in, out);
+    }
 }
 
 void
@@ -1241,7 +1255,11 @@ ViewerTab::applyTimelineRangeMode()
     _imp->solvfxApplyingRange = false;
     // in Global mode without in / out points, follow the project frame range when it changes
     _imp->timeLineGui->setFrameRangeEdited( (_imp->timelineRangeMode != 0) || _imp->inOutPointsSet );
-    _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+    if (_imp->timelineRangeMode == 2) {
+        _imp->timeLineGui->centerOn( (SequenceTime)in, (SequenceTime)out );
+    } else {
+        _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+    }
 }
 
 void

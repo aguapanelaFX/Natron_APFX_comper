@@ -42,7 +42,7 @@ NATRON_NAMESPACE_ENTER
 
 TimeLine::TimeLine(Project* project)
     : _project(project)
-    , _currentFrame(1)
+    , _currentFrame(1001) // SOLVFX: projects start at 1001
 {
 }
 

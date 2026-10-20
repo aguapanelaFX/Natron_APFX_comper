@@ -851,7 +851,7 @@ Project::initializeKnobs()
     for (U32 i = 0; i < appFormats.size(); ++i) {
         const Format& f = appFormats[i];
         QString formatStr = ProjectPrivate::generateStringFromFormat(f);
-        if ( (f.width() == 1920) && (f.height() == 1080) && (f.getPixelAspectRatio() == 1) ) {
+        if ( (f.width() == 3840) && (f.height() == 2160) && (f.getPixelAspectRatio() == 1) ) { // SOLVFX: UHD 4K by default
             _imp->formatKnob->setDefaultValue(i, 0);
         }
         if ( !f.getName().empty() ) {
@@ -886,8 +886,8 @@ Project::initializeKnobs()
 
 
     _imp->frameRange = AppManager::createKnob<KnobInt>(this, tr("Frame Range"), 2);
-    _imp->frameRange->setDefaultValue(1, 0);
-    _imp->frameRange->setDefaultValue(250, 1);
+    _imp->frameRange->setDefaultValue(1001, 0); // SOLVFX: 1001-1200 by default
+    _imp->frameRange->setDefaultValue(1200, 1);
     _imp->frameRange->setDimensionName(0, "first");
     _imp->frameRange->setDimensionName(1, "last");
     _imp->frameRange->setEvaluateOnChange(false);

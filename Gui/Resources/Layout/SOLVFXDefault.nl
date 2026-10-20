@@ -8,38 +8,23 @@
 		<Child class_id="2" tracking_level="1" version="1" object_id="_0">
 			<Sizes>1180 704</Sizes>
 			<Orientation>1</Orientation>
-			<ChildIsSplitter>1</ChildIsSplitter>
-			<Child object_id="_1">
-				<Sizes>995 0</Sizes>
-				<Orientation>2</Orientation>
-				<ChildIsSplitter>0</ChildIsSplitter>
-				<Child class_id="3" tracking_level="1" version="5" object_id="_2">
-					<Tabs class_id="4" tracking_level="0" version="0">
-						<count>1</count>
-						<item_version>0</item_version>
-						<item>Viewer1</item>
-					</Tabs>
-					<Index>0</Index>
-					<Name>pane1</Name>
-					<IsAnchor>1</IsAnchor>
-				</Child>
-				<ChildIsSplitter>0</ChildIsSplitter>
-				<Child object_id="_3">
-					<Tabs>
-						<count>0</count>
-						<item_version>0</item_version>
-					</Tabs>
-					<Index>-1</Index>
-					<Name>pane3</Name>
-					<IsAnchor>0</IsAnchor>
-				</Child>
+			<ChildIsSplitter>0</ChildIsSplitter>
+			<Child class_id="3" tracking_level="1" version="5" object_id="_1">
+				<Tabs class_id="4" tracking_level="0" version="0">
+					<count>1</count>
+					<item_version>0</item_version>
+					<item>Viewer1</item>
+				</Tabs>
+				<Index>0</Index>
+				<Name>pane1</Name>
+				<IsAnchor>1</IsAnchor>
 			</Child>
 			<ChildIsSplitter>1</ChildIsSplitter>
-			<Child object_id="_4">
+			<Child object_id="_2">
 				<Sizes>706 289</Sizes>
 				<Orientation>2</Orientation>
 				<ChildIsSplitter>0</ChildIsSplitter>
-				<Child object_id="_5">
+				<Child object_id="_3">
 					<Tabs>
 						<count>1</count>
 						<item_version>0</item_version>
@@ -50,7 +35,7 @@
 					<IsAnchor>0</IsAnchor>
 				</Child>
 				<ChildIsSplitter>0</ChildIsSplitter>
-				<Child object_id="_6">
+				<Child object_id="_4">
 					<Tabs>
 						<count>3</count>
 						<item_version>0</item_version>
@@ -65,8 +50,8 @@
 			</Child>
 		</Child>
 		<MainWindow>1</MainWindow>
-		<x>-1</x>
-		<y>22</y>
+		<x>0</x>
+		<y>30</y>
 		<w>1920</w>
 		<h>1027</h>
 	</Window>

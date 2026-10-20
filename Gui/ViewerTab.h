@@ -447,6 +447,7 @@ public Q_SLOTS:
     void solvfxModeRange(double* first, double* last);
     // SOLVFX: Alt+I / Alt+O / Alt+U
     void solvfxClearInOutPoints(bool clearIn, bool clearOut);
+    void solvfxRefitInOutView();
 
     // SOLVFX: viewer saturation and f-stop steps
     void onSaturationToggled(bool clicked);
