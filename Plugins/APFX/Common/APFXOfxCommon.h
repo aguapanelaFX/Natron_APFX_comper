@@ -236,6 +236,13 @@ defineDouble(OFX::ImageEffectDescriptor& desc, OFX::PageParamDescriptor* page, c
     return p;
 }
 
+// Nuke-like divider line under a parameter
+inline void
+divider(OFX::ParamDescriptor* p)
+{
+    p->setLayoutHint(OFX::eLayoutHintDivider);
+}
+
 inline OFX::BooleanParamDescriptor*
 defineBool(OFX::ImageEffectDescriptor& desc, OFX::PageParamDescriptor* page, const char* name, const char* label,
            const char* hint, bool def)
@@ -252,15 +259,16 @@ defineBool(OFX::ImageEffectDescriptor& desc, OFX::PageParamDescriptor* page, con
 // fetches the standard output arguments (channels, mask, mix) of an instance
 struct StdParams
 {
-    OFX::BooleanParam* proc[4];
+    OFX::BooleanParam* proc[4] = { NULL, NULL, NULL, NULL };
     OFX::BooleanParam* maskInvert = NULL;
     OFX::DoubleParam* mix = NULL;
     OFX::Clip* maskClip = NULL;
 
-    void fetch(OFX::ImageEffect& fx, bool withMask)
+    // withChannels: the node has the red / green / blue / alpha checkboxes (defineChannels)
+    void fetch(OFX::ImageEffect& fx, bool withMask, bool withChannels = true)
     {
         const char* names[4] = { kNatronOfxParamProcessR, kNatronOfxParamProcessG, kNatronOfxParamProcessB, kNatronOfxParamProcessA };
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; withChannels && i < 4; ++i) {
             proc[i] = fx.fetchBooleanParam(names[i]);
         }
         if (withMask) {
@@ -274,7 +282,7 @@ struct StdParams
     OFX::Image* get(double t, OutputArgs& o) const
     {
         for (int i = 0; i < 4; ++i) {
-            o.proc[i] = proc[i]->getValueAtTime(t);
+            o.proc[i] = proc[i] ? proc[i]->getValueAtTime(t) : true;
         }
         OFX::Image* m = NULL;
         if (mix) {

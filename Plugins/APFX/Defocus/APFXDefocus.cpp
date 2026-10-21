@@ -175,6 +175,9 @@ private:
             return false;
         }
         rod = _srcClip->getRegionOfDefinition(args.time);
+        if (_edge->getValueAtTime(args.time) == 1) {
+            return true;   // extend: the frame stays the same size (no black border)
+        }
         double ex, ey;
         extents(args.time, &ex, &ey);
         rod.x1 -= ex; rod.x2 += ex;
@@ -269,7 +272,16 @@ APFXDefocusPlugin::render(const RenderArguments& args)
     APFXDefocus::Buffer B;
     OfxRectI sb = { 0, 0, 0, 0 };
     if (src) {
+        // only real source pixels: the image bounds can carry black padding beyond the
+        // source RoD, which "extend" would otherwise repeat as a black border
         sb = src->getBounds();
+        const OfxRectD rd = _srcClip->getRegionOfDefinition(t);
+        const double par = _srcClip->getPixelAspectRatio();
+        const double sx = args.renderScale.x / (par > 0. ? par : 1.), sy = args.renderScale.y;
+        const int rx1 = (int)std::floor(rd.x1 * sx + 1e-6), rx2 = (int)std::ceil(rd.x2 * sx - 1e-6);
+        const int ry1 = (int)std::floor(rd.y1 * sy + 1e-6), ry2 = (int)std::ceil(rd.y2 * sy - 1e-6);
+        sb.x1 = std::max(sb.x1, rx1); sb.x2 = std::min(sb.x2, rx2);
+        sb.y1 = std::max(sb.y1, ry1); sb.y2 = std::min(sb.y2, ry2);
     }
     const int bx1 = std::max(sb.x1, win.x1 - K.rx), bx2 = std::min(sb.x2, win.x2 + K.rx);
     const int by1 = std::max(sb.y1, win.y1 - K.ry), by2 = std::min(sb.y2, win.y2 + K.ry);

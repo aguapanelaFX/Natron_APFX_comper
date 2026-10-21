@@ -32,103 +32,217 @@ clamp01(float v)
 
 enum EdgeOutputEnum
 {
-    eEdgeOutputExtended = 0,   // extended colours (unpremultiplied), alpha
-    eEdgeOutputEdgesOnly,      // only the changed band, premultiplied by its weight
-    eEdgeOutputAreaAffected    // the weight of the change, in all channels
+    eEdgeOutputExtended = 0,   // the source (premultiplied) over its extended edge colours, alpha
+    eEdgeOutputEdgesOnly,      // only the extension, premultiplied by where it shows
+    eEdgeOutputAreaAffected    // where the extension shows, in all channels
 };
 
 struct EdgeExtendParams
 {
-    float intensity = 1.f;       // 0..1 how much the extended colour replaces the edge colour
-    bool erodeIncoming = true;   // erode the alpha before extending
+    float intensity = 1.f;       // 0..1 how much of the extension is applied
+    bool erodeIncoming = true;   // erode the alpha before taking the edge
     int width = 2;               // erode width in pixels
-    float edgeBlur = 1.f;        // softness of the transition (pixels)
+    float edgeBlur = 2.f;        // smoothing of the pushed edge colours (pixels)
     bool pullInward = false;     // also replace the eroded band inside the alpha
     float pullInwardBlur = 2.f;  // softness of the inward band
     bool erodeAlpha = false;     // output the eroded alpha
     int output = eEdgeOutputExtended;
 };
 
-// src: RGBA premultiplied. dst: RGBA (unpremultiplied colour for eEdgeOutputExtended).
+// For every pixel, the index of the nearest core pixel (exact euclidean, Felzenszwalb
+// lower envelope, O(pixels)); -1 when there is no core at all. The nearest core pixel
+// lies along the edge normal, so looking colours up through this field pushes the edge
+// pixels straight outward (the UV / vector edge extend).
+inline void
+nearestCore(const std::vector<unsigned char>& core, int w, int h, std::vector<int>& idx, const ParallelFor& pf)
+{
+    const int INF = 1 << 29;
+    std::vector<int> ny( (size_t)w * h );
+    // columns: nearest core row in the same column (two sweeps), parallel over column ranges
+    pf([&](int x0, int x1) {
+        std::vector<int> last(x1 - x0, -INF);
+        for (int y = 0; y < h; ++y) {
+            const unsigned char* c = &core[(size_t)y * w];
+            int* o = &ny[(size_t)y * w];
+            for (int x = x0; x < x1; ++x) {
+                if (c[x]) {
+                    last[x - x0] = y;
+                }
+                o[x] = last[x - x0];
+            }
+        }
+        std::fill(last.begin(), last.end(), INF);
+        for (int y = h - 1; y >= 0; --y) {
+            const unsigned char* c = &core[(size_t)y * w];
+            int* o = &ny[(size_t)y * w];
+            for (int x = x0; x < x1; ++x) {
+                if (c[x]) {
+                    last[x - x0] = y;
+                }
+                const int up = last[x - x0];
+                if ( (up < INF) && ( (o[x] <= -INF) || (up - y < y - o[x]) ) ) {
+                    o[x] = up;
+                }
+            }
+        }
+    }, w);
+    idx.assign( (size_t)w * h, -1 );
+    // rows: lower envelope of the parabolas (x - q)^2 + dy(q)^2
+    pf([&](int y0, int y1) {
+        std::vector<double> f(w), z(w + 1);
+        std::vector<int> v(w);
+        for (int y = y0; y < y1; ++y) {
+            const int* r = &ny[(size_t)y * w];
+            int k = -1;
+            for (int q = 0; q < w; ++q) {
+                if ( (r[q] <= -INF) || (r[q] >= INF) ) {
+                    continue;
+                }
+                const double dy = r[q] - y;
+                f[q] = dy * dy;
+                double sx = -1e30;
+                while (k >= 0) {
+                    const int pq = v[k];
+                    sx = ( (f[q] + (double)q * q) - (f[pq] + (double)pq * pq) ) / (2. * (q - pq));
+                    if (sx <= z[k]) {
+                        --k;
+                    } else {
+                        break;
+                    }
+                }
+                ++k;
+                v[k] = q;
+                z[k] = (k == 0) ? -1e30 : sx;
+            }
+            if (k < 0) {
+                continue;
+            }
+            int* o = &idx[(size_t)y * w];
+            int j = 0;
+            for (int x = 0; x < w; ++x) {
+                while ( (j < k) && (z[j + 1] <= x) ) {
+                    ++j;
+                }
+                const int q = v[j];
+                o[x] = r[q] * w + q;
+            }
+        }
+    }, h);
+} // nearestCore
+
+// src: RGBA premultiplied, dst: RGBA (see EdgeOutputEnum).
+// 1) the edge is taken from the (eroded) incoming alpha: core = eroded alpha >= 0.5
+// 2) the core colours (unpremultiplied, smoothed along the edge by edge blur) are pushed
+//    outward along the edge normals through the nearest-core field
+// 3) the pushed colours are smoothed by edge blur (soft streaks, no seams at corners)
+// 4) the source goes over them; pull inward also replaces the eroded band inside
 inline void
 edgeExtend(const Plane& src, const EdgeExtendParams& p, Plane& dst, const ParallelFor& pf = APFXOps::serialFor)
 {
     const int w = src.w, h = src.h;
-    // 1) alpha and eroded alpha
-    Plane a0(w, h, 1), ae(w, h, 1);
+    const size_t N = (size_t)w * h;
+    // 1) alpha, eroded alpha, core
+    Plane a0(w, h, 1), ae;
     pf([&](int y0, int y1) {
         for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
             a0.d[i] = clamp01(src.d[i * 4 + 3]);
         }
     }, h);
-    ae.d = a0.d;
-    if (p.erodeIncoming && p.width > 0) {
+    ae = a0;
+    if (p.erodeIncoming && (p.width > 0) ) {
         APFXOps::erode(ae, p.width, pf);
     }
-    // 2) pull-push from the (eroded) core: colour * weight, weight
-    Plane cw(w, h, 4);
+    std::vector<unsigned char> core(N);
+    // core colours unpremultiplied, weighted by the eroded alpha (rgb * w, w)
+    Plane cc(w, h, 4);
     pf([&](int y0, int y1) {
-        for (int y = y0; y < y1; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const float* s = src.px(x, y);
-                const float a = a0.px(x, y)[0];
-                const float k = ae.px(x, y)[0];
-                float* o = cw.px(x, y);
-                const float inv = (a > 1e-6f) ? 1.f / a : 0.f;
-                // weight: eroded alpha, sharpened so only solid core colours count fully
-                const float wgt = k * k;
-                o[0] = s[0] * inv * wgt; o[1] = s[1] * inv * wgt; o[2] = s[2] * inv * wgt;
-                o[3] = wgt;
+        for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+            const float k = ae.d[i];
+            core[i] = (k >= 0.5f);
+            float* o = &cc.d[i * 4];
+            if (core[i]) {
+                const float* s = &src.d[i * 4];
+                const float inv = 1.f / std::max(a0.d[i], 1e-6f);
+                o[0] = s[0] * inv * k; o[1] = s[1] * inv * k; o[2] = s[2] * inv * k; o[3] = k;
             }
         }
     }, h);
-    Plane ext = APFXOps::pullPush(std::move(cw), 32, pf);
-    // 3) where to use the extended colour: outside / soft edges, plus (pull inward) the eroded band
-    Plane wOut(w, h, 1), wIn(w, h, 1);
+    // smoothing along the edge (normalised, core only) so single noisy edge pixels do not streak
+    if (p.edgeBlur >= 0.3f) {
+        APFXOps::blur(cc, p.edgeBlur, pf);
+    }
+    // 2) push outward along the normals
+    std::vector<int> idx;
+    nearestCore(core, w, h, idx, pf);
+    Plane ext(w, h, 4);
     pf([&](int y0, int y1) {
         for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
-            wOut.d[i] = 1.f - a0.d[i];
-            wIn.d[i] = p.pullInward ? clamp01(a0.d[i] - ae.d[i]) : 0.f;
+            const int j = idx[i];
+            float* o = &ext.d[i * 4];
+            if (j < 0) {
+                continue;
+            }
+            const float* c = &cc.d[(size_t)j * 4];
+            const float inv = (c[3] > 1e-6f) ? 1.f / c[3] : 0.f;
+            o[0] = c[0] * inv; o[1] = c[1] * inv; o[2] = c[2] * inv; o[3] = 1.f;
         }
     }, h);
-    APFXOps::blur(wOut, p.edgeBlur, pf);
+    // 3) soft streaks
+    if (p.edgeBlur >= 0.3f) {
+        APFXOps::blur(ext, p.edgeBlur, pf);
+    }
+    // 4) inward band
+    Plane wIn;
     if (p.pullInward) {
+        wIn.resize(w, h, 1);
+        pf([&](int y0, int y1) {
+            for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+                wIn.d[i] = clamp01(a0.d[i] - ae.d[i]);
+            }
+        }, h);
         APFXOps::blur(wIn, p.pullInwardBlur, pf);
     }
+    const float I = clamp01(p.intensity);
     dst.resize(w, h, 4);
     pf([&](int y0, int y1) {
-        for (int y = y0; y < y1; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const float* s = src.px(x, y);
-                const float* e = ext.px(x, y);
-                const float a = a0.px(x, y)[0];
-                // keep fully solid pixels untouched unless pulled inward
-                float m = wOut.px(x, y)[0];
-                if (a <= 0.f) {
-                    m = 1.f;
-                }
-                m = std::max( m, wIn.px(x, y)[0] );
-                m = clamp01(m * p.intensity);
-                const float inv = (a > 1e-6f) ? 1.f / a : 0.f;
-                float c[3];
+        for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+            const float* s = &src.d[i * 4];
+            const float* e = &ext.d[i * 4];
+            const float a = a0.d[i];
+            const float has = e[3] > 1e-6f ? 1.f : 0.f;
+            float E[3] = { 0.f, 0.f, 0.f };
+            if (has > 0.f) {
+                E[0] = e[0] / e[3]; E[1] = e[1] / e[3]; E[2] = e[2] / e[3];
+            }
+            // extension shows under the source: (1 - a), plus the inward band
+            float m = (1.f - a) * has;
+            float c[3] = { s[0] + E[0] * m, s[1] + E[1] * m, s[2] + E[2] * m };
+            float area = m;
+            if (p.pullInward && (has > 0.f) ) {
+                const float b = wIn.d[i];
                 for (int ch = 0; ch < 3; ++ch) {
-                    const float own = s[ch] * inv;
-                    c[ch] = own + (e[ch] - own) * m;
+                    c[ch] += (E[ch] - c[ch]) * b;
                 }
-                const float alphaOut = p.erodeAlpha ? ae.px(x, y)[0] : s[3];
-                float* o = dst.px(x, y);
-                switch (p.output) {
-                case eEdgeOutputEdgesOnly:
-                    o[0] = c[0] * m; o[1] = c[1] * m; o[2] = c[2] * m; o[3] = m;
-                    break;
-                case eEdgeOutputAreaAffected:
-                    o[0] = o[1] = o[2] = o[3] = m;
-                    break;
-                case eEdgeOutputExtended:
-                default:
-                    o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = alphaOut;
-                    break;
-                }
+                area = std::max(area, b);
+            }
+            // intensity: mix with the source
+            for (int ch = 0; ch < 3; ++ch) {
+                c[ch] = s[ch] + (c[ch] - s[ch]) * I;
+            }
+            area *= I;
+            float* o = &dst.d[i * 4];
+            switch (p.output) {
+            case eEdgeOutputEdgesOnly:
+                o[0] = E[0] * area; o[1] = E[1] * area; o[2] = E[2] * area; o[3] = area;
+                break;
+            case eEdgeOutputAreaAffected:
+                o[0] = o[1] = o[2] = o[3] = area;
+                break;
+            case eEdgeOutputExtended:
+            default:
+                o[0] = c[0]; o[1] = c[1]; o[2] = c[2];
+                o[3] = p.erodeAlpha ? ae.d[i] : s[3];
+                break;
             }
         }
     }, h);

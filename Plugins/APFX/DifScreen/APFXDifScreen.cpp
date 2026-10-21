@@ -45,7 +45,7 @@ public:
     {
         _dst = fetchClip(kOfxImageEffectOutputClipName);
         _src = fetchClip(kOfxImageEffectSimpleSourceClipName);
-        _std.fetch(*this, false);
+        _std.fetch(*this, false, false);
         _screen = fetchChoiceParam("screen");
         _threshold = fetchDoubleParam("threshold");
         _softness = fetchDoubleParam("softness");
@@ -151,7 +151,7 @@ APFXDifScreenColourFactory::describeInContext(ImageEffectDescriptor& desc, Conte
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false);
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectOutputClipName, false);
     PageParamDescriptor* page = desc.definePageParam("DifScreenColour");
-    APFXOfx::defineChannels(desc, page, true);
+    // no channels row (like Nuke's IBKColour)
     defineScreenChoice(desc, page);
     APFXOfx::defineDouble(desc, page, "size", "size", "How hard the foreground is removed: grows it by this many pixels before the screen is patched.", 10., 0., 100., 0., 2000.);
     {
@@ -166,12 +166,14 @@ APFXDifScreenColourFactory::describeInContext(ImageEffectDescriptor& desc, Conte
         p->setLabel("lights");
         p->setHint("Colour treated as white: with darks, separates the foreground from the screen (e.g. raise red to remove light red traces).");
         p->setDefault(1., 1., 1.);
+        APFXOfx::divider(p);
         page->addChild(*p);
     }
     APFXOfx::defineDouble(desc, page, "erode", "erode", "Extra erosion for traces of foreground edge colour left in the plate (pixels).", 0., 0., 5., 0., 500.);
-    APFXOfx::defineDouble(desc, page, "patchBlack", "patch black",
+    DoubleParamDescriptor* patch = APFXOfx::defineDouble(desc, page, "patchBlack", "patch black",
                           "Patches the black (removed foreground) with the surrounding screen colours. Every step reaches further, "
                           "like stacking more colour nodes: 0 = foreground stays black, 5 = everything patched (full clean plate).", 5., 0., 5., 0., 5.);
+    APFXOfx::divider(patch);
     {
         GroupParamDescriptor* g = desc.defineGroupParam("advancedGroup");
         g->setLabel("Advanced");
@@ -215,7 +217,7 @@ public:
         _src = fetchClip(kOfxImageEffectSimpleSourceClipName);
         _plate = fetchClip("Plate");
         _bg = fetchClip("Bg");
-        _std.fetch(*this, true);
+        _std.fetch(*this, true, false);
         _screen = fetchChoiceParam("screen");
         _screenColour = fetchRGBParam("colour");
         _redWeight = fetchDoubleParam("redWeight");
@@ -420,7 +422,7 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectOutputClipName, false);
     APFXOfx::defineMaskClip(desc);
     PageParamDescriptor* page = desc.definePageParam("DifScreenKey");
-    APFXOfx::defineChannels(desc, page, true);
+    // no channels row (like Nuke's IBKGizmo)
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("screen");
         p->setLabel("screen type");
@@ -440,15 +442,23 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
         page->addChild(*p);
     }
     APFXOfx::defineDouble(desc, page, "redWeight", "red weight", "Weight of the red channel: lower it to fix the edges of red foreground.", 0.5, 0., 1., -10., 10.);
-    APFXOfx::defineDouble(desc, page, "otherWeight", "blue/green weight", "Weight of blue on a green screen, green on a blue screen.", 0.5, 0., 1., -10., 10.);
-    APFXOfx::defineBool(desc, page, "luminanceMatch", "luminance match", "Adds a luminance factor: captures foreground brighter than the screen (bright transparent areas).", false);
+    APFXOfx::divider( APFXOfx::defineDouble(desc, page, "otherWeight", "blue/green weight", "Weight of blue on a green screen, green on a blue screen.", 0.5, 0., 1., -10., 10.) );
+    // [ ] luminance match   screen range ----
+    APFXOfx::defineBool(desc, page, "luminanceMatch", "luminance match", "Adds a luminance factor: captures foreground brighter than the screen (bright transparent areas).", false)
+        ->setLayoutHint(eLayoutHintNoNewLine, 1);
     APFXOfx::defineDouble(desc, page, "screenRange", "screen range", "Lower it until the background stops changing: less screen noise, harder edges.", 1., 0., 1., 0.01, 10.);
-    APFXOfx::defineDouble(desc, page, "luminanceLevel", "luminance level", "Strength of the luminance match (when enabled).", 0., 0., 1., 0., 10.);
-    APFXOfx::defineBool(desc, page, "luminanceLevelEnable", "enable", "Use the luminance level control.", false);
-    APFXOfx::defineBool(desc, page, "autolevels", "autolevels", "Harder key on saturated foreground colours only (the weights affect the whole image).", false);
-    APFXOfx::defineBool(desc, page, "yellow", "yellow", "Protect saturated yellow from autolevels.", false);
-    APFXOfx::defineBool(desc, page, "cyan", "cyan", "Protect saturated cyan from autolevels.", false);
-    APFXOfx::defineBool(desc, page, "magenta", "magenta", "Protect saturated magenta from autolevels.", false);
+    // luminance level ----  [ ] enable
+    APFXOfx::defineDouble(desc, page, "luminanceLevel", "luminance level", "Strength of the luminance match (when enabled).", 0., 0., 1., 0., 10.)
+        ->setLayoutHint(eLayoutHintNoNewLine, 1);
+    APFXOfx::divider( APFXOfx::defineBool(desc, page, "luminanceLevelEnable", "enable", "Use the luminance level control.", false) );
+    // [ ] autolevels  [ ] yellow  [ ] cyan  [ ] magenta
+    APFXOfx::defineBool(desc, page, "autolevels", "autolevels", "Harder key on saturated foreground colours only (the weights affect the whole image).", false)
+        ->setLayoutHint(eLayoutHintNoNewLine, 1);
+    APFXOfx::defineBool(desc, page, "yellow", "yellow", "Protect saturated yellow from autolevels.", false)
+        ->setLayoutHint(eLayoutHintNoNewLine, 1);
+    APFXOfx::defineBool(desc, page, "cyan", "cyan", "Protect saturated cyan from autolevels.", false)
+        ->setLayoutHint(eLayoutHintNoNewLine, 1);
+    APFXOfx::divider( APFXOfx::defineBool(desc, page, "magenta", "magenta", "Protect saturated magenta from autolevels.", false) );
     {
         BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "screenSubtraction", "screen subtraction", "On: removes the screen colour from the foreground (despill). Off: the original foreground is multiplied by the matte.", true);
         p->setLayoutHint(eLayoutHintNoNewLine, 1);
@@ -457,9 +467,9 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
         BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "useBkgLuminance", "use bkg luminance", "The Bg input affects the brightness of the edges (helps with fringing).", false);
         p->setLayoutHint(eLayoutHintNoNewLine, 1);
     }
-    APFXOfx::defineBool(desc, page, "useBkgChroma", "use bkg chroma", "The Bg input affects the colour of the edges.", false);
+    APFXOfx::divider( APFXOfx::defineBool(desc, page, "useBkgChroma", "use bkg chroma", "The Bg input affects the colour of the edges.", false) );
     APFXOfx::defineDouble(desc, page, "blackClip", "black clip", "Alpha below this becomes 0 (cleans screen noise).", 0., 0., 1., -1., 2.);
-    APFXOfx::defineDouble(desc, page, "whiteClip", "white clip", "Alpha above this becomes 1.", 1., 0., 1., -1., 2.);
+    APFXOfx::divider( APFXOfx::defineDouble(desc, page, "whiteClip", "white clip", "Alpha above this becomes 1.", 1., 0., 1., -1., 2.) );
     {
         BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "premultiply", "premultiply", "Output a premultiplied foreground.", true);
         desc.addClipPreferencesSlaveParam(*p);

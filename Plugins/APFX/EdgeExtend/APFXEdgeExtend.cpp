@@ -8,8 +8,9 @@
  * (at your option) any later version.
  * ***** END LICENSE BLOCK ***** */
 
-// APFX EdgeExtend: pushes the solid core colours outward through the soft edges
-// (pull-push pyramid fill, any distance, O(pixels)).
+// APFX EdgeExtend: takes the edge from the incoming alpha and pushes the edge pixels
+// outward along the edge normals (UV / vector edge extend: nearest-core lookup through an
+// exact distance transform, O(pixels)), then puts the source over it.
 
 #include <cmath>
 
@@ -135,8 +136,9 @@ void
 APFXEdgeExtendFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "EdgeExtend",
-                            "APFX EdgeExtend: pushes the solid core colours outward through the soft edges "
-                            "(hair, motion blur), replacing contaminated edge colours.\n"
+                            "APFX EdgeExtend: takes the edge from the incoming (eroded) alpha and pushes those edge "
+                            "pixels outward, perpendicular to the edge, like a vector blur. The source goes over the "
+                            "extension, so soft edges (hair, motion blur) get clean edge colours behind them.\n"
                             "Output 'edge extended' is unpremultiplied: premultiply it by the alpha afterwards.");
 }
 
@@ -148,14 +150,14 @@ APFXEdgeExtendFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnu
     APFXOfx::defineMaskClip(desc);
     PageParamDescriptor* page = desc.definePageParam("EdgeExtend");
     APFXOfx::defineChannels(desc, page, true);
-    APFXOfx::defineDouble(desc, page, "intensity", "intensity", "How much the extended colour replaces the edge colour.", 1., 0., 1., 0., 1.);
-    APFXOfx::defineBool(desc, page, "erodeIncomingAlpha", "erode incoming alpha", "Erode the alpha before extending, so contaminated edge pixels are not used.", true);
+    APFXOfx::defineDouble(desc, page, "intensity", "intensity", "How much of the extension is applied.", 1., 0., 1., 0., 1.);
+    APFXOfx::defineBool(desc, page, "erodeIncomingAlpha", "erode incoming alpha", "Erode the alpha before taking the edge, so contaminated edge pixels are not pushed out.", true);
     APFXOfx::defineDouble(desc, page, "width", "width", "Erode width in pixels.", 2., 0., 20., 0., 500.);
-    APFXOfx::defineDouble(desc, page, "edgeBlur", "edge blur", "Softness of the transition to the extended colour, in pixels.", 1., 0., 10., 0., 500.);
+    APFXOfx::defineDouble(desc, page, "edgeBlur", "edge blur", "Smooths the pushed edge colours (along the edge and the streaks), in pixels.", 2., 0., 10., 0., 500.);
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("output");
         p->setLabel("output");
-        p->setHint("edge extended: extended colour (unpremultiplied) + alpha. edges only: just the changed band. area affected: where the colour changed.");
+        p->setHint("edge extended: the source over its pushed edge colours (unpremultiplied) + alpha. edges only: just the extension where it shows. area affected: where the extension shows.");
         p->appendOption("edge extended", "", "extended");
         p->appendOption("edges only", "", "edges");
         p->appendOption("area affected", "", "area");

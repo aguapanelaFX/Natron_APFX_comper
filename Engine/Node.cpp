@@ -2255,8 +2255,14 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
     if ( (firstIndex == 1) && !foundAll && outputLayer ) {
         outputLayer->setAddNewLine(true);
     }
+    // SOLVFX: the APFX keyers have no channels row, like Nuke's IBKColour / IBKGizmo
+    const bool solvfxNoChannelsRow = !foundAll && outputLayer &&
+                                     ( _imp->effect->getPluginID().rfind("com.aguapanelafx.APFX.DifScreen", 0) == 0 );
+    if (solvfxNoChannelsRow) {
+        outputLayer->setSecretByDefault(true);
+    }
     // SOLVFX: divider under the channels row (Nuke-like)
-    if ( !isWriter && (firstIndex == 1 || foundAll) ) {
+    if ( !isWriter && !solvfxNoChannelsRow && (firstIndex == 1 || foundAll) ) {
         KnobsVec children = mainPage->getChildren();
         int lastIdx = -1;
         KnobIPtr lastOfRow = foundAll ? KnobIPtr( _imp->enabledChan[3].lock() ) : KnobIPtr(outputLayer);

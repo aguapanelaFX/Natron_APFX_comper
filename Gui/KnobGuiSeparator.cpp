@@ -96,10 +96,14 @@ KnobGuiSeparator::createWidget(QHBoxLayout* layout)
 {
     layout->parentWidget()->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     _line = new QFrame( layout->parentWidget() );
-    _line->setFixedHeight( TO_DPIY(2) );
-    _line->setGeometry( 0, 0, TO_DPIX(300), TO_DPIY(2) );
-    _line->setFrameShape(QFrame::HLine);
-    _line->setFrameShadow(QFrame::Sunken);
+    // SOLVFX: Nuke-like divider, a thin line lighter than the panel (the stylesheet's
+    // black QFrame colour made the sunken line invisible on the dark panel)
+    _line->setObjectName( QString::fromUtf8("SolvfxKnobDivider") );
+    _line->setFrameShape(QFrame::NoFrame);
+    _line->setFixedHeight( std::max( 1, (int)TO_DPIY(1) ) );
+    _line->setGeometry( 0, 0, TO_DPIX(300), std::max( 1, (int)TO_DPIY(1) ) );
+    _line->setStyleSheet( QString::fromUtf8("QFrame#SolvfxKnobDivider { background-color: #4d4d4d; border: none; }") );
+    layout->setContentsMargins( 0, TO_DPIY(4), 0, TO_DPIY(4) );
 
     //Without that the frame won't showup
     _line->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
