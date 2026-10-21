@@ -123,6 +123,13 @@ public:
         _s = s;
         _src = src;
         _par = par;
+        // seeded lattice tables (one per independent noise)
+        _perm = APFXNoise::Perm(s.seed * 8U);
+        _permR = APFXNoise::Perm(s.seed * 8U + 1U);
+        _permG = APFXNoise::Perm(s.seed * 8U + 2U);
+        _permB = APFXNoise::Perm(s.seed * 8U + 3U);
+        _permWarpX = APFXNoise::Perm(s.seed * 8U + 4U);
+        _permWarpY = APFXNoise::Perm(s.seed * 8U + 5U);
     }
 
 private:
@@ -140,16 +147,16 @@ private:
         return v;
     }
 
-    double sample(double nx, double ny, uint32_t seed) const
+    double sample(double nx, double ny, const APFXNoise::Perm& perm) const
     {
         if (_s.use4D) {
             const double p[4] = { nx, ny, _s.loopA, _s.loopB };
 
-            return APFXNoise::fractal<4>(p, seed, _s.bp, _s.fp);
+            return APFXNoise::fractal<4>(p, perm, _s.bp, _s.fp);
         }
         const double p[3] = { nx, ny, _s.z };
 
-        return APFXNoise::fractal<3>(p, seed, _s.bp, _s.fp);
+        return APFXNoise::fractal<3>(p, perm, _s.bp, _s.fp);
     }
 
     void multiThreadProcessImages(const OfxRectI& win,
@@ -184,8 +191,8 @@ private:
                 if (doWarp) {
                     const double wp[3] = { rx / _s.warpSize, ry / _s.warpSize, _s.z * 0.37 + 11.3 };
                     const double wq[3] = { rx / _s.warpSize + 31.7, ry / _s.warpSize - 17.1, _s.z * 0.37 - 5.9 };
-                    const double dx = APFXNoise::fractal<3>(wp, _s.seed + 7777U, warpBasis, warpFractal) * 2. - 1.;
-                    const double dy = APFXNoise::fractal<3>(wq, _s.seed + 9191U, warpBasis, warpFractal) * 2. - 1.;
+                    const double dx = APFXNoise::fractal<3>(wp, _permWarpX, warpBasis, warpFractal) * 2. - 1.;
+                    const double dy = APFXNoise::fractal<3>(wq, _permWarpY, warpBasis, warpFractal) * 2. - 1.;
                     rx += dx * _s.warpAmount;
                     ry += dy * _s.warpAmount;
                 }
@@ -194,12 +201,12 @@ private:
 
                 float r, g, b, a;
                 if (_s.color) {
-                    r = (float)shape( sample(nx, ny, _s.seed * 4U + 1U) );
-                    g = (float)shape( sample(nx, ny, _s.seed * 4U + 2U) );
-                    b = (float)shape( sample(nx, ny, _s.seed * 4U + 3U) );
+                    r = (float)shape( sample(nx, ny, _permR) );
+                    g = (float)shape( sample(nx, ny, _permG) );
+                    b = (float)shape( sample(nx, ny, _permB) );
                     a = (r + g + b) / 3.f;
                 } else {
-                    r = g = b = a = (float)shape( sample(nx, ny, _s.seed * 4U) );
+                    r = g = b = a = (float)shape( sample(nx, ny, _perm) );
                 }
 
                 const float* s = NULL;
@@ -227,6 +234,7 @@ private:
     } // multiThreadProcessImages
 
     NoiseSettings _s;
+    APFXNoise::Perm _perm, _permR, _permG, _permB, _permWarpX, _permWarpY;
     const Image* _src;
     double _par;
 };
@@ -623,7 +631,7 @@ APFXNoisePluginFactory::describeInContext(ImageEffectDescriptor& desc,
         grp->setLabel("Octaves");
         grp->setOpen(true);
         p->addChild(*grp);
-        IntParamDescriptor* oct = integer(desc, page, kParamOctaves, "octaves", "Number of noise layers.", 10, 1, 16);
+        IntParamDescriptor* oct = integer(desc, page, kParamOctaves, "octaves", "Number of noise layers (more = finer detail, slower).", 6, 1, 16);
         oct->setRange(1, 32);
         oct->setParent(*grp);
         DoubleParamDescriptor* lac = dbl(desc, page, kParamLacunarity, "lacunarity", "Size ratio between octaves (2 = each octave is half the size).", 2., 1.1, 4.);
