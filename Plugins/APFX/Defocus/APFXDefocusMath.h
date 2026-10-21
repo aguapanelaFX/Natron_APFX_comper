@@ -20,6 +20,10 @@
 #include <cmath>
 #include <vector>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace APFXDefocus {
 
 struct KernelRow
@@ -170,6 +174,146 @@ spanSum(const float* P,
     return s;
 }
 
+
+// ---------------------------------------------------------------- 4-channel buffer convolution
+
+// Input buffer (interleaved RGBA float) with per-row prefix sums.
+struct Buffer
+{
+    int x0 = 0, y0 = 0, w = 0, h = 0;  // pixel coordinates of the buffer origin, size
+    std::vector<float> V;              // w * h * 4
+    std::vector<float> P;              // (w + 1) * h * 4, P[x] = sum of V[0 .. x-1]
+
+    void allocate(int x0_, int y0_, int w_, int h_)
+    {
+        x0 = x0_; y0 = y0_; w = w_; h = h_;
+        V.assign( (size_t)w * h * 4, 0.f );
+        P.assign( (size_t)(w + 1) * h * 4, 0.f );
+    }
+
+    float* row(int r) { return &V[(size_t)r * w * 4]; }
+    const float* row(int r) const { return &V[(size_t)r * w * 4]; }
+    const float* prow(int r) const { return &P[(size_t)r * (w + 1) * 4]; }
+
+    void prefixRows(int r0, int r1)
+    {
+        for (int r = r0; r < r1; ++r) {
+            const float* v = row(r);
+            float* p = &P[(size_t)r * (w + 1) * 4];
+            p[0] = p[1] = p[2] = p[3] = 0.f;
+            for (int x = 0; x < w; ++x) {
+                for (int c = 0; c < 4; ++c) {
+                    p[(x + 1) * 4 + c] = p[x * 4 + c] + v[x * 4 + c];
+                }
+            }
+        }
+    }
+};
+
+// generic (border) span sum for 4 channels; extend repeats the edge pixels
+inline void
+spanSum4(const float* P, const float* v, int n, float a, float b, bool extend, float w, float* out)
+{
+    a += 0.5f;
+    b += 0.5f;
+    if (extend) {
+        if (a < 0.f) {
+            const float k = w * ( std::min(b, 0.f) - a );
+            for (int c = 0; c < 4; ++c) {
+                out[c] += v[c] * k;
+            }
+        }
+        if (b > (float)n) {
+            const float k = w * ( b - std::max(a, (float)n) );
+            for (int c = 0; c < 4; ++c) {
+                out[c] += v[(n - 1) * 4 + c] * k;
+            }
+        }
+    }
+    if (b <= 0.f || a >= (float)n) {
+        return;
+    }
+    a = std::max(a, 0.f);
+    b = std::min(b, (float)n);
+    const int ia = (int)a, ib = (int)b;
+    if (ia == ib) {
+        for (int c = 0; c < 4; ++c) {
+            out[c] += w * v[ia * 4 + c] * (b - a);
+        }
+
+        return;
+    }
+    const float fa = (float)(ia + 1) - a, fb = b - (float)ib;
+    for (int c = 0; c < 4; ++c) {
+        float s = P[ib * 4 + c] - P[(ia + 1) * 4 + c] + v[ia * 4 + c] * fa;
+        if (ib < n) {
+            s += v[ib * 4 + c] * fb;
+        }
+        out[c] += w * s;
+    }
+}
+
+// Convolves output row y (absolute pixel row) for x in [x1, x2) into acc (4 floats per pixel, overwritten).
+inline void
+convolveRow(const Buffer& B, const Kernel& K, bool extend, int y, int x1, int x2, float* acc)
+{
+    const int n = x2 - x1;
+    std::fill(acc, acc + (size_t)n * 4, 0.f);
+    if ( (B.w <= 0) || (B.h <= 0) ) {
+        return;
+    }
+    for (const KernelRow& r : K.rows) {
+        int ry = y + r.dy - B.y0;
+        if ( (ry < 0) || (ry >= B.h) ) {
+            if (!extend) {
+                continue;
+            }
+            ry = std::max( 0, std::min(B.h - 1, ry) );
+        }
+        const float* P = B.prow(ry);
+        const float* v = B.row(ry);
+        // a = bx + left + 0.5: integer part moves with x, fraction is constant on this row
+        const float A = r.left + 0.5f, Bf = r.right + 0.5f;
+        const int ia0 = (int)std::floor(A), ib0 = (int)std::floor(Bf);
+        const float fa = (float)(ia0 + 1) - A, fb = Bf - (float)ib0, wgt = r.weight;
+        const bool single = (ib0 == ia0);
+        // interior: 0 <= bx + ia0 and bx + ib0 <= w - 1
+        const int bxS = std::max(x1 - B.x0, -ia0), bxE = std::min(x2 - B.x0, B.w - 1 - ib0);
+        const int xi1 = std::max( x1, std::min(x2, B.x0 + bxS) );            // interior start
+        const int xi2 = std::max( xi1, std::min(x2, B.x0 + bxE) );           // interior end
+        for (int x = x1; x < xi1; ++x) {
+            const int bx = x - B.x0;
+            spanSum4(P, v, B.w, bx + r.left, bx + r.right, extend, wgt, acc + (size_t)(x - x1) * 4);
+        }
+        if (single) {
+            const float k = wgt * (Bf - A);
+            for (int x = xi1; x < xi2; ++x) {
+                const float* va = v + (x - B.x0 + ia0) * 4;
+                float* o = acc + (size_t)(x - x1) * 4;
+                for (int c = 0; c < 4; ++c) {
+                    o[c] += va[c] * k;
+                }
+            }
+        } else {
+            const float wa = wgt * fa, wb = wgt * fb;
+            for (int x = xi1; x < xi2; ++x) {
+                const int bx = x - B.x0;
+                const float* pb = P + (bx + ib0) * 4;
+                const float* pa = P + (bx + ia0 + 1) * 4;
+                const float* va = v + (bx + ia0) * 4;
+                const float* vb = v + (bx + ib0) * 4;
+                float* o = acc + (size_t)(x - x1) * 4;
+                for (int c = 0; c < 4; ++c) {
+                    o[c] += wgt * (pb[c] - pa[c]) + va[c] * wa + vb[c] * wb;
+                }
+            }
+        }
+        for (int x = xi2; x < x2; ++x) {
+            const int bx = x - B.x0;
+            spanSum4(P, v, B.w, bx + r.left, bx + r.right, extend, wgt, acc + (size_t)(x - x1) * 4);
+        }
+    }
+}
 } // namespace APFXDefocus
 
 #endif // APFX_DEFOCUSMATH_H
