@@ -1297,6 +1297,14 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         tl->addSpacing( TO_DPIX(4) );
         tl->addWidget(_imp->playBackOutputSpinbox, 0, Qt::AlignVCenter);
         tl->addWidget(_imp->playBackOutputButton, 0, Qt::AlignVCenter);
+        // clear in / out points (Alt+U)
+        _imp->solvfxClearInOutButton = new Button( QString::fromUtf8("\u2715"), _imp->timelineRow );
+        _imp->solvfxClearInOutButton->setFocusPolicy(Qt::NoFocus);
+        _imp->solvfxClearInOutButton->setFixedSize( _imp->playBackOutputButton->size() );
+        _imp->solvfxClearInOutButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Clear the in / out points: playback uses the range the timeline shows (Alt+U)."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->solvfxClearInOutButton->setEnabled(false);
+        QObject::connect( _imp->solvfxClearInOutButton, SIGNAL(clicked()), this, SLOT(onSolvfxClearInOutClicked()) );
+        tl->addWidget(_imp->solvfxClearInOutButton, 0, Qt::AlignVCenter);
 
         _imp->mainLayout->addSpacing( TO_DPIY(3) );
         _imp->mainLayout->addWidget(_imp->playerButtonsContainer);

@@ -126,6 +126,9 @@ public:
 
     void setFrameRangeEdited(bool edited);
 
+    // SOLVFX: the in / out markers are only drawn when the user set in / out points
+    void solvfxSetBoundsVisible(bool visible);
+
     void setTimeFormatFrames(bool value);
 
     void centerOn_tripleSync(SequenceTime left, SequenceTime right);

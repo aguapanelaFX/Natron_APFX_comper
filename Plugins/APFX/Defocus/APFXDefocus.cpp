@@ -413,7 +413,7 @@ APFXDefocusPluginFactory::describeInContext(ImageEffectDescriptor& desc, Context
         DoubleParamDescriptor* p = desc.defineDoubleParam(kParamDefocus);
         p->setLabel("defocus");
         p->setHint("Radius of the bokeh in pixels.");
-        p->setDefault(10.);
+        p->setDefault(1.);
         p->setRange(0., 1000.);
         p->setDisplayRange(0., 100.);
         page->addChild(*p);

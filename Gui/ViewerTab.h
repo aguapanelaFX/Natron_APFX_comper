@@ -443,12 +443,20 @@ public Q_SLOTS:
     // SOLVFX: timeline range dropdown
     void onTimelineRangeModeChanged(int index);
     void onSolvfxEmptyPlayTick();
+    void onSolvfxClearInOutClicked();
     void applyTimelineRangeMode();
     // SOLVFX: range of the current dropdown mode (Global / Input)
     void solvfxModeRange(double* first, double* last);
     // SOLVFX: Alt+I / Alt+O / Alt+U
     void solvfxClearInOutPoints(bool clearIn, bool clearOut);
     void solvfxRefitInOutView();
+    // SOLVFX: range the timeline shows in the current mode (Visible segment, Input, Global)
+    void solvfxShownRange(double* first, double* last);
+    // SOLVFX: sets the in / out points (markers shown, playback uses them)
+    void solvfxSetInOut(int in, int out);
+    // SOLVFX: right-click on the timeline
+    void solvfxSetInAt(int frame);
+    void solvfxSetOutAt(int frame);
     // SOLVFX: playback without input (steps the timeline at the comp fps)
     bool solvfxStartEmptyPlayback(int direction);
     void solvfxStopEmptyPlayback();

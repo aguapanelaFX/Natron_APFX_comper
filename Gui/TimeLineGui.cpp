@@ -33,6 +33,7 @@
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 // /opt/local/include/QtGui/qmime.h:119:10: warning: private field 'type' is not used [-Wunused-private-field]
 #include <QMouseEvent>
+#include <QMenu>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QCoreApplication>
 #include <QThread>
@@ -168,6 +169,7 @@ struct TimelineGuiPrivate
     SequenceTime leftBoundary, rightBoundary;
     mutable QMutex frameRangeEditedMutex;
     bool isFrameRangeEdited;
+    bool solvfxBoundsVisible = false;
     bool seekingTimeline;
     bool isTimeFormatFrames;
 
@@ -732,7 +734,7 @@ TimeLineGui::paintGL()
 
 
         {
-            if ( ( leftBoundBtm.x() >= btmLeft.x() ) && ( leftBoundBtmRight.x() <= topRight.x() ) ) {
+            if ( _imp->solvfxBoundsVisible && ( leftBoundBtm.x() >= btmLeft.x() ) && ( leftBoundBtmRight.x() <= topRight.x() ) ) {
                 if (leftBound != currentTime) {
                     QString leftBoundStr( _imp->isTimeFormatFrames ? QString::number(leftBound) : timecodeString(leftBound, fps) );
                     double leftBoundTextXposWidget = toWidgetCoordinates( ( leftBoundBtm.x() + leftBoundBtmRight.x() ) / 2., 0 ).x();
@@ -749,7 +751,7 @@ TimeLineGui::paintGL()
                 glCheckErrorIgnoreOSXBug();
             }
 
-            if ( ( rightBoundBtmLeft.x() >= btmLeft.x() ) && ( rightBoundBtm.x() <= topRight.x() ) ) {
+            if ( _imp->solvfxBoundsVisible && ( rightBoundBtmLeft.x() >= btmLeft.x() ) && ( rightBoundBtm.x() <= topRight.x() ) ) {
                 if ( (rightBound != currentTime) && (rightBound != leftBound) ) {
                     QString rightBoundStr( _imp->isTimeFormatFrames ? QString::number(rightBound) : timecodeString(rightBound, fps) );
                     double rightBoundTextXposWidget = toWidgetCoordinates( ( rightBoundBtm.x() + rightBoundBtmLeft.x() ) / 2., 0 ).x();
@@ -902,6 +904,15 @@ TimeLineGui::seek(SequenceTime time)
         _imp->seekingTimeline = true;
         _imp->timeline->onFrameChanged(time);
         _imp->seekingTimeline = false;
+        update();
+    }
+}
+
+void
+TimeLineGui::solvfxSetBoundsVisible(bool visible)
+{
+    if (_imp->solvfxBoundsVisible != visible) {
+        _imp->solvfxBoundsVisible = visible;
         update();
     }
 }
@@ -1101,6 +1112,29 @@ TimeLineGui::mouseReleaseEvent(QMouseEvent* e)
         }
     }
 
+    // SOLVFX: right click without drag = in / out menu (right-drag pans)
+    if ( (_imp->state == eTimelineStatePanning) && (e->button() == Qt::RightButton) &&
+         ( std::abs( e->x() - _imp->mousePressX ) < 4 ) && _imp->viewerTab && !_imp->viewerTab->isFileDialogViewer() ) {
+        _imp->state = eTimelineStateIdle;
+        const int frame = (int)std::floor(toTimeLine(_imp->mousePressX) + 0.5);
+        QMenu menu(this);
+        QAction* setIn = menu.addAction( tr("Set in point here (%1)").arg(frame) );
+        QAction* setOut = menu.addAction( tr("Set out point here (%1)").arg(frame) );
+        menu.addSeparator();
+        QAction* clear = menu.addAction( tr("Clear in/out points\tAlt+U") );
+        clear->setEnabled(_imp->solvfxBoundsVisible);
+        QAction* ret = menu.exec( e->globalPos() );
+        if (ret == setIn) {
+            _imp->viewerTab->solvfxSetInAt(frame);
+        } else if (ret == setOut) {
+            _imp->viewerTab->solvfxSetOutAt(frame);
+        } else if (ret == clear) {
+            _imp->viewerTab->solvfxClearInOutPoints(true, true);
+        }
+        QOpenGLWidget::mouseReleaseEvent(e);
+
+        return;
+    }
     _imp->state = eTimelineStateIdle;
     QOpenGLWidget::mouseReleaseEvent(e);
 } // TimeLineGui::mouseReleaseEvent

@@ -209,64 +209,85 @@ ViewerTab::onPauseViewerButtonClicked(bool clicked)
 }
 
 void
-ViewerTab::onPlaybackInButtonClicked()
+ViewerTab::solvfxSetInOut(int in,
+                          int out)
 {
-    // SOLVFX: like Nuke, I sets the playback in point (orange marker) at the
-    // current frame right away, whatever the range dropdown shows
-    SequenceTime curIn, curOut;
-    _imp->timeLineGui->getBounds(&curIn, &curOut);
-    int in = _imp->timeLineGui->getTimeline()->currentFrame();
-    int out = std::max(in, (int)curOut);
+    if (out < in) {
+        out = in;
+    }
     _imp->inPoint = in;
     _imp->outPoint = out;
     _imp->inOutPointsSet = true;
+    _imp->solvfxApplyingRange = true;
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged(in, out);
+    _imp->solvfxApplyingRange = false;
+    _imp->timeLineGui->solvfxSetBoundsVisible(true);
+    if (_imp->solvfxClearInOutButton) {
+        _imp->solvfxClearInOutButton->setEnabled(true);
+    }
     _imp->timeLineGui->setFrameRangeEdited(true);
     solvfxRefitInOutView();
+}
+
+void
+ViewerTab::onPlaybackInButtonClicked()
+{
+    // SOLVFX: like Nuke, I sets the playback in point at the current frame right away;
+    // the out point stays, or is the end of the range the timeline shows
+    solvfxSetInAt( _imp->timeLineGui->getTimeline()->currentFrame() );
 }
 
 void
 ViewerTab::onPlaybackOutButtonClicked()
 {
     // SOLVFX: O sets the playback out point (see above)
-    SequenceTime curIn, curOut;
-    _imp->timeLineGui->getBounds(&curIn, &curOut);
-    int out = _imp->timeLineGui->getTimeline()->currentFrame();
-    int in = std::min(out, (int)curIn);
-    _imp->inPoint = in;
-    _imp->outPoint = out;
-    _imp->inOutPointsSet = true;
-    setTimelineBounds(in, out);
-    onTimelineBoundariesChanged(in, out);
-    _imp->timeLineGui->setFrameRangeEdited(true);
-    solvfxRefitInOutView();
+    solvfxSetOutAt( _imp->timeLineGui->getTimeline()->currentFrame() );
+}
+
+void
+ViewerTab::solvfxSetInAt(int frame)
+{
+    double f, l;
+    solvfxShownRange(&f, &l);
+    const int out = _imp->inOutPointsSet ? _imp->outPoint : (int)l;
+    solvfxSetInOut( frame, std::max(frame, out) );
+}
+
+void
+ViewerTab::solvfxSetOutAt(int frame)
+{
+    double f, l;
+    solvfxShownRange(&f, &l);
+    const int in = _imp->inOutPointsSet ? _imp->inPoint : (int)f;
+    solvfxSetInOut( std::min(frame, in), frame );
+}
+
+void
+ViewerTab::onSolvfxClearInOutClicked()
+{
+    solvfxClearInOutPoints(true, true);
 }
 
 void
 ViewerTab::solvfxClearInOutPoints(bool clearIn,
                                   bool clearOut)
 {
-    double first, last;
-    solvfxModeRange(&first, &last);
-    SequenceTime curIn, curOut;
-    _imp->timeLineGui->getBounds(&curIn, &curOut);
-    int in = clearIn ? (int)first : (int)curIn;
-    int out = clearOut ? (int)last : (int)curOut;
-    if (out < in) {
-        if (clearIn) {
-            in = out;
-        } else {
-            out = in;
-        }
+    // SOLVFX: without in / out points playback uses the range the timeline shows
+    if (!_imp->inOutPointsSet) {
+        return;
     }
-    _imp->inPoint = in;
-    _imp->outPoint = out;
-    _imp->inOutPointsSet = ( in != (int)first ) || ( out != (int)last );
-    setTimelineBounds(in, out);
-    onTimelineBoundariesChanged(in, out);
-    _imp->timeLineGui->setFrameRangeEdited( (_imp->timelineRangeMode != 0) || _imp->inOutPointsSet );
-    solvfxRefitInOutView();
+    double f, l;
+    solvfxShownRange(&f, &l);
+    const int in = clearIn ? (int)f : _imp->inPoint;
+    const int out = clearOut ? (int)l : _imp->outPoint;
+    if ( (clearIn && clearOut) || ( (in == (int)f) && (out == (int)l) ) ) {
+        _imp->inOutPointsSet = false;
+        applyTimelineRangeMode();
+
+        return;
+    }
+    solvfxSetInOut(in, out);
 }
 
 void
@@ -282,7 +303,7 @@ ViewerTab::solvfxSetVisibleRange(int first,
     if (_imp->timelineRangeMode != 3) {
         _imp->timelineRangeCombo->setCurrentIndex(3); // -> onTimelineRangeModeChanged
     } else {
-        _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+        applyTimelineRangeMode();
     }
 }
 
@@ -351,10 +372,16 @@ ViewerTab::onTimelineBoundariesChanged(SequenceTime first,
     // SOLVFX: dragging the orange markers sets the in / out points
     if (!_imp->solvfxApplyingRange) {
         double f, l;
-        solvfxModeRange(&f, &l);
+        solvfxShownRange(&f, &l);
         _imp->inPoint = first;
         _imp->outPoint = second;
         _imp->inOutPointsSet = ( first != (SequenceTime)f ) || ( second != (SequenceTime)l );
+        if (_imp->timeLineGui) {
+            _imp->timeLineGui->solvfxSetBoundsVisible(_imp->inOutPointsSet);
+        }
+        if (_imp->solvfxClearInOutButton) {
+            _imp->solvfxClearInOutButton->setEnabled(_imp->inOutPointsSet);
+        }
     }
 
 
@@ -1275,6 +1302,19 @@ ViewerTab::solvfxModeRange(double* firstOut,
 }
 
 void
+ViewerTab::solvfxShownRange(double* first,
+                            double* last)
+{
+    if ( (_imp->timelineRangeMode == 3) && _imp->solvfxVisibleSet ) {
+        *first = _imp->solvfxVisibleFirst;
+        *last = _imp->solvfxVisibleLast;
+
+        return;
+    }
+    solvfxModeRange(first, last);
+}
+
+void
 ViewerTab::applyTimelineRangeMode()
 {
     // SOLVFX: Nuke-like. The dropdown (Global / Input) sets the frames the timeline
@@ -1282,8 +1322,9 @@ ViewerTab::applyTimelineRangeMode()
     if (!_imp->timeLineGui) {
         return;
     }
+    // without in / out points, playback = the range the timeline shows (incl. Visible)
     double first = 0., last = 0.;
-    solvfxModeRange(&first, &last);
+    solvfxShownRange(&first, &last);
     int in = (int)first, out = (int)last;
     if (_imp->inOutPointsSet) {
         in = _imp->inPoint;
@@ -1293,12 +1334,14 @@ ViewerTab::applyTimelineRangeMode()
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged( (SequenceTime)in, (SequenceTime)out );
     _imp->solvfxApplyingRange = false;
+    _imp->timeLineGui->solvfxSetBoundsVisible(_imp->inOutPointsSet);
+    if (_imp->solvfxClearInOutButton) {
+        _imp->solvfxClearInOutButton->setEnabled(_imp->inOutPointsSet);
+    }
     // in Global mode without in / out points, follow the project frame range when it changes
     _imp->timeLineGui->setFrameRangeEdited( (_imp->timelineRangeMode != 0) || _imp->inOutPointsSet );
     if (_imp->timelineRangeMode == 2) {
         _imp->timeLineGui->centerOn( (SequenceTime)in, (SequenceTime)out );
-    } else if ( (_imp->timelineRangeMode == 3) && _imp->solvfxVisibleSet ) {
-        _imp->timeLineGui->centerOn( (SequenceTime)_imp->solvfxVisibleFirst, (SequenceTime)_imp->solvfxVisibleLast );
     } else {
         _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
     }

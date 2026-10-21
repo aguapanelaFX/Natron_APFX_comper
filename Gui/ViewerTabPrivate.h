@@ -213,6 +213,7 @@ struct ViewerTabPrivate
     int solvfxPrevRangeMode = 0;      // SOLVFX: mode to go back to from Visible
     bool solvfxVisibleSet = false;
     int solvfxVisibleFirst = 0, solvfxVisibleLast = 0;
+    Button* solvfxClearInOutButton = nullptr; // SOLVFX: clears the in / out points
 
     // This is all nodes that have a viewer context
     typedef std::map<NodeGuiWPtr, NodeViewerContextPtr, std::owner_less<NodeGuiWPtr>> NodeViewerContextsMap;

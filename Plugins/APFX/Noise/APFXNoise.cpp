@@ -338,7 +338,9 @@ private:
             clipPreferences.setClipComponents(*_srcClip, ePixelComponentRGBA);
         }
         clipPreferences.setOutputPremultiplication(eImagePreMultiplied);
-        clipPreferences.setOutputFrameVarying(true);
+        // only a z speed makes the noise change by itself over time; keyframed knobs are
+        // seen by the host, so static noise is rendered once and reused on every frame
+        clipPreferences.setOutputFrameVarying( _zSpeed->getValue() != 0. || _zSpeed->getNumKeys() > 0 );
         clipPreferences.setOutputHasContinuousSamples(true);
     }
 
@@ -617,7 +619,10 @@ APFXNoisePluginFactory::describeInContext(ImageEffectDescriptor& desc,
         page->addChild(*p);
     }
     dbl(desc, page, kParamZ, "z", "Position along the third dimension of the noise: animate it to evolve the noise.", 0., 0., 10.);
-    dbl(desc, page, kParamZSpeed, "z speed", "Added to Z every frame (0 = still noise).", 0., -0.2, 0.2);
+    {
+        DoubleParamDescriptor* zs = dbl(desc, page, kParamZSpeed, "z speed", "Added to Z every frame (0 = still noise, rendered once and reused on every frame).", 0., -0.2, 0.2);
+        desc.addClipPreferencesSlaveParam(*zs);
+    }
     {
         BooleanParamDescriptor* p = boolean(desc, page, kParamLoop, "loop", "Loop the Z animation seamlessly every Loop period frames (needs a Z speed).", false);
         p->setLayoutHint(eLayoutHintNoNewLine, 1);
