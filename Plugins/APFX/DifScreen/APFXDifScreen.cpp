@@ -49,9 +49,11 @@ public:
         _screen = fetchChoiceParam("screen");
         _threshold = fetchDoubleParam("threshold");
         _softness = fetchDoubleParam("softness");
-        _darks = fetchDoubleParam("darks");
-        _lights = fetchDoubleParam("lights");
+        _darks = fetchRGBParam("darks");
+        _lights = fetchRGBParam("lights");
         _size = fetchDoubleParam("size");
+        _erode = fetchDoubleParam("erode");
+        _patch = fetchDoubleParam("patchBlack");
         _smooth = fetchDoubleParam("smooth");
         _output = fetchChoiceParam("output");
     }
@@ -99,9 +101,14 @@ private:
         p.screen = _screen->getValueAtTime(t);
         p.threshold = (float)_threshold->getValueAtTime(t);
         p.softness = (float)_softness->getValueAtTime(t);
-        p.darks = (float)_darks->getValueAtTime(t);
-        p.lights = (float)_lights->getValueAtTime(t);
+        double r, g, bl;
+        _darks->getValueAtTime(t, r, g, bl);
+        p.darks[0] = (float)r; p.darks[1] = (float)g; p.darks[2] = (float)bl;
+        _lights->getValueAtTime(t, r, g, bl);
+        p.lights[0] = (float)r; p.lights[1] = (float)g; p.lights[2] = (float)bl;
         p.size = (int)std::floor(_size->getValueAtTime(t) * rs + 0.5);
+        p.erode = (int)std::floor(_erode->getValueAtTime(t) * rs + 0.5);
+        p.patchBlack = (float)_patch->getValueAtTime(t);
         p.smooth = (float)(_smooth->getValueAtTime(t) * rs);
         p.showMask = (_output->getValueAtTime(t) == 1);
         APFXKey::difScreenColour( in, p, out, APFXOfx::hostParallelFor() );
@@ -118,9 +125,11 @@ private:
     ChoiceParam* _screen;
     DoubleParam* _threshold;
     DoubleParam* _softness;
-    DoubleParam* _darks;
-    DoubleParam* _lights;
+    RGBParam* _darks;
+    RGBParam* _lights;
     DoubleParam* _size;
+    DoubleParam* _erode;
+    DoubleParam* _patch;
     DoubleParam* _smooth;
     ChoiceParam* _output;
 };
@@ -144,12 +153,37 @@ APFXDifScreenColourFactory::describeInContext(ImageEffectDescriptor& desc, Conte
     PageParamDescriptor* page = desc.definePageParam("DifScreenColour");
     APFXOfx::defineChannels(desc, page, true);
     defineScreenChoice(desc, page);
-    APFXOfx::defineDouble(desc, page, "threshold", "threshold", "How much the screen channel must exceed the others for a pixel to count as screen.", 0.05, 0., 0.5, -1., 10.);
-    APFXOfx::defineDouble(desc, page, "softness", "softness", "Ramp above the threshold (soft screen detection).", 0.1, 0.001, 0.5, 0.0001, 10.);
-    APFXOfx::defineDouble(desc, page, "darks", "darks", "Pixels whose screen channel is darker than this are not screen.", 0., 0., 0.5, -10., 10.);
-    APFXOfx::defineDouble(desc, page, "lights", "lights", "Pixels whose screen channel is brighter than this are not screen.", 2., 0.5, 4., -10., 1000.);
-    APFXOfx::defineDouble(desc, page, "size", "size", "Grows the foreground before filling (pixels): removes edge contamination from the plate.", 10., 0., 50., 0., 1000.);
-    APFXOfx::defineDouble(desc, page, "smooth", "smooth", "Blur of the final plate (pixels).", 2., 0., 20., 0., 1000.);
+    APFXOfx::defineDouble(desc, page, "size", "size", "How hard the foreground is removed: grows it by this many pixels before the screen is patched.", 10., 0., 100., 0., 2000.);
+    {
+        RGBParamDescriptor* p = desc.defineRGBParam("darks");
+        p->setLabel("darks");
+        p->setHint("Colour treated as black: separates dark foreground from the screen. Lower the screen channel (green / blue) to keep more dark screen.");
+        p->setDefault(0., 0., 0.);
+        page->addChild(*p);
+    }
+    {
+        RGBParamDescriptor* p = desc.defineRGBParam("lights");
+        p->setLabel("lights");
+        p->setHint("Colour treated as white: with darks, separates the foreground from the screen (e.g. raise red to remove light red traces).");
+        p->setDefault(1., 1., 1.);
+        page->addChild(*p);
+    }
+    APFXOfx::defineDouble(desc, page, "erode", "erode", "Extra erosion for traces of foreground edge colour left in the plate (pixels).", 0., 0., 5., 0., 500.);
+    APFXOfx::defineDouble(desc, page, "patchBlack", "patch black",
+                          "Patches the black (removed foreground) with the surrounding screen colours. Every step reaches further, "
+                          "like stacking more colour nodes: 0 = foreground stays black, 5 = everything patched (full clean plate).", 5., 0., 5., 0., 5.);
+    {
+        GroupParamDescriptor* g = desc.defineGroupParam("advancedGroup");
+        g->setLabel("Advanced");
+        g->setOpen(false);
+        page->addChild(*g);
+        DoubleParamDescriptor* th = APFXOfx::defineDouble(desc, page, "threshold", "threshold", "How much the screen channel must exceed the others (after darks / lights) to count as screen.", 0., 0., 0.5, -1., 10.);
+        th->setParent(*g);
+        DoubleParamDescriptor* so = APFXOfx::defineDouble(desc, page, "softness", "softness", "Ramp above the threshold (soft screen detection).", 0.05, 0.001, 0.5, 0.0001, 10.);
+        so->setParent(*g);
+        DoubleParamDescriptor* sm = APFXOfx::defineDouble(desc, page, "smooth", "smooth", "Blur of the final plate (pixels).", 0., 0., 20., 0., 1000.);
+        sm->setParent(*g);
+    }
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("output");
         p->setLabel("output");
@@ -180,14 +214,25 @@ public:
         _dst = fetchClip(kOfxImageEffectOutputClipName);
         _src = fetchClip(kOfxImageEffectSimpleSourceClipName);
         _plate = fetchClip("Plate");
+        _bg = fetchClip("Bg");
         _std.fetch(*this, true);
         _screen = fetchChoiceParam("screen");
-        _screenColour = fetchRGBParam("screenColour");
+        _screenColour = fetchRGBParam("colour");
         _redWeight = fetchDoubleParam("redWeight");
         _otherWeight = fetchDoubleParam("otherWeight");
+        _lumMatch = fetchBooleanParam("luminanceMatch");
+        _screenRange = fetchDoubleParam("screenRange");
+        _lumLevel = fetchDoubleParam("luminanceLevel");
+        _lumEnable = fetchBooleanParam("luminanceLevelEnable");
+        _autolevels = fetchBooleanParam("autolevels");
+        _yellow = fetchBooleanParam("yellow");
+        _cyan = fetchBooleanParam("cyan");
+        _magenta = fetchBooleanParam("magenta");
         _blackClip = fetchDoubleParam("blackClip");
         _whiteClip = fetchDoubleParam("whiteClip");
         _subtract = fetchBooleanParam("screenSubtraction");
+        _bgLum = fetchBooleanParam("useBkgLuminance");
+        _bgChroma = fetchBooleanParam("useBkgChroma");
         _premult = fetchBooleanParam("premultiply");
         update();
     }
@@ -195,12 +240,20 @@ public:
 private:
     void update()
     {
-        _otherWeight->setLabel( _screen->getValue() == APFXKey::eScreenBlue ? "green weight" : "blue weight" );
+        const bool lm = _lumMatch->getValue();
+        _screenRange->setEnabled(lm);
+        _lumEnable->setEnabled(lm);
+        _lumLevel->setEnabled( lm && _lumEnable->getValue() );
+        const bool al = _autolevels->getValue();
+        _yellow->setEnabled(al);
+        _cyan->setEnabled(al);
+        _magenta->setEnabled(al);
+        _screenColour->setEnabled( _screen->getValue() == 2 );
     }
 
     void changedParam(const InstanceChangedArgs&, const std::string& n) OVERRIDE FINAL
     {
-        if (n == "screen") {
+        if ( (n == "screen") || (n == "luminanceMatch") || (n == "luminanceLevelEnable") || (n == "autolevels") ) {
             update();
         }
     }
@@ -221,12 +274,16 @@ private:
         if ( _plate->isConnected() ) {
             rois.setRegionOfInterest( *_plate, _src->getRegionOfDefinition(args.time) );
         }
+        if ( _bg->isConnected() ) {
+            rois.setRegionOfInterest( *_bg, _src->getRegionOfDefinition(args.time) );
+        }
     }
 
     void getClipPreferences(ClipPreferencesSetter& cp) OVERRIDE FINAL
     {
         cp.setClipComponents(*_src, ePixelComponentRGBA);
         cp.setClipComponents(*_plate, ePixelComponentRGBA);
+        cp.setClipComponents(*_bg, ePixelComponentRGBA);
         cp.setClipComponents(*_dst, ePixelComponentRGBA);
         cp.setClipBitDepth(*_dst, eBitDepthFloat);
         cp.setOutputPremultiplication( _premult->getValue() ? eImagePreMultiplied : eImageUnPreMultiplied );
@@ -246,9 +303,10 @@ private:
         }
         APFXOps::Plane in, plate, out;
         const OfxRectI b = APFXOfx::imageToPlane(src, in);
-        // plate: the Plate input, or a flat screen colour
+        // plate: the Plate input (C-green / C-blue), or the flat colour (pick / no Plate)
+        const int screenType = _screen->getValueAtTime(t);
         plate.resize(in.w, in.h, 4);
-        Image* pimg = _plate->isConnected() ? _plate->fetchImage(t) : NULL;
+        Image* pimg = ( (screenType != 2) && _plate->isConnected() ) ? _plate->fetchImage(t) : NULL;
         if ( pimg && ( (pimg->getPixelComponents() != ePixelComponentRGBA) || (pimg->getPixelDepth() != eBitDepthFloat) ) ) {
             delete pimg;
             pimg = NULL;
@@ -268,15 +326,46 @@ private:
             }
         }
         delete pimg;
+        // optional background
+        APFXOps::Plane bgPlane;
+        bool haveBg = false;
+        if ( _bg->isConnected() && ( _bgLum->getValueAtTime(t) || _bgChroma->getValueAtTime(t) ) ) {
+            Image* bimg = _bg->fetchImage(t);
+            if ( bimg && (bimg->getPixelComponents() == ePixelComponentRGBA) && (bimg->getPixelDepth() == eBitDepthFloat) ) {
+                bgPlane.resize(in.w, in.h, 4);
+                for (int y = 0; y < in.h; ++y) {
+                    for (int x = 0; x < in.w; ++x) {
+                        const float* s = (const float*)bimg->getPixelAddress(b.x1 + x, b.y1 + y);
+                        float* o = bgPlane.px(x, y);
+                        for (int k = 0; k < 4; ++k) {
+                            o[k] = s ? s[k] : 0.f;
+                        }
+                    }
+                }
+                haveBg = true;
+            }
+            delete bimg;
+        }
         APFXKey::ScreenKeyParams p;
-        p.screen = _screen->getValueAtTime(t);
+        // pick: the screen is whichever of green / blue dominates the picked colour
+        p.screen = (screenType == 2) ? ( (sbv > sg) ? APFXKey::eScreenBlue : APFXKey::eScreenGreen ) : screenType;
+        p.lumMatch = _lumMatch->getValueAtTime(t);
+        p.screenRange = (float)_screenRange->getValueAtTime(t);
+        p.lumLevelEnable = _lumEnable->getValueAtTime(t);
+        p.lumLevel = (float)_lumLevel->getValueAtTime(t);
+        p.autolevels = _autolevels->getValueAtTime(t);
+        p.protectYellow = _yellow->getValueAtTime(t);
+        p.protectCyan = _cyan->getValueAtTime(t);
+        p.protectMagenta = _magenta->getValueAtTime(t);
+        p.useBgLuminance = _bgLum->getValueAtTime(t);
+        p.useBgChroma = _bgChroma->getValueAtTime(t);
         p.redWeight = (float)_redWeight->getValueAtTime(t);
         p.otherWeight = (float)_otherWeight->getValueAtTime(t);
         p.blackClip = (float)_blackClip->getValueAtTime(t);
         p.whiteClip = (float)_whiteClip->getValueAtTime(t);
         p.screenSubtraction = _subtract->getValueAtTime(t);
         p.premultiply = _premult->getValueAtTime(t);
-        APFXKey::difScreenKey( in, plate, p, out, APFXOfx::hostParallelFor() );
+        APFXKey::difScreenKey( in, plate, haveBg ? &bgPlane : NULL, p, out, APFXOfx::hostParallelFor() );
         APFXOfx::OutputArgs o;
         Image* mask = _std.get(t, o);
         APFXOfx::writeOutput(*this, dst, args.renderWindow, out, b, &in, b, o);
@@ -288,11 +377,22 @@ private:
     Clip* _dst;
     Clip* _src;
     Clip* _plate;
+    Clip* _bg;
     APFXOfx::StdParams _std;
     ChoiceParam* _screen;
     RGBParam* _screenColour;
     DoubleParam* _redWeight;
     DoubleParam* _otherWeight;
+    BooleanParam* _lumMatch;
+    DoubleParam* _screenRange;
+    DoubleParam* _lumLevel;
+    BooleanParam* _lumEnable;
+    BooleanParam* _autolevels;
+    BooleanParam* _yellow;
+    BooleanParam* _cyan;
+    BooleanParam* _magenta;
+    BooleanParam* _bgLum;
+    BooleanParam* _bgChroma;
     DoubleParam* _blackClip;
     DoubleParam* _whiteClip;
     BooleanParam* _subtract;
@@ -316,23 +416,50 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
 {
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false);
     APFXOfx::defineRGBAClip(desc, "Plate", true);
+    APFXOfx::defineRGBAClip(desc, "Bg", true);
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectOutputClipName, false);
     APFXOfx::defineMaskClip(desc);
     PageParamDescriptor* page = desc.definePageParam("DifScreenKey");
     APFXOfx::defineChannels(desc, page, true);
-    defineScreenChoice(desc, page);
     {
-        RGBParamDescriptor* p = desc.defineRGBParam("screenColour");
-        p->setLabel("screen colour");
-        p->setHint("Used when the Plate input is not connected.");
-        p->setDefault(0.1, 0.55, 0.15);
+        ChoiceParamDescriptor* p = desc.defineChoiceParam("screen");
+        p->setLabel("screen type");
+        p->setHint("C-green / C-blue: key against the Plate input (DifScreenColour). pick: key against the colour below.");
+        p->appendOption("C-green", "", "green");
+        p->appendOption("C-blue", "", "blue");
+        p->appendOption("pick", "", "pick");
+        p->setDefault(0);
+        p->setAnimates(false);
         page->addChild(*p);
     }
-    APFXOfx::defineDouble(desc, page, "redWeight", "red weight", "How much the red channel counts against the screen channel.", 0.5, 0., 1., -10., 10.);
-    APFXOfx::defineDouble(desc, page, "otherWeight", "blue weight", "How much the third channel counts against the screen channel (blue on green screens, green on blue screens).", 0.5, 0., 1., -10., 10.);
-    APFXOfx::defineDouble(desc, page, "blackClip", "black clip", "Alpha below this becomes 0.", 0., 0., 1., -1., 2.);
+    {
+        RGBParamDescriptor* p = desc.defineRGBParam("colour");
+        p->setLabel("colour");
+        p->setHint("Screen colour for 'pick' (also used when the Plate input is not connected).");
+        p->setDefault(0., 0., 1.);
+        page->addChild(*p);
+    }
+    APFXOfx::defineDouble(desc, page, "redWeight", "red weight", "Weight of the red channel: lower it to fix the edges of red foreground.", 0.5, 0., 1., -10., 10.);
+    APFXOfx::defineDouble(desc, page, "otherWeight", "blue/green weight", "Weight of blue on a green screen, green on a blue screen.", 0.5, 0., 1., -10., 10.);
+    APFXOfx::defineBool(desc, page, "luminanceMatch", "luminance match", "Adds a luminance factor: captures foreground brighter than the screen (bright transparent areas).", false);
+    APFXOfx::defineDouble(desc, page, "screenRange", "screen range", "Lower it until the background stops changing: less screen noise, harder edges.", 1., 0., 1., 0.01, 10.);
+    APFXOfx::defineDouble(desc, page, "luminanceLevel", "luminance level", "Strength of the luminance match (when enabled).", 0., 0., 1., 0., 10.);
+    APFXOfx::defineBool(desc, page, "luminanceLevelEnable", "enable", "Use the luminance level control.", false);
+    APFXOfx::defineBool(desc, page, "autolevels", "autolevels", "Harder key on saturated foreground colours only (the weights affect the whole image).", false);
+    APFXOfx::defineBool(desc, page, "yellow", "yellow", "Protect saturated yellow from autolevels.", false);
+    APFXOfx::defineBool(desc, page, "cyan", "cyan", "Protect saturated cyan from autolevels.", false);
+    APFXOfx::defineBool(desc, page, "magenta", "magenta", "Protect saturated magenta from autolevels.", false);
+    {
+        BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "screenSubtraction", "screen subtraction", "On: removes the screen colour from the foreground (despill). Off: the original foreground is multiplied by the matte.", true);
+        p->setLayoutHint(eLayoutHintNoNewLine, 1);
+    }
+    {
+        BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "useBkgLuminance", "use bkg luminance", "The Bg input affects the brightness of the edges (helps with fringing).", false);
+        p->setLayoutHint(eLayoutHintNoNewLine, 1);
+    }
+    APFXOfx::defineBool(desc, page, "useBkgChroma", "use bkg chroma", "The Bg input affects the colour of the edges.", false);
+    APFXOfx::defineDouble(desc, page, "blackClip", "black clip", "Alpha below this becomes 0 (cleans screen noise).", 0., 0., 1., -1., 2.);
     APFXOfx::defineDouble(desc, page, "whiteClip", "white clip", "Alpha above this becomes 1.", 1., 0., 1., -1., 2.);
-    APFXOfx::defineBool(desc, page, "screenSubtraction", "screen subtraction", "Remove the screen colour from the foreground (despill).", true);
     {
         BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "premultiply", "premultiply", "Output a premultiplied foreground.", true);
         desc.addClipPreferencesSlaveParam(*p);

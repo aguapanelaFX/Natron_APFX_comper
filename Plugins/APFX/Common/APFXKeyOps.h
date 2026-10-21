@@ -187,39 +187,52 @@ dominance(const float* c, int screen, float redWeight, float otherWeight)
 struct ScreenColourParams
 {
     int screen = eScreenGreen;
-    float threshold = 0.05f;  // minimum dominance for a pixel to count as screen
-    float softness = 0.1f;    // dominance ramp above the threshold
-    float darks = 0.f;        // pixels darker than this (screen channel) are not screen
-    float lights = 10.f;      // pixels brighter than this are not screen
-    int size = 10;            // grows the foreground (erodes the screen mask) in pixels
-    float smooth = 2.f;       // blur of the final plate (pixels)
+    float darks[3] = { 0.f, 0.f, 0.f };  // IBK-like "darks": colour treated as black
+    float lights[3] = { 1.f, 1.f, 1.f }; // IBK-like "lights": colour treated as white
+    float threshold = 0.f;    // minimum screen dominance (after darks / lights) to count as screen
+    float softness = 0.05f;   // dominance ramp above the threshold
+    int size = 10;            // removes the foreground: grows it by this many pixels
+    int erode = 0;            // extra erosion of the remaining screen (edge colour traces)
+    float patchBlack = 5.f;   // 0 = foreground left black, higher = black areas patched with the
+                              // surrounding screen colours (each step reaches about 4x further,
+                              // like stacking more IBK colour nodes); 5 = everything patched
+    float smooth = 0.f;       // blur of the final plate (pixels)
     bool showMask = false;    // output the screen mask instead of the plate
 };
 
-// src: plate (RGBA, alpha ignored). dst: clean screen plate (RGBA, alpha 1)
+// src: shot (RGBA, alpha ignored). dst: clean screen plate (RGBA, alpha 1)
 inline void
 difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const ParallelFor& pf = APFXOps::serialFor)
 {
     const int w = src.w, h = src.h;
     Plane m(w, h, 1);
     const int sc = (p.screen == eScreenBlue) ? 2 : 1;
-    pf([&](int ya, int yb) {
-    for (int y = ya; y < yb; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const float* s = src.px(x, y);
-            // screen pixel = screen channel clearly above both other channels
-            const float other = (sc == 1) ? std::max(s[0], s[2]) : std::max(s[0], s[1]);
-            const float dom = s[sc] - other;
-            float v = clamp01( (dom - p.threshold) / std::max(1e-4f, p.softness) );
-            if ( (s[sc] < p.darks) || (s[sc] > p.lights) ) {
-                v = 0.f;
-            }
-            m.px(x, y)[0] = v;
-        }
+    float scale[3], off[3];
+    for (int k = 0; k < 3; ++k) {
+        off[k] = p.darks[k];
+        scale[k] = 1.f / std::max(1e-4f, p.lights[k] - p.darks[k]);
     }
+    pf([&](int ya, int yb) {
+        for (int y = ya; y < yb; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const float* s = src.px(x, y);
+                float n[3];
+                for (int k = 0; k < 3; ++k) {
+                    n[k] = (s[k] - off[k]) * scale[k];
+                }
+                // screen pixel = screen channel clearly above both other channels
+                const float other = (sc == 1) ? std::max(n[0], n[2]) : std::max(n[0], n[1]);
+                const float dom = n[sc] - other;
+                float v = clamp01( (dom - p.threshold) / std::max(1e-4f, p.softness) );
+                if (n[sc] <= 0.f) {
+                    v = 0.f; // darker than "darks": not screen
+                }
+                m.px(x, y)[0] = v;
+            }
+        }
     }, h);
-    if (p.size > 0) {
-        APFXOps::erode(m, p.size, pf);
+    if (p.size + p.erode > 0) {
+        APFXOps::erode(m, p.size + p.erode, pf);
     }
     dst.resize(w, h, 4);
     if (p.showMask) {
@@ -227,6 +240,19 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
             dst.d[i * 4 + 0] = dst.d[i * 4 + 1] = dst.d[i * 4 + 2] = m.d[i];
             dst.d[i * 4 + 3] = 1.f;
         }
+
+        return;
+    }
+    if (p.patchBlack <= 0.f) {
+        // IBK look before patching: screen colour, foreground black
+        pf([&](int y0, int y1) {
+            for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+                for (int k = 0; k < 3; ++k) {
+                    dst.d[i * 4 + k] = src.d[i * 4 + k] * m.d[i];
+                }
+                dst.d[i * 4 + 3] = 1.f;
+            }
+        }, h);
 
         return;
     }
@@ -240,7 +266,9 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
             cw.d[i * 4 + 3] = k;
         }
     }, h);
-    Plane plate = APFXOps::pullPush(std::move(cw), 32, pf);
+    // each pyramid level reaches twice as far: patch black 5 -> 21 levels (whole frame)
+    const int levels = 1 + (int)std::ceil(p.patchBlack * 4.f);
+    Plane plate = APFXOps::pullPush(std::move(cw), levels, pf);
     APFXOps::blur(plate, p.smooth, pf);
     pf([&](int y0, int y1) {
         for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
@@ -252,20 +280,62 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
     }, h);
 }
 
+inline float
+luma(const float* c)
+{
+    return 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+}
+
 struct ScreenKeyParams
 {
-    int screen = eScreenGreen;
+    int screen = eScreenGreen;      // green / blue (the plate, or the pick colour, gives the screen colour)
     float redWeight = 0.5f;
-    float otherWeight = 0.5f;    // blue weight on green screens, green weight on blue screens
-    float blackClip = 0.f;       // alpha below this -> 0
-    float whiteClip = 1.f;       // alpha above this -> 1
-    bool screenSubtraction = true; // remove the screen colour from the foreground (despill)
-    bool premultiply = true;     // output premultiplied foreground
+    float otherWeight = 0.5f;       // blue weight on green screens, green weight on blue screens
+    bool lumMatch = false;          // luminance match: recover foreground brighter than the screen
+    float screenRange = 1.f;        // lower: only clearly brighter than the screen counts (less noise)
+    bool lumLevelEnable = false;
+    float lumLevel = 0.f;           // strength of the luminance match when enabled
+    bool autolevels = false;        // harder key on saturated foreground colours
+    bool protectYellow = false, protectCyan = false, protectMagenta = false;
+    bool screenSubtraction = true;  // remove the screen colour from the foreground (despill)
+    bool useBgLuminance = false;    // edges take the brightness of the bg input
+    bool useBgChroma = false;       // edges take the colour of the bg input
+    float blackClip = 0.f;
+    float whiteClip = 1.f;
+    bool premultiply = true;
 };
 
-// fg: plate (RGBA), plate: clean screen (RGBA). dst: keyed foreground with alpha
+// dominance with IBK-like autolevels: saturated colours use the stronger of the other
+// two channels (harder key), except the protected hues
+inline float
+keyDominance(const float* c, const ScreenKeyParams& p)
+{
+    float d = dominance(c, p.screen, p.redWeight, p.otherWeight);
+    if (!p.autolevels) {
+        return d;
+    }
+    const float mx = std::max( c[0], std::max(c[1], c[2]) ), mn = std::min( c[0], std::min(c[1], c[2]) );
+    if (mx <= 1e-6f) {
+        return d;
+    }
+    float sat = clamp01( (mx - mn) / mx );
+    const bool yellow = (c[0] > c[2]) && (c[1] > c[2]) && (std::min(c[0], c[1]) > 0.5f * mx);
+    const bool cyan = (c[1] > c[0]) && (c[2] > c[0]) && (std::min(c[1], c[2]) > 0.5f * mx);
+    const bool magenta = (c[0] > c[1]) && (c[2] > c[1]) && (std::min(c[0], c[2]) > 0.5f * mx);
+    if ( (p.protectYellow && yellow) || (p.protectCyan && cyan) || (p.protectMagenta && magenta) ) {
+        sat = 0.f;
+    }
+    const int sc = (p.screen == eScreenBlue) ? 2 : 1;
+    const float other = (sc == 1) ? std::max(c[0], c[2]) : std::max(c[0], c[1]);
+    const float dHard = c[sc] - other;
+
+    return d + (std::min(d, dHard) - d) * sat;
+}
+
+// fg: shot (RGBA), plate: clean screen (RGBA), bg: optional background. dst: keyed foreground
 inline void
-difScreenKey(const Plane& fg, const Plane& plate, const ScreenKeyParams& p, Plane& dst, const ParallelFor& pf = APFXOps::serialFor)
+difScreenKey(const Plane& fg, const Plane& plate, const Plane* bg, const ScreenKeyParams& p, Plane& dst,
+             const ParallelFor& pf = APFXOps::serialFor)
 {
     const int w = fg.w, h = fg.h;
     dst.resize(w, h, 4);
@@ -274,11 +344,19 @@ difScreenKey(const Plane& fg, const Plane& plate, const ScreenKeyParams& p, Plan
             for (int x = 0; x < w; ++x) {
                 const float* f = fg.px(x, y);
                 const float* c = plate.px(x, y);
-                const float df = dominance(f, p.screen, p.redWeight, p.otherWeight);
+                const float df = keyDominance(f, p);
                 const float dc = dominance(c, p.screen, p.redWeight, p.otherWeight);
                 // alpha = 1 - (screen difference of the shot / screen difference of the plate)
                 float a = (dc > 1e-5f) ? 1.f - df / dc : 1.f;
                 a = clamp01(a);
+                if (p.lumMatch) {
+                    // foreground brighter than the screen is foreground too
+                    const float lf = luma(f), lp = luma(c);
+                    const float thr = lp / std::max(1e-3f, p.screenRange);
+                    float al = clamp01( (lf - thr) / std::max(1e-4f, 1.f - std::min(thr, 0.999f)) );
+                    al *= p.lumLevelEnable ? p.lumLevel : 1.f;
+                    a = std::max(a, clamp01(al));
+                }
                 if (p.whiteClip > p.blackClip) {
                     a = clamp01( (a - p.blackClip) / (p.whiteClip - p.blackClip) );
                 }
@@ -286,6 +364,24 @@ difScreenKey(const Plane& fg, const Plane& plate, const ScreenKeyParams& p, Plan
                 for (int ch = 0; ch < 3; ++ch) {
                     // shot = fg * a + plate * (1 - a)  ->  fg * a = shot - plate * (1 - a)
                     o[ch] = p.screenSubtraction ? f[ch] - c[ch] * (1.f - a) : f[ch] * a;
+                }
+                if ( bg && (p.useBgLuminance || p.useBgChroma) ) {
+                    // semi-transparent edges pick up the background's light / colour
+                    const float* b = bg->px(x, y);
+                    const float lb = luma(b);
+                    const float e = 2.f * a * (1.f - a);
+                    for (int ch = 0; ch < 3; ++ch) {
+                        float add = 0.f;
+                        if (p.useBgLuminance) {
+                            add += lb;
+                        }
+                        if (p.useBgChroma) {
+                            add += b[ch] - lb;
+                        }
+                        o[ch] += e * add;
+                    }
+                }
+                for (int ch = 0; ch < 3; ++ch) {
                     if (!p.premultiply) {
                         o[ch] = (a > 1e-6f) ? o[ch] / a : 0.f;
                     }
