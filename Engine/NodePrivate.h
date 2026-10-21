@@ -305,6 +305,10 @@ public:
 
     void onLayerChanged(int inputNb, const ChannelSelector& selector);
 
+    // SOLVFX: Nuke-like channels menu (rgb / rgba / alpha): shows only the checkboxes of
+    // the chosen set, forces the hidden ones off; userEdit also ticks the visible ones
+    void solvfxApplyChannelsPreset(bool userEdit);
+
     void onMaskSelectorChanged(int inputNb, const MaskSelector& selector);
 
     ImagePlaneDesc getSelectedLayerInternal(int inputNb, const std::list<ImagePlaneDesc>& availableLayers, const ChannelSelector& selector) const;

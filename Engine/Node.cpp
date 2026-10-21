@@ -2237,6 +2237,20 @@ Node::findOrCreateChannelEnabled(const KnobPagePtr& mainPage)
         mainPage->insertKnob(firstIndex + 4, premultWarning);
         _imp->premultWarning = premultWarning;
     }
+    // SOLVFX: the channels menu starts like the plug-in's checkboxes: rgb (alpha off),
+    // rgba (alpha on, e.g. blurs) or alpha (alpha only). Menu order: rgb, rgba, alpha, other layers
+    if ( outputLayer && foundAll && !isWriter ) {
+        bool def[4];
+        for (int i = 0; i < 4; ++i) {
+            KnobBoolPtr k = _imp->enabledChan[i].lock();
+            def[i] = k ? k->getDefaultValue(0) : true;
+        }
+        int idx = 0;
+        if (def[3]) {
+            idx = (def[0] || def[1] || def[2]) ? 1 : 2;
+        }
+        outputLayer->setDefaultValue(idx);
+    }
     // SOLVFX: a lone "channels" menu (no red/green/blue/alpha after it) gets its own row
     if ( (firstIndex == 1) && !foundAll && outputLayer ) {
         outputLayer->setAddNewLine(true);
@@ -5318,6 +5332,9 @@ Node::onEffectKnobValueChanged(KnobI* what,
         for (std::map<int, ChannelSelector>::iterator it = _imp->channelsSelectors.begin(); it != _imp->channelsSelectors.end(); ++it) {
             if (it->second.layer.lock().get() == what) {
                 _imp->onLayerChanged(it->first, it->second);
+                if ( (it->first == -1) && (reason == eValueChangedReasonUserEdited) ) {
+                    _imp->solvfxApplyChannelsPreset(true);
+                }
                 ret = true;
                 break;
             }
@@ -5409,6 +5426,13 @@ Node::Implementation::getSelectedLayerInternal(int inputNb,
         return ImagePlaneDesc();
     }
     ChoiceOption layerID = layerKnob->getActiveEntry();
+    // SOLVFX: "Color#rgb" / "Color#alpha" are the colour plane
+    {
+        const std::size_t hash = layerID.id.find('#');
+        if (hash != std::string::npos) {
+            layerID.id = layerID.id.substr(0, hash);
+        }
+    }
 
     for (std::list<ImagePlaneDesc>::const_iterator it2 = availableLayers.begin(); it2 != availableLayers.end(); ++it2) {
 
@@ -5419,6 +5443,51 @@ Node::Implementation::getSelectedLayerInternal(int inputNb,
     }
     return ImagePlaneDesc();
 } // Node::Implementation::getSelectedLayerInternal
+
+void
+Node::Implementation::solvfxApplyChannelsPreset(bool userEdit)
+{
+    std::map<int, ChannelSelector>::iterator found = channelsSelectors.find(-1);
+    if ( (found == channelsSelectors.end()) || !enabledChan[0].lock() ) {
+        return;
+    }
+    KnobChoicePtr layerKnob = found->second.layer.lock();
+    KnobBoolPtr proc = processAllLayersKnob.lock();
+    if ( !layerKnob || (proc && proc->getValue()) ) {
+        return;
+    }
+    const std::string id = layerKnob->getActiveEntry().id;
+    const std::size_t hash = id.find('#');
+    const std::string set = (hash == std::string::npos) ? std::string() : id.substr(hash + 1);
+    // which checkboxes exist for this set (empty set = the plane decides, see refreshEnabledKnobsLabel)
+    bool show[4] = { true, true, true, true };
+    if (set == "rgb") {
+        show[3] = false;
+    } else if (set == "alpha") {
+        show[0] = show[1] = show[2] = false;
+    } else if ( !ImagePlaneDesc::isColorPlane( (hash == std::string::npos) ? id : id.substr(0, hash) ) ) {
+        return; // another layer: keep Natron's behaviour
+    }
+    for (int i = 0; i < 4; ++i) {
+        KnobBoolPtr k = enabledChan[i].lock();
+        if (!k) {
+            continue;
+        }
+        if (!show[i]) {
+            k->setSecret(true);
+            if ( k->getValue() ) {
+                k->setValue(false);
+            }
+        } else {
+            if (set.size() > 0) {
+                k->setSecret(false);
+            }
+            if ( userEdit && !k->getValue() ) {
+                k->setValue(true);
+            }
+        }
+    }
+}
 
 void
 Node::Implementation::onLayerChanged(int inputNb,
@@ -5460,6 +5529,7 @@ Node::Implementation::onLayerChanged(int inputNb,
 
             ImagePlaneDesc comp = getSelectedLayerInternal(inputNb, availablePlanes, selector);
             _publicInterface->refreshEnabledKnobsLabel(comp);
+            solvfxApplyChannelsPreset(false);
         }
 
         _publicInterface->s_outputLayerChanged();
@@ -5469,7 +5539,22 @@ Node::Implementation::onLayerChanged(int inputNb,
 void
 Node::refreshEnabledKnobsLabel(const ImagePlaneDesc& comp)
 {
-    const std::vector<std::string>& channels = comp.getChannels();
+    std::vector<std::string> channels = comp.getChannels();
+    // SOLVFX: Nuke labels for the colour channels
+    if ( comp.isColorPlane() ) {
+        for (std::size_t c = 0; c < channels.size(); ++c) {
+            const std::string& n = channels[c];
+            if ( (n == "R") || (n == "r") ) {
+                channels[c] = "red";
+            } else if ( (n == "G") || (n == "g") ) {
+                channels[c] = "green";
+            } else if ( (n == "B") || (n == "b") ) {
+                channels[c] = "blue";
+            } else if ( (n == "A") || (n == "a") ) {
+                channels[c] = "alpha";
+            }
+        }
+    }
     if (!_imp->enabledChan[0].lock()) {
         return;
     }
@@ -7450,8 +7535,18 @@ Node::refreshChannelSelectors()
         std::list<ImagePlaneDesc> availableComponents;
         _imp->effect->getAvailableLayers(time, ViewIdx(0), inputNb,  &availableComponents);
 
+        // SOLVFX: Nuke-like output menu for nodes with red/green/blue/alpha checkboxes:
+        // the colour plane becomes three entries, rgb / rgba / alpha
+        const bool solvfxChannelSets = (inputNb == -1) && _imp->enabledChan[0].lock() && !_imp->effect->isWriter();
         for (std::list<ImagePlaneDesc>::const_iterator it2 = availableComponents.begin(); it2 != availableComponents.end(); ++it2) {
             ChoiceOption layerOption = it2->getPlaneOption();
+            if ( solvfxChannelSets && it2->isColorPlane() ) {
+                const std::string& pid = it2->getPlaneID();
+                choices.push_back( ChoiceOption(pid + "#rgb", "rgb", "") );
+                choices.push_back( ChoiceOption(pid, "rgba", "") );   // same id as before: older comps keep working
+                choices.push_back( ChoiceOption(pid + "#alpha", "alpha", "") );
+                continue;
+            }
             choices.push_back(layerOption);
         }
 
