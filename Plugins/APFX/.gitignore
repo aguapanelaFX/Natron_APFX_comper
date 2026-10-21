@@ -1,2 +1,4 @@
 build-*/
 APFX.ofx.bundle/
+!Makefile
+!Info.plist
