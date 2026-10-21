@@ -239,6 +239,7 @@ HEADERS += \
     DiskCacheNode.h \
     DockablePanelI.h \
     Dot.h \
+    SolvfxStamp.h \
     EffectInstance.h \
     EffectInstancePrivate.h \
     EngineFwd.h \

@@ -42,6 +42,7 @@
 #include "Engine/Image.h"
 #include "Engine/Settings.h"
 #include "Engine/ViewerInstance.h"
+#include "Engine/SolvfxStamp.h"
 
 #ifndef M_PI
 #define M_PI        3.14159265358979323846264338327950288   /* pi             */
@@ -310,6 +311,11 @@ Edge::computeVisibility(bool hovered) const
     }
 
     if (!effect) {
+        return false;
+    }
+
+    // SOLVFX Stamps: a Stamp's link to its Anchor is never drawn
+    if ( !_imp->isOutputEdge && solvfxIsStampID( dst->getNode()->getPluginID() ) ) {
         return false;
     }
 

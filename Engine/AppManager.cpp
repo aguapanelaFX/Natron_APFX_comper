@@ -110,6 +110,7 @@
 #include "Engine/CLArgs.h"
 #include "Engine/DiskCacheNode.h"
 #include "Engine/Dot.h"
+#include "Engine/SolvfxStamp.h"
 #include "Engine/ExistenceCheckThread.h"
 #include "Engine/FileSystemModel.h"
 #include "Engine/GroupInput.h"
@@ -1541,6 +1542,8 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<GroupInput>(QString::fromUtf8(NATRON_IMAGES_PATH "input_icon.png"), false, false);
     registerBuiltInPlugin<NodeGroup>(QString::fromUtf8(NATRON_IMAGES_PATH "group_icon.png"), false, false);
     registerBuiltInPlugin<Dot>(QString::fromUtf8(NATRON_IMAGES_PATH "dot_icon.png"), false, false);
+    registerBuiltInPlugin<SolvfxAnchor>(QString::fromUtf8(NATRON_IMAGES_PATH "dot_icon.png"), false, false); // SOLVFX Stamps
+    registerBuiltInPlugin<SolvfxStamp>(QString::fromUtf8(NATRON_IMAGES_PATH "dot_icon.png"), false, false);
     registerBuiltInPlugin<DiskCacheNode>(QString::fromUtf8(NATRON_IMAGES_PATH "diskcache_icon.png"), false, false);
     registerBuiltInPlugin<RotoPaint>(QString::fromUtf8(NATRON_IMAGES_PATH "GroupingIcons/Set2/paint_grouping_2.png"), false, false);
     registerBuiltInPlugin<RotoNode>(QString::fromUtf8(NATRON_IMAGES_PATH "rotoNodeIcon.png"), false, false);

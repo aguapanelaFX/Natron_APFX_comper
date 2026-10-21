@@ -258,6 +258,9 @@ public:
 
     QSize getSize() const;
 
+    // SOLVFX Stamps: title from the Anchor, red when disconnected
+    void solvfxRefreshStampLook();
+
     /*Returns an edge if the node has an edge close to the
        point pt. pt is in scene coord.*/
     Edge* hasEdgeNearbyPoint(const QPointF & pt);

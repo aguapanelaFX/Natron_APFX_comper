@@ -718,7 +718,8 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
                 if ( (*itS)->getIsSecret() ) {
                     continue;
                 }
-                if ( !dynamic_cast<KnobBool*>( itS->get() ) ) {
+                // (a compact button at the end of a checkbox row is fine: Grade's normalize)
+                if ( !dynamic_cast<KnobBool*>( itS->get() ) && !dynamic_cast<KnobButton*>( itS->get() ) ) {
                     allBools = false;
                 }
             }

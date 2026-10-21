@@ -29,6 +29,7 @@
 
 #include <sstream>
 
+#include "Engine/SolvfxStamp.h"
 #include "Engine/AppInstance.h"
 #include "Engine/GroupOutput.h"
 #include "Engine/NodeGroup.h"
@@ -218,6 +219,21 @@ Node::setLabel(const std::string& label)
         collection->notifyNodeNameChanged( shared_from_this() );
     }
     Q_EMIT labelChanged( QString::fromUtf8( label.c_str() ) );
+
+    // SOLVFX Stamps: renaming an Anchor renames its Stamps
+    if ( solvfxIsAnchorID( getPluginID() ) ) {
+        NodesWList outs;
+        {
+            QMutexLocker l(&_imp->outputsMutex);
+            outs = _imp->guiOutputs;
+        }
+        for (NodesWList::iterator it = outs.begin(); it != outs.end(); ++it) {
+            NodePtr o = it->lock();
+            if ( o && solvfxIsStampID( o->getPluginID() ) && (o->getGuiInput(0).get() == this) ) {
+                o->setLabel(label);
+            }
+        }
+    }
 }
 
 const std::string&

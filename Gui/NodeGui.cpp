@@ -100,6 +100,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/SpinBox.h"
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
+#include "Engine/SolvfxStamp.h"
 
 #define NATRON_STATE_INDICATOR_OFFSET 5
 
@@ -345,6 +346,13 @@ NodeGui::getColorFromGrouping(QColor* color)
 
     internalNode->getPluginGrouping(&grouping);
     std::string majGroup = grouping.empty() ? "" : grouping.front();
+
+    // SOLVFX Stamps: Anchors and Stamps share one colour (a disconnected Stamp turns red)
+    if ( solvfxIsAnchorID( internalNode->getPluginID() ) || solvfxIsStampID( internalNode->getPluginID() ) ) {
+        color->setRgb(0x8a, 0x7c, 0x55);
+
+        return true;
+    }
 
     // SOLVFX: category colors come from Preferences > Nodegraph colors (defaults =
     // SOLVFX palette); 3D nodes have no preference yet
@@ -1348,6 +1356,7 @@ NodeGui::refreshEdges()
     if (_outputEdge) {
         _outputEdge->initLine();
     }
+    solvfxRefreshStampLook();
 }
 
 void
@@ -1900,6 +1909,7 @@ NodeGui::connectEdge(int edgeNumber)
     }
 
     _inputEdges[edgeNumber]->setSource(src);
+    solvfxRefreshStampLook();
 
     assert(node);
     if ( dynamic_cast<InspectorNode*>( node.get() ) ) {
@@ -4296,6 +4306,30 @@ void
 NodeGui::onInputVisibilityChanged(int /*inputNb*/)
 {
     refreshEdgesVisility();
+}
+
+// SOLVFX Stamps: a Stamp shows its Anchor's title, and turns red when it has no Anchor
+void
+NodeGui::solvfxRefreshStampLook()
+{
+    NodePtr node = getNode();
+    if ( !node || !solvfxIsStampID( node->getPluginID() ) ) {
+        return;
+    }
+    NodePtr in = node->getGuiInput(0);
+    const bool connected = in && solvfxIsAnchorID( in->getPluginID() );
+    QColor c;
+    if (connected) {
+        c.setRgb(0x8a, 0x7c, 0x55);
+        if ( node->getLabel() != in->getLabel() ) {
+            node->setLabel( in->getLabel() );
+        }
+    } else {
+        c.setRgb(0xa8, 0x32, 0x32);
+    }
+    if ( getCurrentColor() != c ) {
+        setCurrentColor(c);
+    }
 }
 
 NATRON_NAMESPACE_EXIT

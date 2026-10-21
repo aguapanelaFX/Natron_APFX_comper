@@ -27,6 +27,7 @@
 
 #include <vector>
 #include <cmath> // for std::pow()
+#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 
@@ -140,7 +141,8 @@ struct ScaleSliderQWidgetPrivate
         , usePivot(false)
         , pivot(0.)
     {
-        font.setPointSize( (font.pointSize() * NATRON_FONT_SIZE_10) / NATRON_FONT_SIZE_13 );
+        // SOLVFX: smaller tick numbers (Nuke-like, the field shows the real value)
+        font.setPointSizeF( std::max( 6., font.pointSizeF() * NATRON_FONT_SIZE_10 / NATRON_FONT_SIZE_13 * 0.85 ) );
         assert( std::isfinite(minimum) && std::isfinite(maximum) && std::isfinite(initialPos) );
     }
 };
@@ -525,6 +527,8 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     scaleColor.setRgbF(textColor.redF() / 2., textColor.greenF() / 2., textColor.blueF() / 2.);
 
     QFontMetrics fontM(_imp->font, 0);
+    // SOLVFX: tick numbers in a dark grey, barely above the panel (Nuke-like)
+    const QColor solvfxNumberColor = _imp->altered ? textColor.darker(170) : QColor(0x6b, 0x6b, 0x6b);
 
     if (!_imp->useLineColor) {
         p.setPen( QColor(0x7a, 0x7a, 0x7a) ); // SOLVFX: thin gray track
@@ -582,6 +586,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         // SOLVFX: fixed ticks with custom labels
         QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
         QPen pen(c);
+        const QColor numberColor = _imp->readOnly || !isEnabled() ? QColor(0x3a, 0x3a, 0x3a) : solvfxNumberColor;
         pen.setWidthF(1.);
         p.setFont(_imp->font);
         for (std::size_t i = 0; i < fixedTicks.size(); ++i) {
@@ -602,6 +607,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
             int textX = std::floor(textPos.x() + 0.5);
             int textY = std::floor(textPos.y() + 0.5);
             textX = std::min(std::max(0, textX - textWidth / 2), width() - textWidth);
+            p.setPen(numberColor);
             p.drawText(textX, textY, s);
         }
     }
@@ -640,7 +646,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
                     alphaText *= (tickSizePixel - sSizePixel) / (double)minTickSizeTextPixel;
                 }
                 //alphaText = std::min(alphaText, alpha); // don't draw more opaque than ticks
-                QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
+                QColor c = _imp->readOnly || !isEnabled() ? QColor(0x3a, 0x3a, 0x3a) : solvfxNumberColor;
                 c.setAlphaF(alphaText);
                 p.setFont(_imp->font);
                 p.setPen(c);

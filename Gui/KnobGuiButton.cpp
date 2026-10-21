@@ -143,6 +143,16 @@ KnobGuiButton::createWidget(QHBoxLayout* layout)
         _button->setIconSize( QSize(NATRON_MEDIUM_BUTTON_ICON_SIZE, NATRON_MEDIUM_BUTTON_ICON_SIZE) );
     } else {
         _button = new Button( label, layout->parentWidget() );
+        // SOLVFX: compact "normalize" button, sitting at the end of the checkbox row
+        if (knob->getName() == "normalize") {
+            QFont f = _button->font();
+            f.setPointSizeF( std::max( 6., f.pointSizeF() * 0.85 ) );
+            _button->setFont(f);
+            _button->setFixedHeight( TO_DPIY(17) );
+            _button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            _button->setStyleSheet( QString::fromUtf8("padding: 0px 8px;") );
+            layout->addSpacing( TO_DPIX(10) );
+        }
     }
     if (checkable) {
         _button->setCheckable(true);

@@ -117,6 +117,13 @@ public:
 
     void centerOnItem(QGraphicsItem* item);
 
+    // SOLVFX Stamps: F10 = Anchor under the selected node, or Stamp of the selected Anchor / Stamp
+    void solvfxStampsAction();
+    // the Anchor a Stamp is wired to (null if disconnected)
+    NodeGuiPtr solvfxAnchorOfStamp(const NodeGuiPtr& stamp) const;
+    void solvfxGoToAnchor(const NodeGuiPtr& stamp);
+    void solvfxReconnectStamp(const NodeGuiPtr& stamp, const NodeGuiPtr& anchor);
+
     void setUndoRedoStackLimit(int limit);
 
     void deleteNodePermanantly(const NodeGuiPtr& n);
@@ -180,6 +187,8 @@ public Q_SLOTS:
     void onRefreshNodesRenderStateTimerTimeout();
 
     void showMenu(const QPoint & pos);
+
+    void solvfxStampsSlot();
 
     void toggleCacheInfo();
 

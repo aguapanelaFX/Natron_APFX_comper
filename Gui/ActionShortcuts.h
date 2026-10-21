@@ -502,6 +502,9 @@ CLANG_DIAG_ON(uninitialized)
 #define kShortcutIDActionGraphFrameNodes "frameNodes"
 #define kShortcutDescActionGraphFrameNodes "Center on All Nodes"
 
+#define kShortcutIDActionGraphSolvfxStamps "solvfxStamps"
+#define kShortcutDescActionGraphSolvfxStamps "Stamps: Anchor / Stamp"
+
 #define kShortcutIDActionGraphFindNode "findNode"
 #define kShortcutDescActionGraphFindNode "Find"
 

@@ -58,6 +58,7 @@
 #include "Engine/CreateNodeArgs.h"
 #include "Engine/DiskCacheNode.h"
 #include "Engine/Dot.h"
+#include "Engine/SolvfxStamp.h"
 #include "Engine/EffectInstance.h"
 #include "Engine/Format.h"
 #include "Engine/FileSystemModel.h"
@@ -2300,6 +2301,34 @@ Node::createChannelSelectors(const std::vector<std::pair<bool, bool> >& hasMaskC
     _imp->createChannelSelector(-1, "Output", true, mainPage, lastKnobBeforeAdvancedOption);
 }
 
+// SOLVFX: the "normalize" button (Grade, Matrix) goes at the end of the checkbox row
+// under it:  [ ] reverse  [ ] black clamp  [ ] white clamp   [normalize]
+static void
+solvfxArrangeNormalizeButton(const KnobPagePtr& page)
+{
+    if (!page) {
+        return;
+    }
+    KnobsVec children = page->getChildren();
+    for (std::size_t i = 0; i + 1 < children.size(); ++i) {
+        KnobButton* btn = dynamic_cast<KnobButton*>( children[i].get() );
+        if ( !btn || (children[i]->getName() != "normalize") || !dynamic_cast<KnobBool*>( children[i + 1].get() ) ) {
+            continue;
+        }
+        // last knob of the checkbox row that follows
+        std::size_t last = i + 1;
+        while ( (last + 1 < children.size()) && !children[last]->isNewLineActivated() ) {
+            ++last;
+        }
+        KnobIPtr button = children[i];
+        children[last]->setAddNewLine(false);
+        button->setAddNewLine(true);
+        page->removeKnob( button.get() );
+        page->insertKnob( (int)last, button ); // indices shifted down by one after the removal
+        break;
+    }
+}
+
 // SOLVFX: Nuke-like Merge layout
 //   operation [over]  [ ] alpha masking
 //   set bbox to [union]
@@ -2675,6 +2704,7 @@ Node::initializeDefaultKnobs(bool loadingSerialization)
     // SOLVFX: Nuke-like mask / premult / mix block
     if (mainPage && !isBackdropNode) {
         solvfxArrangeMergeKnobs(_imp->effect.get(), mainPage);
+        solvfxArrangeNormalizeButton(mainPage);
         solvfxArrangeMaskMixBlock(_imp->effect.get(), mainPage);
     }
 
@@ -3254,7 +3284,8 @@ Node::deactivate(const std::list<NodePtr> & outputsToDisconnect,
                 _imp->deactivatedState.insert( make_pair(*it, inputNb) );
 
                 ///reconnect if inputToConnectTo is not null
-                if (inputToConnectTo) {
+                // SOLVFX: a Stamp whose Anchor is deleted gets disconnected (not rewired upstream)
+                if ( inputToConnectTo && !solvfxIsStampID( output->getPluginID() ) ) {
                     output->replaceInputInternal(inputToConnectTo, inputNb, false);
                 } else {
                     ignore_result( output->disconnectInputInternal(this, false) );

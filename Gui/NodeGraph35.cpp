@@ -54,6 +54,11 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/Menu.h"
 #include "Gui/NodeGui.h"
+#include <algorithm>
+#include <map>
+#include "Engine/SolvfxStamp.h"
+#include "Engine/CreateNodeArgs.h"
+#include <QCursor>
 #include "Gui/SequenceFileDialog.h"
 #include "Gui/ToolButton.h"
 
@@ -340,6 +345,42 @@ NodeGraph::showMenu(const QPoint & pos)
     if (solvfxReadNode) {
         solvfxRangeFromRead = _imp->_menu->addAction( tr("Set Comp range from this Read") );
     }
+    // SOLVFX Stamps: go to / reconnect a selected Stamp
+    QAction* solvfxGoToAnchorAction = 0;
+    std::map<QAction*, NodeGuiPtr> solvfxReconnectActions;
+    NodeGuiPtr solvfxStampNode;
+    if ( _imp->_selection.size() == 1 ) {
+        NodePtr n = _imp->_selection.front()->getNode();
+        if ( n && solvfxIsStampID( n->getPluginID() ) ) {
+            solvfxStampNode = _imp->_selection.front();
+        }
+    }
+    {
+        QAction* stampsAction = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphSolvfxStamps,
+                                                       kShortcutDescActionGraphSolvfxStamps, _imp->_menu);
+        QObject::connect( stampsAction, SIGNAL(triggered()), this, SLOT(solvfxStampsSlot()) );
+        _imp->_menu->addAction(stampsAction);
+    }
+    if (solvfxStampNode) {
+        solvfxGoToAnchorAction = _imp->_menu->addAction( tr("Go to anchor") );
+        solvfxGoToAnchorAction->setEnabled( (bool)solvfxAnchorOfStamp(solvfxStampNode) );
+        Menu* reconnectMenu = new Menu(tr("Reconnect to anchor"), _imp->_menu);
+        _imp->_menu->addAction( reconnectMenu->menuAction() );
+        std::vector<std::pair<std::string, NodeGuiPtr> > anchors;
+        const NodesGuiList& all = getAllActiveNodes();
+        for (NodesGuiList::const_iterator it = all.begin(); it != all.end(); ++it) {
+            NodePtr n = (*it)->getNode();
+            if ( n && solvfxIsAnchorID( n->getPluginID() ) ) {
+                anchors.push_back( std::make_pair(n->getLabel(), *it) );
+            }
+        }
+        std::sort( anchors.begin(), anchors.end(),
+                   [](const std::pair<std::string, NodeGuiPtr>& a, const std::pair<std::string, NodeGuiPtr>& b) { return a.first < b.first; } );
+        for (std::size_t i = 0; i < anchors.size(); ++i) {
+            solvfxReconnectActions[ reconnectMenu->addAction( QString::fromUtf8( anchors[i].first.c_str() ) ) ] = anchors[i].second;
+        }
+        reconnectMenu->setEnabled( !anchors.empty() );
+    }
     // SOLVFX: thumbnails are static; this is the only way to update them
     QAction* solvfxRefreshThumbs = _imp->_menu->addAction( _imp->_selection.empty() ? tr("Refresh thumbnails") : tr("Refresh thumbnails (selected)") );
 
@@ -511,7 +552,11 @@ NodeGraph::showMenu(const QPoint & pos)
     }
 
     QAction* ret = _imp->_menu->exec(pos);
-    if ( ret && (ret == solvfxRefreshThumbs) ) {
+    if ( ret && solvfxStampNode && (ret == solvfxGoToAnchorAction) ) {
+        solvfxGoToAnchor(solvfxStampNode);
+    } else if ( ret && solvfxStampNode && solvfxReconnectActions.count(ret) ) {
+        solvfxReconnectStamp(solvfxStampNode, solvfxReconnectActions[ret]);
+    } else if ( ret && (ret == solvfxRefreshThumbs) ) {
         const double t = getGui()->getApp()->getTimeLine()->currentFrame();
         const NodesGuiList nodes = _imp->_selection.empty() ? getAllActiveNodes() : _imp->_selection;
         for (NodesGuiList::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
@@ -547,5 +592,133 @@ NodeGraph::showMenu(const QPoint & pos)
         cloneSelectedNodes(scenePos);
     }
 } // NodeGraph::showMenu
+
+NATRON_NAMESPACE_EXIT
+
+NATRON_NAMESPACE_ENTER
+
+// ---------------------------------------------------------------- SOLVFX Stamps
+
+void
+NodeGraph::solvfxStampsSlot()
+{
+    solvfxStampsAction();
+}
+
+NodeGuiPtr
+NodeGraph::solvfxAnchorOfStamp(const NodeGuiPtr& stamp) const
+{
+    NodePtr n = stamp ? stamp->getNode() : NodePtr();
+    NodePtr in = n ? n->getGuiInput(0) : NodePtr();
+    if ( !in || !solvfxIsAnchorID( in->getPluginID() ) ) {
+        return NodeGuiPtr();
+    }
+
+    return std::dynamic_pointer_cast<NodeGui>( in->getNodeGui() );
+}
+
+void
+NodeGraph::solvfxGoToAnchor(const NodeGuiPtr& stamp)
+{
+    NodeGuiPtr anchor = solvfxAnchorOfStamp(stamp);
+    if (!anchor) {
+        return;
+    }
+    clearSelection();
+    selectNode(anchor, false);
+    centerOnItem( anchor.get() );
+}
+
+void
+NodeGraph::solvfxReconnectStamp(const NodeGuiPtr& stamp,
+                                const NodeGuiPtr& anchor)
+{
+    NodePtr s = stamp ? stamp->getNode() : NodePtr();
+    NodePtr a = anchor ? anchor->getNode() : NodePtr();
+    if (!s || !a) {
+        return;
+    }
+    ProjectPtr project = getGui()->getApp()->getProject();
+    NodePtr old = s->getGuiInput(0);
+    if (old) {
+        project->disconnectNodes(old, s);
+    }
+    project->connectNodes(0, a, s);
+    s->setLabel( a->getLabel() );
+    stamp->solvfxRefreshStampLook();
+}
+
+void
+NodeGraph::solvfxStampsAction()
+{
+    if ( _imp->_selection.empty() ) {
+        Dialogs::warningDialog( tr("Stamps").toStdString(),
+                                tr("Select a node to create an Anchor under it, or an Anchor / Stamp to create a Stamp.").toStdString() );
+
+        return;
+    }
+    NodeGuiPtr sel = _imp->_selection.front();
+    NodePtr selNode = sel->getNode();
+    if (!selNode) {
+        return;
+    }
+    const std::string selID = selNode->getPluginID();
+    NodeGuiPtr anchor;
+    bool makeStamp = false;
+    if ( solvfxIsAnchorID(selID) ) {
+        anchor = sel;
+        makeStamp = true;
+    } else if ( solvfxIsStampID(selID) ) {
+        anchor = solvfxAnchorOfStamp(sel);
+        if (!anchor) {
+            Dialogs::warningDialog( tr("Stamps").toStdString(), tr("This Stamp is not connected to an Anchor.").toStdString() );
+
+            return;
+        }
+        makeStamp = true;
+    }
+
+    CreateNodeArgs args( makeStamp ? PLUGINID_SOLVFX_STAMP : PLUGINID_SOLVFX_ANCHOR, _imp->group.lock() );
+    args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    NodePtr created = getGui()->getApp()->createNode(args);
+    if (!created) {
+        return;
+    }
+    NodeGuiPtr createdGui = std::dynamic_pointer_cast<NodeGui>( created->getNodeGui() );
+    if (!createdGui) {
+        return;
+    }
+    ProjectPtr project = getGui()->getApp()->getProject();
+    NodePtr source = makeStamp ? anchor->getNode() : selNode;
+    project->connectNodes(0, source, created);
+
+    // title: the Anchor takes the source node's name, the Stamp the Anchor's title
+    created->setLabel( source->getLabel() );
+
+    // position: the Anchor under its source; the Stamp under the mouse (or next to the selection)
+    QPointF pos;
+    const QPoint mouse = mapFromGlobal( QCursor::pos() );
+    if ( makeStamp && rect().contains(mouse) ) {
+        const QPointF scenePos = mapToScene(mouse);
+        pos = createdGui->mapToParent( createdGui->mapFromScene(scenePos) );
+        const QSize sz = createdGui->getSize();
+        pos -= QPointF(sz.width() / 2., sz.height() / 2.);
+    } else {
+        const QPointF p = sel->getPos_mt_safe();
+        const QSize ssz = sel->getSize();
+        pos = makeStamp ? QPointF( p.x() + ssz.width() + 60, p.y() + ssz.height() + 60 ) : QPointF( p.x(), p.y() + ssz.height() + 50 );
+    }
+    createdGui->refreshPosition( pos.x(), pos.y(), true );
+    createdGui->solvfxRefreshStampLook();
+
+    NodesGuiList nodesList;
+    nodesList.push_back(createdGui);
+    pushUndoCommand( new AddMultipleNodesCommand(this, nodesList) );
+
+    clearSelection();
+    selectNode(createdGui, false);
+} // NodeGraph::solvfxStampsAction
 
 NATRON_NAMESPACE_EXIT
