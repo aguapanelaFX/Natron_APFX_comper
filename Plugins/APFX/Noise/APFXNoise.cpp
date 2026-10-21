@@ -575,15 +575,15 @@ APFXNoisePluginFactory::describeInContext(ImageEffectDescriptor& desc,
     boolean(desc, page, kParamColor, "color noise", "Different noise in red, green and blue (alpha is their average).", false);
 
     {
-        ChoiceParamDescriptor* p = choice(desc, page, kParamType, "type", "The basic noise pattern.");
-        p->appendOption("Perlin", "Smooth gradient noise (Ken Perlin's improved noise).");
-        p->appendOption("Simplex", "Gradient noise on a simplex grid: fewer grid artifacts than Perlin.");
-        p->appendOption("Sparse Convolution", "Random impulses blended with a smooth kernel: soft, blobby noise.");
-        p->appendOption("Alligator", "Bumpy plates with creases, like alligator skin.");
-        p->appendOption("Worley F1", "Cellular: distance to the closest random point (cells, scales).");
-        p->appendOption("Worley F2", "Cellular: distance to the second closest point.");
-        p->appendOption("Worley F2-F1", "Cellular borders: difference between the two closest points (cracks, veins).");
-        p->appendOption("White", "One random value per cell (blocky).");
+        ChoiceParamDescriptor* p = choice(desc, page, kParamType, "type", "The basic noise pattern.\n* = heavier to render (about 4x Perlin).");
+        p->appendOption("Perlin", "Smooth gradient noise (Ken Perlin's improved noise). Fast.", "perlin");
+        p->appendOption("Simplex", "Gradient noise on a simplex grid: fewer grid artifacts than Perlin. Fast.", "simplex");
+        p->appendOption("Sparse Convolution *", "Random impulses blended with a smooth kernel: soft, blobby noise. Heavier.", "sparse");
+        p->appendOption("Alligator *", "Bumpy plates with creases, like alligator skin. Heavier.", "alligator");
+        p->appendOption("Worley F1 *", "Cellular: distance to the closest random point (cells, scales). Heavier.", "worleyF1");
+        p->appendOption("Worley F2 *", "Cellular: distance to the second closest point. Heavier.", "worleyF2");
+        p->appendOption("Worley F2-F1 *", "Cellular borders: difference between the two closest points (cracks, veins). Heavier.", "worleyF2F1");
+        p->appendOption("White", "One random value per cell (blocky). Fastest.", "white");
         p->setDefault(APFXNoise::eBasisPerlin);
     }
     {
