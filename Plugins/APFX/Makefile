@@ -28,12 +28,12 @@ CXXFLAGS += -std=c++11 $(OPTFLAG) $(CXXFLAGS_OS) $(DEFS) $(INCS) -Wall
 
 SUPPORT_SRC = $(addprefix $(OFX_ROOT)/Support/Library/, ofxsCore.cpp ofxsImageEffect.cpp ofxsInteract.cpp ofxsLog.cpp \
               ofxsMultiThread.cpp ofxsParams.cpp ofxsProperty.cpp ofxsPropertyValidation.cpp)
-SRC = Noise/APFXNoise.cpp Defocus/APFXDefocus.cpp EdgeExtend/APFXEdgeExtend.cpp Glow/APFXExpoGlow.cpp DifScreen/APFXDifScreen.cpp
+SRC = Noise/APFXNoise.cpp Defocus/APFXDefocus.cpp EdgeExtend/APFXEdgeExtend.cpp Glow/APFXExpoGlow.cpp DifScreen/APFXDifScreen.cpp Copy/APFXCopy.cpp
 
 BUILD = build-$(BUNDLE_ARCH)
 OBJS = $(addprefix $(BUILD)/, $(notdir $(SRC:.cpp=.o)) $(notdir $(SUPPORT_SRC:.cpp=.o)))
 
-vpath %.cpp . Noise Defocus EdgeExtend Glow DifScreen $(OFX_ROOT)/Support/Library
+vpath %.cpp . Noise Defocus EdgeExtend Glow DifScreen Copy $(OFX_ROOT)/Support/Library
 
 all: APFX.ofx.bundle
 

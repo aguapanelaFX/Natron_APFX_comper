@@ -37,7 +37,7 @@ using namespace OFX;
 
 namespace {
 
-#define kPluginName "Noise"
+#define kPluginName "Noise_APFX"
 #define kPluginGrouping "APFX"
 #define kPluginDescription \
     "APFX Noise: procedural noise like Nuke's Noise node, with Houdini-style noise types.\n\n" \
