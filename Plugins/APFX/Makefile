@@ -23,17 +23,17 @@ endif
 
 DEFS = -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_VEGAS -DOFX_SUPPORTS_PARAMETRIC \
        -DOFX_SUPPORTS_MULTITHREAD -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_EXTENSIONS_RESOLVE
-INCS = -I$(OFX_ROOT)/include -I$(OFX_ROOT)/Support/include -I$(OFX_ROOT)/Support/Plugins/include -INoise -IDefocus
+INCS = -I$(OFX_ROOT)/include -I$(OFX_ROOT)/Support/include -I$(OFX_ROOT)/Support/Plugins/include -INoise -IDefocus -ICommon
 CXXFLAGS += -std=c++11 $(OPTFLAG) $(CXXFLAGS_OS) $(DEFS) $(INCS) -Wall
 
 SUPPORT_SRC = $(addprefix $(OFX_ROOT)/Support/Library/, ofxsCore.cpp ofxsImageEffect.cpp ofxsInteract.cpp ofxsLog.cpp \
               ofxsMultiThread.cpp ofxsParams.cpp ofxsProperty.cpp ofxsPropertyValidation.cpp)
-SRC = Noise/APFXNoise.cpp Defocus/APFXDefocus.cpp
+SRC = Noise/APFXNoise.cpp Defocus/APFXDefocus.cpp EdgeExtend/APFXEdgeExtend.cpp Glow/APFXExpoGlow.cpp DifScreen/APFXDifScreen.cpp
 
 BUILD = build-$(BUNDLE_ARCH)
 OBJS = $(addprefix $(BUILD)/, $(notdir $(SRC:.cpp=.o)) $(notdir $(SUPPORT_SRC:.cpp=.o)))
 
-vpath %.cpp . Noise Defocus $(OFX_ROOT)/Support/Library
+vpath %.cpp . Noise Defocus EdgeExtend Glow DifScreen $(OFX_ROOT)/Support/Library
 
 all: APFX.ofx.bundle
 
