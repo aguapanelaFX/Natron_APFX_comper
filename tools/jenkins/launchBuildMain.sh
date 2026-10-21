@@ -687,6 +687,15 @@ if [ "$FAIL" -ne "0" ]; then
     exit $FAIL
 fi
 
+# SOLVFX: APFX plug-ins (our own nodes) are always built from source, also in test builds
+if $BUILD_2 && [ "$FAIL" = "0" ] && [ "${GIT_URL_IS_NATRON:-}" = "1" ]; then
+    bash "build-apfx.sh" || FAIL=$?
+fi
+if [ "$FAIL" -ne "0" ]; then
+    echo "build-apfx.sh failed with status $FAIL"
+    exit $FAIL
+fi
+
 # Build Natron
 if $BUILD_3 && [ "$FAIL" = "0" ] && [ "${GIT_URL_IS_NATRON:-}" = "1" ]; then
     bash "build-natron.sh" || FAIL=$?
