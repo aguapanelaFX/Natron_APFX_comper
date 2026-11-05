@@ -1167,6 +1167,8 @@ Settings::initializeKnobsViewers()
                                             "displayed only for the render path for the current viewer "
                                             "inputs.") );
     _viewersTab->addKnob(_viewerOverlaysPath);
+    // SOLVFX: Nuke-like, every open node shows its overlay (Roto draws without being plugged in)
+    _viewerOverlaysPath->setSecret(true);
 } // Settings::initializeKnobsViewers
 
 void
@@ -2545,7 +2547,8 @@ Settings::viewerNumberKeys() const
 bool
 Settings::viewerOverlaysPath() const
 {
-    return _viewerOverlaysPath->getValue();
+    // SOLVFX: always off (overlays of all open panels, even when not in the viewer's render path)
+    return false;
 }
 
 ///////////////////////////////////////////////////////
