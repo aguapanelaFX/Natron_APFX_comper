@@ -180,9 +180,10 @@ DockablePanel::DockablePanel(Gui* gui,
         }
     }
 
-    const QSize mediumBSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
-    const QSize mediumIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE) );
-    int iconSize = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
+    // SOLVFX: compact header (~37% smaller than Natron's 22px buttons), flat icon buttons
+    const QSize mediumBSize( TO_DPIX(15), TO_DPIY(15) );
+    const QSize mediumIconSize( TO_DPIX(12), TO_DPIY(12) );
+    int iconSize = TO_DPIX(12);
     QColor currentColor;
     if (headerMode != eHeaderModeNoHeader) {
         _imp->_headerWidget = new QFrame(this);
@@ -190,7 +191,7 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_headerWidget->setObjectName( QString::fromUtf8("SolvfxPanelHeader") );
         _imp->_headerWidget->setFrameShape(QFrame::NoFrame);
         _imp->_headerLayout = new QHBoxLayout(_imp->_headerWidget);
-        _imp->_headerLayout->setContentsMargins( TO_DPIX(6), TO_DPIY(4), TO_DPIX(6), TO_DPIY(4) );
+        _imp->_headerLayout->setContentsMargins( TO_DPIX(5), TO_DPIY(2), TO_DPIX(5), TO_DPIY(2) );
         _imp->_headerWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         _imp->_headerLayout->setSpacing( TO_DPIX(4) );
         _imp->_headerWidget->setLayout(_imp->_headerLayout);
@@ -209,7 +210,7 @@ DockablePanel::DockablePanel(Gui* gui,
             if ( !iconFilePath.empty() ) {
                 QPixmap ic;
                 if ( ic.load( QString::fromUtf8( iconFilePath.c_str() ) ) ) {
-                    int size = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
+                    int size = iconSize;
                     if (std::max( ic.width(), ic.height() ) != size) {
                         ic = ic.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                     }
@@ -308,7 +309,7 @@ DockablePanel::DockablePanel(Gui* gui,
             currentColor.setRgbF( Image::clamp(r, 0., 1.),
                                   Image::clamp(g, 0., 1.),
                                   Image::clamp(b, 0., 1.) );
-            QPixmap p(NATRON_MEDIUM_BUTTON_ICON_SIZE, NATRON_MEDIUM_BUTTON_ICON_SIZE);
+            QPixmap p(iconSize, iconSize);
             p.fill(currentColor);
 
 
@@ -389,6 +390,13 @@ DockablePanel::DockablePanel(Gui* gui,
                 QObject::connect( node.get(), SIGNAL(scriptNameChanged(QString)), this, SLOT(onNodeScriptChanged(QString)) );
             }
             _imp->_nameLineEdit->setText(initialName);
+            // SOLVFX: compact name field
+            {
+                QFont nf = _imp->_nameLineEdit->font();
+                nf.setPointSizeF( std::max( 6., nf.pointSizeF() * 0.85 ) );
+                _imp->_nameLineEdit->setFont(nf);
+                _imp->_nameLineEdit->setFixedHeight( TO_DPIY(17) );
+            }
             QObject::connect( _imp->_nameLineEdit, SIGNAL(returnPressed()), this, SLOT(onLineEditNameEditingFinished()) );
             _imp->_headerLayout->addWidget(_imp->_nameLineEdit);
         } else {

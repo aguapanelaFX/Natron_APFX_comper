@@ -1127,6 +1127,17 @@ QFrame#SolvfxPanelHeader {
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
 }
+/* SOLVFX: header buttons are plain icons (no button body); a light tint on hover / when on */
+QFrame#SolvfxPanelHeader QPushButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 3px;
+    padding: 0px;
+}
+QFrame#SolvfxPanelHeader QPushButton:hover { background-color: #4a4a4a; }
+QFrame#SolvfxPanelHeader QPushButton:pressed { background-color: #555555; }
+QFrame#SolvfxPanelHeader QPushButton:checked { background-color: #505050; }
+QFrame#SolvfxPanelHeader QPushButton:focus { border: none; }
 
 /* SOLVFX: per-knob animation button (state follows the knob) */
 QPushButton#SolvfxAnimButton {
