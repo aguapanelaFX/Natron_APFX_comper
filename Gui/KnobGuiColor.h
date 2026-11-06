@@ -181,6 +181,10 @@ private:
 
     void updateLabel(double r, double g, double b, double a);
 
+    // SOLVFX: the color window commits its color when it closes
+    virtual bool eventFilter(QObject* o, QEvent* e) OVERRIDE;
+    void solvfxCommitColorWindow();
+
     virtual void _show() OVERRIDE FINAL;
     virtual void _hide() OVERRIDE FINAL;
     virtual void setEnabledExtraGui(bool enabled) OVERRIDE FINAL;
@@ -196,6 +200,7 @@ private:
     QToolButton *_colorSelectorButton;
     std::vector<double> _lastColor;
     bool _useSimplifiedUI;
+    bool _solvfxColorEdited; // the color window changed the knob since it was opened
 };
 
 NATRON_NAMESPACE_EXIT

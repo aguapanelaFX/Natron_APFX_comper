@@ -215,6 +215,7 @@ KnobGuiColor::KnobGuiColor(KnobIPtr knob,
     , _colorSelectorButton(0)
     , _lastColor()
     , _useSimplifiedUI(true)
+    , _solvfxColorEdited(false)
 {
     KnobColorPtr k = _knob.lock();
     assert(k);
@@ -357,6 +358,7 @@ KnobGuiColor::onColorSelectorButtonClicked()
         QObject::connect( _colorSelector, SIGNAL( updateColor() ),
                           this, SLOT( updateColorSelector() ) );
         _colorWindow = window;
+        window->installEventFilter(this); // commit the color when the window closes
 
         // open next to the mouse, inside the screen
         window->adjustSize();
@@ -376,6 +378,12 @@ KnobGuiColor::onColorSelectorButtonClicked()
         title = QString::fromUtf8( effect->getNode()->getScriptName_mt_safe().c_str() ) + QLatin1Char('.') + title;
     }
     _colorWindow->setWindowTitle(title);
+    // SOLVFX: no field of the panel keeps the keyboard focus behind the window (a stale
+    // value field getting the focus back when the window closes could write its old value)
+    if ( QApplication::focusWidget() ) {
+        QApplication::focusWidget()->clearFocus();
+    }
+    _solvfxColorEdited = false;
     _colorWindow->show();
     _colorWindow->raise();
     _colorWindow->activateWindow();
@@ -414,6 +422,55 @@ KnobGuiColor::onColorSelectorChanged(float r,
     }
     if ( getGui() ) {
         getGui()->setDraftRenderEnabled(true);
+    }
+    _solvfxColorEdited = true;
+}
+
+bool
+KnobGuiColor::eventFilter(QObject* o,
+                          QEvent* e)
+{
+    if ( _colorWindow && (o == _colorWindow.data()) && (e->type() == QEvent::Hide) ) {
+        solvfxCommitColorWindow();
+    }
+
+    return KnobGuiValue::eventFilter(o, e);
+}
+
+// SOLVFX: closing the color window keeps its color: the values the window set while
+// dragging are committed as a user edit (plug-in notified, full-quality render, panel
+// fields refreshed)
+void
+KnobGuiColor::solvfxCommitColorWindow()
+{
+    if (!_solvfxColorEdited) {
+        return;
+    }
+    _solvfxColorEdited = false;
+    KnobColorPtr knob = _knob.lock();
+    if (!knob) {
+        return;
+    }
+    if ( getGui() ) {
+        getGui()->setDraftRenderEnabled(false);
+    }
+    const int nDims = knob->getDimension();
+    const double r = knob->getValue(0);
+    const double g = (nDims > 1) ? knob->getValue(1) : r;
+    const double b = (nDims > 2) ? knob->getValue(2) : r;
+    const double a = (nDims > 3) ? knob->getValue(3) : 1.;
+    if (nDims == 1) {
+        knob->setValue(r, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0);
+    } else if (nDims == 3) {
+        knob->setValues(r, g, b, ViewSpec::all(), eValueChangedReasonUserEdited);
+    } else if (nDims == 4) {
+        knob->setValues(r, g, b, a, ViewSpec::all(), eValueChangedReasonUserEdited);
+    }
+    for (int i = 0; i < nDims; ++i) {
+        onInternalValueChanged(ViewSpec::all(), i, (int)eValueChangedReasonNatronInternalEdited); // refresh the fields
+    }
+    if ( getGui() ) {
+        getGui()->renderAllViewers(true);
     }
 }
 
