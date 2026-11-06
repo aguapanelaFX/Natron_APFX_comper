@@ -29,6 +29,7 @@
 #include <set>
 #include <stdexcept>
 
+#include <QElapsedTimer>
 #include <QFont>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 // /opt/local/include/QtGui/qmime.h:119:10: warning: private field 'type' is not used [-Wunused-private-field]
@@ -892,6 +893,21 @@ TimeLineGui::onFrameChanged(SequenceTime,
 
     if ( (r == eTimelineChangeReasonUserSeek) && _imp->seekingTimeline ) {
         return;
+    }
+    // SOLVFX: during playback the timeline repaints at most ~15 times per second
+    // (the viewer keeps the full frame rate); a last repaint shows the final frame
+    if (r == eTimelineChangeReasonPlaybackSeek) {
+        static QElapsedTimer last;
+        static bool pending = false;
+        if ( last.isValid() && (last.elapsed() < 66) ) {
+            if (!pending) {
+                pending = true;
+                QTimer::singleShot( 70, this, [this]() { pending = false; last.restart(); update(); } );
+            }
+
+            return;
+        }
+        last.restart();
     }
     update();
 }

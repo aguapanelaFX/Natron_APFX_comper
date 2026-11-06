@@ -1065,26 +1065,26 @@ Settings::initializeKnobsViewers()
 {
     _viewersTab = AppManager::createKnob<KnobPage>( this, tr("Viewer") );
 
-    _texturesMode = AppManager::createKnob<KnobChoice>( this, tr("Viewer textures bit depth") );
+    _texturesMode = AppManager::createKnob<KnobChoice>( this, tr("Viewer buffer depth") );
     _texturesMode->setName("texturesBitDepth");
     std::vector<ChoiceOption> textureModes;
     textureModes.push_back(ChoiceOption("8u",
-                                        tr("8-bit").toStdString(),
-                                        tr("Post-processing done by the viewer (such as colorspace conversion) is done "
-                                           "by the CPU. The size of cached textures is thus smaller.").toStdString() ));
+                                        tr("8-bit (fast playback)").toStdString(),
+                                        tr("Like Nuke's default: the OCIO view, exposure and gamma are applied before caching and the viewer "
+                                           "keeps display-ready 8-bit frames (4x smaller than float): fast caching and playback. "
+                                           "Changing the view / exposure / gamma re-processes the frame.").toStdString() ));
 
     //textureModes.push_back("16bits half-float");
     //helpStringsTextureModes.push_back("Not available yet. Similar to 32bits fp.");
     textureModes.push_back(ChoiceOption("32f",
-                                        tr("32-bit floating-point").toStdString(),
-                                        tr("Post-processing done by the viewer (such as colorspace conversion) is done "
-                                           "by the GPU, using GLSL. The size of cached textures is thus larger.").toStdString()));
+                                        tr("32-bit float").toStdString(),
+                                        tr("The viewer keeps linear float frames and applies the OCIO view, exposure and gamma on the GPU "
+                                           "(instant changes, exact values beyond 0..1) but caches 4x more memory per frame: slower playback.").toStdString()));
     _texturesMode->populateChoices(textureModes);
 
 
-    _texturesMode->setHintToolTip( tr("Bit depth of the viewer textures used for rendering. "
-                                      "Hover each option with the mouse for a detailed description.") );
-    _texturesMode->setSecret(true); // SOLVFX: viewer is always 32-bit float
+    _texturesMode->setHintToolTip( tr("Bit depth of the frames the viewer caches and plays (like Nuke's viewer \"gl buffer depth\"). "
+                                      "8-bit is the fast default. Takes effect after restarting SOLVFX.") );
     _viewersTab->addKnob(_texturesMode);
 
     _powerOf2Tiling = AppManager::createKnob<KnobInt>( this, tr("Viewer tile size is 2 to the power of...") );
@@ -1321,8 +1321,10 @@ Settings::initializeKnobsCaching()
     _maxViewerDiskCacheGB->setName("maxViewerDiskCache");
     _maxViewerDiskCacheGB->disableSlider();
     _maxViewerDiskCacheGB->setMinimum(0);
-    _maxViewerDiskCacheGB->setMaximum(100);
-    _maxViewerDiskCacheGB->setHintToolTip( tr("The maximum size that may be used by the playback cache on disk (in GiB)") );
+    _maxViewerDiskCacheGB->setMaximum(1000);
+    _maxViewerDiskCacheGB->setHintToolTip( tr("The maximum size of the playback cache (the frames the viewer keeps to play back), in GiB. "
+                                              "It lives in memory-mapped files in the cache folder, so it also needs that much free disk space. "
+                                              "0 = automatic (40% of the system RAM).") );
     _cachingTab->addKnob(_maxViewerDiskCacheGB);
 
     _maxDiskCacheNodeGB = AppManager::createKnob<KnobInt>( this, tr("Maximum DiskCache node disk usage (GiB)") );
@@ -1572,7 +1574,7 @@ Settings::setDefaultValues()
     _aggressiveCaching->setDefaultValue(false);
     _maxRAMPercent->setDefaultValue(50, 0);
     _unreachableRAMPercent->setDefaultValue(20); // see https://github.com/NatronGitHub/Natron/issues/486
-    _maxViewerDiskCacheGB->setDefaultValue(5, 0);
+    _maxViewerDiskCacheGB->setDefaultValue(0, 0); // SOLVFX: 0 = automatic (40% of RAM)
     _maxDiskCacheNodeGB->setDefaultValue(10, 0);
     //_diskCachePath
     setCachingLabels();
@@ -1827,13 +1829,10 @@ Settings::warnChangedKnobs(const std::vector<KnobI*>& knobs)
                 }
             }
         } else if ( knobs[i] == _texturesMode.get() ) {
-            AppInstanceVec apps = appPTR->getAppInstances();
-            for (AppInstanceVec::iterator it = apps.begin(); it != apps.end(); ++it) {
-                std::list<ViewerInstance*> allViewers;
-                (*it)->getProject()->getViewers(&allViewers);
-                for (std::list<ViewerInstance*>::iterator it = allViewers.begin(); it != allViewers.end(); ++it) {
-                    (*it)->renderCurrentFrame(true);
-                }
+            // SOLVFX: read once per session (see getViewersBitDepth)
+            if ( !appPTR->isBackground() ) {
+                Dialogs::informationDialog( tr("Viewer buffer depth").toStdString(),
+                                            tr("Restart %1 to use the new viewer buffer depth.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ).toStdString() );
             }
         } else if ( ( ( knobs[i] == _loadBundledPlugins.get() ) ||
                       ( knobs[i] == _preferBundledPlugins.get() ) ||
@@ -2474,9 +2473,14 @@ Settings::getViewersBitDepth() const
         return eImageBitDepthByte;
     }
 
-    // SOLVFX: the viewer is always 32-bit float like Nuke (needed by the OCIO views;
-    // the viewer cache tile size, the textures and the render must all agree)
-    return eImageBitDepthFloat;
+    // SOLVFX: "Viewer buffer depth" (8-bit default, Nuke-like). Read once per session:
+    // the viewer cache tile size, the textures and the render must all agree
+    static int depth = -1;
+    if (depth < 0) {
+        depth = _texturesMode->getValue();
+    }
+
+    return (depth == 1) ? eImageBitDepthFloat : eImageBitDepthByte;
 }
 
 int
@@ -2570,7 +2574,16 @@ Settings::getRamMaximumPercent() const
 U64
 Settings::getMaximumViewerDiskCacheSize() const
 {
-    return (U64)( _maxViewerDiskCacheGB->getValue() ) * 1024 * 1024 * 1024;
+    // SOLVFX: 0 (and Natron's old default of 5 GiB, which held only ~38 4K float frames)
+    // = automatic: 40% of the system RAM, at least 5 GiB
+    const int v = _maxViewerDiskCacheGB->getValue();
+    if ( (v == 0) || (v == 5) ) {
+        const U64 autoSize = (U64)( 0.4 * (double)getSystemTotalRAM() );
+
+        return std::max( autoSize, (U64)5 * 1024 * 1024 * 1024 );
+    }
+
+    return (U64)(v) * 1024 * 1024 * 1024;
 }
 
 U64

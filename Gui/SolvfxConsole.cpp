@@ -8,6 +8,8 @@
  * (at your option) any later version.
  * ***** END LICENSE BLOCK ***** */
 
+#include <Python.h>
+
 #include "SolvfxConsole.h"
 
 #include <algorithm>
@@ -17,6 +19,9 @@
 #include <QtCore/QTimer>
 
 #include "Global/Macros.h"
+#include "Engine/AppManager.h"
+#include "Engine/Settings.h"
+#include "Engine/SolvfxPerf.h"
 
 #ifdef __NATRON_WIN32__
 #include <windows.h>
@@ -111,13 +116,23 @@ heartbeat()
     if ( (s.winFrames > 0) && (now - s.winStartMs >= 1000) ) {
         const double secs = (now - s.winStartMs) / 1000.;
         const double n = s.winFrames;
-        log( QString::fromUtf8("play %1  fps %2 | upload %3  viewer %4  timeline %5  nodegraph %6")
+        // engine side: playback cache hits and render cost
+        const long long tc = SolvfxPerf::take(SolvfxPerf::eTilesCached);
+        const long long tr = SolvfxPerf::take(SolvfxPerf::eTilesRendered);
+        const long long rns = SolvfxPerf::take(SolvfxPerf::eRenderNs);
+        const long long rf = SolvfxPerf::take(SolvfxPerf::eRenderedFrames);
+        const double cachedPct = (tc + tr > 0) ? 100. * tc / (double)(tc + tr) : 100.;
+        log( QString::fromUtf8("play %1  fps %2 | upload %3  viewer %4  timeline %5  nodegraph %6 | cached %7%  renders %8 (%9 each)  %10 viewer")
              .arg(s.lastFrame)
              .arg( QString::number(n / secs, 'f', 1) )
              .arg( fmtMs(ms(s.winNs[ePerfUpload]) / n) )
              .arg( fmtMs(ms(s.winNs[ePerfViewer]) / n) )
              .arg( fmtMs(ms(s.winNs[ePerfTimeline]) / n) )
-             .arg( fmtMs(ms(s.winNs[ePerfNodeGraph]) / n) ) );
+             .arg( fmtMs(ms(s.winNs[ePerfNodeGraph]) / n) )
+             .arg( QString::number(cachedPct, 'f', 0) )
+             .arg(rf)
+             .arg( fmtMs( rf > 0 ? ms(rns) / rf : 0. ) )
+             .arg( (NATRON_NAMESPACE::AppManager::instance() && NATRON_NAMESPACE::AppManager::instance()->getCurrentSettings()->getViewersBitDepth() == NATRON_NAMESPACE::eImageBitDepthByte) ? QString::fromUtf8("8-bit") : QString::fromUtf8("float") ) );
         resetWindow(now);
     }
     // Playback stopped: summary

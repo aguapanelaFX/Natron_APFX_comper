@@ -29,6 +29,7 @@
 #include "Global/Macros.h"
 
 #include "ViewerInstance.h"
+#include "Engine/SolvfxViewerOcio.h"
 
 #include <map>
 #include <set>
@@ -83,7 +84,8 @@ struct RenderViewerArgs
                      const Color::Lut* colorSpace_,
                      int alphaChannelIndex_,
                      bool renderOnlyRoI_,
-                     std::size_t tileRowElements_)
+                     std::size_t tileRowElements_,
+                     const ::SolvfxViewerOcio* ocio_ = 0)
         : inputImage(inputImage_)
         , matteImage(matteImage_)
         , channels(channels_)
@@ -97,6 +99,7 @@ struct RenderViewerArgs
         , alphaChannelIndex(alphaChannelIndex_)
         , renderOnlyRoI(renderOnlyRoI_)
         , tileRowElements(tileRowElements_)
+        , ocio(ocio_)
     {
     }
 
@@ -113,6 +116,7 @@ struct RenderViewerArgs
     int alphaChannelIndex;
     bool renderOnlyRoI;
     std::size_t tileRowElements;
+    const ::SolvfxViewerOcio* ocio; // SOLVFX: display transform on the CPU (8-bit viewer)
 };
 
 struct ViewerInstance::ViewerInstancePrivate
@@ -136,6 +140,10 @@ public:
         , viewerParamsGamma(1.)
         , viewerParamsLut(eViewerColorSpaceSRGB)
         , viewerParamsAutoContrast(false)
+        , solvfxOcio()
+        , solvfxOcioKey(0)
+        , solvfxOcioDisplay()
+        , solvfxOcioView()
         , viewerParamsChannels()
         , viewerParamsLayer( ImagePlaneDesc::getRGBAComponents() )
         , viewerParamsAlphaLayer( ImagePlaneDesc::getRGBAComponents() )
@@ -383,6 +391,10 @@ public:
     ViewerColorSpaceEnum viewerParamsLut; /*!< a value coding the current color-space used to render.
                                                  0 = sRGB ,  1 = linear , 2 = Rec 709*/
     bool viewerParamsAutoContrast;
+    // SOLVFX: OCIO display/view applied on the CPU when the viewer is 8-bit
+    std::shared_ptr<const ::SolvfxViewerOcio> solvfxOcio;
+    int solvfxOcioKey;
+    std::string solvfxOcioDisplay, solvfxOcioView;
     DisplayChannelsEnum viewerParamsChannels[2];
     ImagePlaneDesc viewerParamsLayer;
     ImagePlaneDesc viewerParamsAlphaLayer;

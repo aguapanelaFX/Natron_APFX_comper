@@ -1744,6 +1744,10 @@ ViewerGL::setOcioDisplayView(const std::string& display,
     assert( qApp && qApp->thread() == QThread::currentThread() );
     _imp->ocioViewer.setDisplayView(display, view);
     _imp->ocioRequested = !display.empty();
+    // SOLVFX: the 8-bit viewer applies the view on the CPU, before caching
+    if ( _imp->viewerTab && _imp->viewerTab->getInternalNode() ) {
+        _imp->viewerTab->getInternalNode()->solvfxSetOcioView(display, view);
+    }
     // SOLVFX: build the OCIO program now, not in the middle of the next image draw
     if ( _imp->ocioRequested && isValid() ) {
         makeCurrent();

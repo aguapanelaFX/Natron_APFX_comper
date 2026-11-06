@@ -83,6 +83,7 @@ SOURCES += \
     DefaultShaders.cpp \
     DiskCacheNode.cpp \
     Dot.cpp \
+    SolvfxViewerOcio.cpp \
     EffectInstance.cpp \
     EffectInstancePrivate.cpp \
     EffectInstanceRenderRoI.cpp \
@@ -240,6 +241,8 @@ HEADERS += \
     DockablePanelI.h \
     Dot.h \
     SolvfxStamp.h \
+    SolvfxViewerOcio.h \
+    SolvfxPerf.h \
     EffectInstance.h \
     EffectInstancePrivate.h \
     EngineFwd.h \

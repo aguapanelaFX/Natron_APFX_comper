@@ -42,6 +42,8 @@ CLANG_DIAG_OFF(deprecated)
 #include <QThreadPool>
 CLANG_DIAG_ON(deprecated)
 
+#include "Engine/SolvfxPerf.h"
+#include <QElapsedTimer>
 #include "Engine/AppInstance.h"
 #include "Engine/AppManager.h"
 #include "Engine/Cache.h"
@@ -934,6 +936,12 @@ ViewerInstance::setupMinimalUpdateViewerParams(const SequenceTime time,
         outArgs->params->gain = _imp->viewerParamsGain;
         outArgs->params->gamma = _imp->viewerParamsGamma;
         outArgs->params->lut = _imp->viewerParamsLut;
+        // SOLVFX: 8-bit viewer + OCIO view: the view is applied on the CPU before caching;
+        // the cache key gets a "lut" value unique to the display/view
+        if ( (outArgs->params->depth == eImageBitDepthByte) && _imp->solvfxOcio ) {
+            outArgs->params->solvfxOcio = _imp->solvfxOcio;
+            outArgs->params->lut = (ViewerColorSpaceEnum)(1000 + _imp->solvfxOcioKey);
+        }
         outArgs->params->layer = _imp->viewerParamsLayer;
         outArgs->params->alphaLayer = _imp->viewerParamsAlphaLayer;
         outArgs->params->alphaChannelName = _imp->viewerParamsAlphaChannelName;
@@ -1107,6 +1115,7 @@ ViewerInstance::getViewerRoIAndTexture(const RectD& rod,
             }
             // Find out if we have a corresponding tile in the cache
             FrameEntryPtr foundCachedEntry;
+            SolvfxPerf::add(hasTextureCached && !outArgs->forceRender ? SolvfxPerf::eTilesCached : SolvfxPerf::eTilesRendered, 1);
             for (std::list<FrameEntryPtr>::iterator it2 = entries.begin(); it2 != entries.end(); ++it2) {
                 const TextureRect& entryRect = (*it2)->getKey().getTexRect();
                 if (entryRect == it->rect) {
@@ -1303,6 +1312,14 @@ ViewerInstance::renderViewer_internal(ViewIdx view,
                                       const RenderStatsPtr& stats,
                                       ViewerArgs& inArgs)
 {
+    // SOLVFX: time spent in viewer renders, for the debug console
+    struct SolvfxRenderTimer
+    {
+        QElapsedTimer t;
+        SolvfxRenderTimer() { t.start(); }
+        ~SolvfxRenderTimer() { SolvfxPerf::add(SolvfxPerf::eRenderNs, t.nsecsElapsed()); SolvfxPerf::add(SolvfxPerf::eRenderedFrames, 1); }
+    } solvfxRenderTimer;
+
     // We are in the render thread, we may not have computed the RoD and lookup the cache yet
 
     ViewerParallelRenderArgsSetterPtr frameArgs;
@@ -1845,7 +1862,8 @@ ViewerInstance::renderViewer_internal(ViewIdx view,
                                         lutFromColorspace(updateParams->lut),
                                         alphaChannelIndex,
                                         viewerRenderRoiOnly,
-                                        tileRowElements);
+                                        tileRowElements,
+                                        updateParams->solvfxOcio.get());
             QReadLocker k(&_imp->gammaLookupMutex);
             for (std::list<UpdateViewerParams::CachedTile>::iterator it = unCachedTiles.begin(); it != unCachedTiles.end(); ++it) {
                 renderFunctor(viewerRenderRoI,
@@ -1912,7 +1930,8 @@ ViewerInstance::renderViewer_internal(ViewIdx view,
                                         lutFromColorspace(updateParams->lut),
                                         alphaChannelIndex,
                                         viewerRenderRoiOnly,
-                                        tileRowElements);
+                                        tileRowElements,
+                                        updateParams->solvfxOcio.get());
 
             if (runInCurrentThread) {
                 QReadLocker k(&_imp->gammaLookupMutex);
@@ -2156,9 +2175,57 @@ scaleToTexture8bits_generic(const RectI& roi,
         matteAcc = std::make_shared<Image::ReadAccess>( args.matteImage.get() );
     }
 
+    // SOLVFX: OCIO display/view on the CPU (8-bit viewer): a row is converted at once
+    // (gain/offset -> OCIO view -> gamma -> luminance), then dithered to 8 bits below
+    const bool useOcio = (args.ocio != 0) && (sizeof(PIX) == sizeof(float));
+    std::vector<float> ocioRow;
+    if (useOcio) {
+        ocioRow.resize( (size_t)(x2 - x1) * 4 );
+    }
+
     for (int y = y1; y < y2;
          ++y,
          dst_pixels += dstRowElements) {
+        if (useOcio) {
+            const int n = x2 - x1;
+            for (int i = 0; i < n; ++i) {
+                float r = 0.f, g = 0.f, b = 0.f;
+                if (src_pixels) {
+                    if (nComps >= 3) {
+                        r = (rOffset < nComps) ? (float)src_pixels[i * nComps + rOffset] : 0.f;
+                        g = (gOffset < nComps) ? (float)src_pixels[i * nComps + gOffset] : 0.f;
+                        b = (bOffset < nComps) ? (float)src_pixels[i * nComps + bOffset] : 0.f;
+                    } else if (nComps == 2) {
+                        r = (rOffset < nComps) ? (float)src_pixels[i * nComps + rOffset] : 0.f;
+                        g = (gOffset < nComps) ? (float)src_pixels[i * nComps + gOffset] : 0.f;
+                    } else if (nComps == 1) {
+                        r = (rOffset < nComps) ? (float)src_pixels[i * nComps + rOffset] : 0.f;
+                        g = b = r;
+                    }
+                }
+                float* o = &ocioRow[(size_t)i * 4];
+                o[0] = (float)(r * args.gain + args.offset);
+                o[1] = (float)(g * args.gain + args.offset);
+                o[2] = (float)(b * args.gain + args.offset);
+                o[3] = 1.f;
+            }
+            args.ocio->applyRGBA(&ocioRow[0], n);
+            for (int i = 0; i < n; ++i) {
+                float* o = &ocioRow[(size_t)i * 4];
+                for (int c = 0; c < 3; ++c) {
+                    double v = o[c];
+                    if (args.gamma <= 0) {
+                        v = (v < 1.) ? 0. : 1.;
+                    } else if (args.gamma != 1.) {
+                        v = viewer->interpolateGammaLut(v);
+                    }
+                    o[c] = (float)v;
+                }
+                if (luminance) {
+                    o[0] = o[1] = o[2] = 0.2126f * o[0] + 0.7152f * o[1] + 0.0722f * o[2];
+                }
+            }
+        }
         // coverity[dont_call]
         int start = (int)( rand() % (x2 - x1) );
 
@@ -2217,6 +2284,13 @@ scaleToTexture8bits_generic(const RectI& roi,
                 }
 
 
+                if (useOcio) {
+                    // SOLVFX: already display-ready (see the row conversion above)
+                    const float* o = &ocioRow[(size_t)index * 4];
+                    r = o[0];
+                    g = o[1];
+                    b = o[2];
+                } else {
                 switch (pixelSize) {
                 case sizeof(unsigned char):     //byte
                     if (args.srcColorSpace) {
@@ -2270,10 +2344,19 @@ scaleToTexture8bits_generic(const RectI& roi,
                     g = r;
                     b = r;
                 }
+                } // SOLVFX: !useOcio
 
 
                 U8 uR, uG, uB;
-                if (!args.colorSpace) {
+                if (useOcio) {
+                    // display-ready values: dither to 8 bits
+                    error_r = (error_r & 0xff) + (unsigned)( std::max( 0., std::min(1., r) ) * 0xff00 );
+                    error_g = (error_g & 0xff) + (unsigned)( std::max( 0., std::min(1., g) ) * 0xff00 );
+                    error_b = (error_b & 0xff) + (unsigned)( std::max( 0., std::min(1., b) ) * 0xff00 );
+                    uR = (U8)(error_r >> 8);
+                    uG = (U8)(error_g >> 8);
+                    uB = (U8)(error_b >> 8);
+                } else if (!args.colorSpace) {
                     uR = Color::floatToInt<256>(r);
                     uG = Color::floatToInt<256>(g);
                     uB = Color::floatToInt<256>(b);
@@ -3058,6 +3141,31 @@ ViewerInstance::isAutoContrastEnabled() const
     QMutexLocker l(&_imp->viewerParamsMutex);
 
     return _imp->viewerParamsAutoContrast;
+}
+
+void
+ViewerInstance::solvfxSetOcioView(const std::string& display,
+                                  const std::string& view)
+{
+    {
+        QMutexLocker l(&_imp->viewerParamsMutex);
+        if ( (display == _imp->solvfxOcioDisplay) && (view == _imp->solvfxOcioView) ) {
+            return;
+        }
+        _imp->solvfxOcioDisplay = display;
+        _imp->solvfxOcioView = view;
+        _imp->solvfxOcio = ::SolvfxViewerOcio::create(display, view);
+        // stable key for the cache: hash of display/view
+        unsigned h = 2166136261u;
+        const std::string k = display + "\x1f" + view;
+        for (std::size_t i = 0; i < k.size(); ++i) {
+            h = (h ^ (unsigned char)k[i]) * 16777619u;
+        }
+        _imp->solvfxOcioKey = (int)(h % 1000000u);
+    }
+    if ( (getUiContext() && (getUiContext()->getBitDepth() == eImageBitDepthByte)) && !getApp()->getProject()->isLoadingProject() ) {
+        renderCurrentFrame(true);
+    }
 }
 
 void

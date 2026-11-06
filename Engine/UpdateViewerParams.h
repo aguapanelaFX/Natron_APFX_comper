@@ -29,6 +29,7 @@
 #include "Global/Macros.h"
 
 #include <string>
+#include <memory>
 #include <list>
 #include <cstddef>
 
@@ -39,6 +40,8 @@
 #include "Engine/RectI.h"
 #include "Engine/TextureRect.h"
 
+
+class SolvfxViewerOcio; // SOLVFX: CPU OCIO for the 8-bit viewer
 
 NATRON_NAMESPACE_ENTER
 
@@ -124,6 +127,7 @@ public:
     double offset; // viewer offset
     unsigned int mipmapLevel; // viewer mipmaplevel
     ViewerColorSpaceEnum lut; // the viewer colorspace lut
+    std::shared_ptr<const ::SolvfxViewerOcio> solvfxOcio; // SOLVFX: OCIO view applied on the CPU (8-bit viewer), or null
     ImagePlaneDesc layer; // the image layer
     ImagePlaneDesc alphaLayer; // the alpha layer
     std::string alphaChannelName; // the alpha channel name
