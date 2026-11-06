@@ -275,6 +275,8 @@ public:
     // SOLVFX: OCIO display/view of this viewer (empty display = off). With the 8-bit
     // viewer it is applied on the CPU before caching (Nuke-like byte buffer).
     void solvfxSetOcioView(const std::string& display, const std::string& view);
+    // true when the OCIO view is applied on the CPU (8-bit viewer)
+    bool solvfxHasCpuOcio() const;
 
     virtual void onInputChanged(int inputNb) OVERRIDE FINAL;
 

@@ -57,14 +57,17 @@ SolvfxViewerOcio::create(const std::string& display,
         OCIO::ConstProcessorRcPtr processor = config->getProcessor(dv);
         std::shared_ptr<SolvfxViewerOcio> ret( new SolvfxViewerOcio() );
         ret->_imp->cpu = processor->getOptimizedCPUProcessor(OCIO::OPTIMIZATION_DEFAULT);
+        std::cerr << "[SOLVFX] 8-bit viewer: OCIO view \"" << view << " (" << display << ")\" applied on the CPU" << std::endl;
 
         return ret;
     } catch (const std::exception& e) {
         std::cerr << "[SOLVFX] OCIO viewer (CPU): " << e.what() << std::endl;
     }
 #else
-    (void)display;
     (void)view;
+    if ( !display.empty() ) {
+        std::cerr << "[SOLVFX] 8-bit viewer: built without OCIO, the view cannot be applied" << std::endl;
+    }
 #endif
 
     return std::shared_ptr<SolvfxViewerOcio>();

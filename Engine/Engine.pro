@@ -21,7 +21,7 @@ TARGET = Engine
 TEMPLATE = lib
 CONFIG += staticlib
 CONFIG += moc
-CONFIG += boost boost-serialization-lib qt cairo python shiboken pyside 
+CONFIG += boost boost-serialization-lib qt cairo python shiboken pyside ocio
 QT += core network concurrent
 
 ENGINE_WRAPPER_DIR = Qt$${QT_MAJOR_VERSION}/NatronEngine

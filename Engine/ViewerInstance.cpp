@@ -3143,6 +3143,14 @@ ViewerInstance::isAutoContrastEnabled() const
     return _imp->viewerParamsAutoContrast;
 }
 
+bool
+ViewerInstance::solvfxHasCpuOcio() const
+{
+    QMutexLocker l(&_imp->viewerParamsMutex);
+
+    return (bool)_imp->solvfxOcio;
+}
+
 void
 ViewerInstance::solvfxSetOcioView(const std::string& display,
                                   const std::string& view)

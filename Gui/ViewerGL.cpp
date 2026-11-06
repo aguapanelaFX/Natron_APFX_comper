@@ -1746,7 +1746,13 @@ ViewerGL::setOcioDisplayView(const std::string& display,
     _imp->ocioRequested = !display.empty();
     // SOLVFX: the 8-bit viewer applies the view on the CPU, before caching
     if ( _imp->viewerTab && _imp->viewerTab->getInternalNode() ) {
-        _imp->viewerTab->getInternalNode()->solvfxSetOcioView(display, view);
+        ViewerInstance* vi = _imp->viewerTab->getInternalNode();
+        vi->solvfxSetOcioView(display, view);
+        if ( !display.empty() && (getBitDepth() == eImageBitDepthByte) ) {
+            SolvfxConsole::log( vi->solvfxHasCpuOcio() ?
+                                QString::fromUtf8("8-bit viewer: OCIO view \"%1 (%2)\" applied on the CPU").arg( QString::fromUtf8( view.c_str() ) ).arg( QString::fromUtf8( display.c_str() ) ) :
+                                QString::fromUtf8("8-bit viewer: OCIO view \"%1 (%2)\" could NOT be applied on the CPU, using the GPU").arg( QString::fromUtf8( view.c_str() ) ).arg( QString::fromUtf8( display.c_str() ) ) );
+        }
     }
     // SOLVFX: build the OCIO program now, not in the middle of the next image draw
     if ( _imp->ocioRequested && isValid() ) {

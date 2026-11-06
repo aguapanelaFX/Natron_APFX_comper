@@ -41,6 +41,7 @@
 #include "Engine/Settings.h"
 #include "Engine/Texture.h"
 
+#include "Engine/ViewerInstance.h"
 #include "Gui/Gui.h"
 #include "Gui/GuiApplicationManager.h" // appFont
 #include "Gui/Menu.h"
@@ -864,7 +865,10 @@ ViewerGL::Implementation::activateShaderRGB(int texIndex)
 
     // SOLVFX: OCIO display/view (float textures only, exposure is applied before the view)
     ocioBound = false;
-    if ( ocioRequested && (_this->getBitDepth() != eImageBitDepthByte) ) {
+    // (8-bit viewer: the view is applied on the CPU; if that is not available, on the GPU)
+    const bool solvfxCpuOcio = (_this->getBitDepth() == eImageBitDepthByte) && viewerTab && viewerTab->getInternalNode() &&
+                               viewerTab->getInternalNode()->solvfxHasCpuOcio();
+    if ( ocioRequested && !solvfxCpuOcio ) {
         if ( ocioViewer.bind( (float)displayTextures[texIndex].gain, (float)displayTextures[texIndex].offset,
                               (float)displayTextures[texIndex].gamma, (float)displaySaturation ) ) {
             ocioBound = true;
