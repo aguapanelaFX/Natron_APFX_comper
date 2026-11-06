@@ -163,7 +163,11 @@ void
 raiseUiThreadPriority()
 {
 #ifdef __NATRON_WIN32__
-    ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    // SOLVFX: renders (and the decoders) run in a below-normal process, so caching uses
+    // all the idle CPU but never makes the rest of the PC lag; the UI thread is raised to
+    // the level of a normal application so SOLVFX itself stays responsive
+    ::SetPriorityClass(::GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #endif
 }
 

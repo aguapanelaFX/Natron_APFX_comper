@@ -1518,9 +1518,10 @@ OutputSchedulerThread::adjustNumberOfThreads(int* newNThreads,
     *lastNThreads = currentParallelRenders;
 
     if (userSettingParallelThreads == 0) {
-        ///User wants it to be automatically computed, do a simple heuristic: launch as many parallel renders
-        ///as there are cores
-        optimalNThreads = appPTR->getHardwareIdealThreadCount();
+        // SOLVFX: automatic = a few frames in flight (each frame is itself rendered on all
+        // cores), not one frame per core: 32 parallel 4K frames on a 16-core CPU only made
+        // every frame slower, used tens of GB and starved the rest of the PC
+        optimalNThreads = std::max( 2, std::min( 8, appPTR->getHardwareIdealThreadCount() / 4 ) );
     } else {
         optimalNThreads = userSettingParallelThreads;
     }

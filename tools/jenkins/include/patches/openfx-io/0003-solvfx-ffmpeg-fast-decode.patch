@@ -1,0 +1,193 @@
+diff --git a/FFmpeg/FFmpegFile.cpp b/FFmpeg/FFmpegFile.cpp
+index 9d3c152..f62fb21 100644
+--- a/FFmpeg/FFmpegFile.cpp
++++ b/FFmpeg/FFmpegFile.cpp
+@@ -49,6 +49,8 @@
+ #endif
+ 
+ #include <algorithm>
++#include <thread>
++#include <libavutil/pixdesc.h>
+ #include <cmath>
+ #include <iostream>
+ 
+@@ -1526,19 +1528,96 @@ FFmpegFile::imageConvert(AVFrame* avFrameIn, AVFrame* avFrameOut)
+     // Scale if any of the decoding path has provided a convert
+     // context. Otherwise, no scaling/conversion is required after
+     // decoding the frame.
+-    if (context) {
+-        sws_scale(
+-            context,
+-            avFrameIn->data,
+-            avFrameIn->linesize,
+-            0,
+-            avFrameIn->height,
+-            avFrameOut->data,
+-            avFrameOut->linesize);
+-    } else {
++    if (!context) {
+         return false;
+     }
+ 
++    // SOLVFX: convert big frames on several threads, one swscale context per horizontal
++    // band (exact: only for formats without vertical chroma subsampling, e.g. ProRes /
++    // DNxHR 4:2:2 / 4:4:4, and without scaling)
++    const AVPixFmtDescriptor* srcDesc = av_pix_fmt_desc_get(srcPixFmt);
++    const AVPixFmtDescriptor* dstDesc = av_pix_fmt_desc_get(dstPixFmt);
++    const int h = avFrameIn->height;
++    unsigned hw = std::thread::hardware_concurrency();
++    int nBands = (int)std::min( 16u, std::max(1u, hw) );
++    nBands = std::min( nBands, h / 64 );
++    const bool banded = srcDesc && dstDesc && (nBands > 1) &&
++                        (srcDesc->log2_chroma_h == 0) && (dstDesc->log2_chroma_h == 0) &&
++                        !(srcDesc->flags & AV_PIX_FMT_FLAG_PAL) && !(srcDesc->flags & AV_PIX_FMT_FLAG_BITSTREAM) &&
++                        (avFrameIn->width == avFrameOut->width) && (avFrameIn->height == avFrameOut->height);
++    if (banded) {
++        const int bandH = (h + nBands - 1) / nBands;
++        if ( (stream->_bandCtxOf != context) || (stream->_bandCtxH != bandH) || ( (int)stream->_bandCtx.size() != nBands ) ) {
++            stream->freeBandCtx();
++            // same colorspace details as the main context
++            int* invTable = nullptr;
++            int* table = nullptr;
++            int srcRange = 0, dstRange = 1, brightness = 0, contrast = 1 << 16, saturation = 1 << 16;
++            const bool haveDetails = sws_getColorspaceDetails(context, &invTable, &srcRange, &table, &dstRange,
++                                                              &brightness, &contrast, &saturation) >= 0;
++            for (int i = 0; i < nBands; ++i) {
++                const int y0 = i * bandH;
++                const int bh = std::min(bandH, h - y0);
++                SwsContext* bc = nullptr;
++                if (bh > 0) {
++                    bc = sws_getContext(avFrameIn->width, bh, srcPixFmt, avFrameOut->width, bh, dstPixFmt,
++                                        SWS_BICUBIC, nullptr, nullptr, nullptr);
++                    if (bc && haveDetails) {
++                        sws_setColorspaceDetails(bc, invTable, srcRange, table, dstRange, brightness, contrast, saturation);
++                    }
++                }
++                stream->_bandCtx.push_back(bc);
++            }
++            stream->_bandCtxOf = context;
++            stream->_bandCtxH = bandH;
++        }
++        bool ok = true;
++        for (int i = 0; i < nBands; ++i) {
++            if ( !stream->_bandCtx[i] && (i * bandH < h) ) {
++                ok = false;
++            }
++        }
++        if (ok) {
++            std::vector<std::thread> threads;
++            threads.reserve(nBands);
++            for (int i = 0; i < nBands; ++i) {
++                const int y0 = i * bandH;
++                const int bh = std::min(bandH, h - y0);
++                if (bh <= 0) {
++                    continue;
++                }
++                SwsContext* bc = stream->_bandCtx[i];
++                threads.emplace_back([=]() {
++                    const uint8_t* src[4] = { nullptr, nullptr, nullptr, nullptr };
++                    uint8_t* dst[4] = { nullptr, nullptr, nullptr, nullptr };
++                    for (int p = 0; p < 4; ++p) {
++                        if (avFrameIn->data[p]) {
++                            src[p] = avFrameIn->data[p] + (std::ptrdiff_t)y0 * avFrameIn->linesize[p];
++                        }
++                        if (avFrameOut->data[p]) {
++                            dst[p] = avFrameOut->data[p] + (std::ptrdiff_t)y0 * avFrameOut->linesize[p];
++                        }
++                    }
++                    sws_scale(bc, src, avFrameIn->linesize, 0, bh, dst, avFrameOut->linesize);
++                });
++            }
++            for (std::size_t i = 0; i < threads.size(); ++i) {
++                threads[i].join();
++            }
++
++            return true;
++        }
++    }
++
++    sws_scale(
++        context,
++        avFrameIn->data,
++        avFrameIn->linesize,
++        0,
++        avFrameIn->height,
++        avFrameOut->data,
++        avFrameOut->linesize);
++
+     return true;
+ }
+ 
+diff --git a/FFmpeg/FFmpegFile.h b/FFmpeg/FFmpegFile.h
+index 930faf2..54719b7 100644
+--- a/FFmpeg/FFmpegFile.h
++++ b/FFmpeg/FFmpegFile.h
+@@ -53,6 +53,8 @@ extern "C" {
+ }
+ 
+ #include "ofxsMultiThread.h"
++#include <vector>
++#include <mutex>
+ #ifndef OFX_USE_MULTITHREAD_MUTEX
+ // some OFX hosts do not have mutex handling in the MT-Suite (e.g. Sony Catalyst Edit)
+ // prefer using the fast mutex by Marcus Geelnard http://tinythreadpp.bitsnbites.eu/
+@@ -127,13 +129,10 @@ private:
+ 
+ class FFmpegFile {
+ public:
+-#ifdef OFX_USE_MULTITHREAD_MUTEX
+-    typedef OFX::MultiThread::Mutex Mutex;
+-    typedef OFX::MultiThread::AutoMutex AutoMutex;
+-#else
+-    typedef tthread::fast_mutex Mutex;
+-    typedef OFX::MultiThread::AutoMutexT<tthread::fast_mutex> AutoMutex;
+-#endif
++    // SOLVFX: a blocking mutex. The spinning fast_mutex kept every render thread that
++    // waits for the decoder busy at 100% CPU while caching (and the whole PC laggy).
++    typedef std::mutex Mutex;
++    typedef OFX::MultiThread::AutoMutexT<std::mutex> AutoMutex;
+ 
+ private:
+     struct Stream {
+@@ -144,6 +143,11 @@ private:
+         AVFrame* _avFrame; // decoding frame
+         AVFrame* _avIntermediateFrame; // decode into this if an image conversion is required
+         SwsContext* _convertCtx;
++        // SOLVFX: one conversion context per horizontal band, to convert a frame on
++        // several threads (swscale itself converts on one thread)
++        std::vector<SwsContext*> _bandCtx;
++        SwsContext* _bandCtxOf; // the _convertCtx the bands were built for
++        int _bandCtxH;          // band height
+         bool _resetConvertCtx;
+         // Source/destination parameters the cached _convertCtx was created for,
+         // used to detect when it must be rebuilt (e.g. if the frame dimensions,
+@@ -195,6 +199,9 @@ private:
+             , _avFrame(nullptr)
+             , _avIntermediateFrame(nullptr)
+             , _convertCtx(nullptr)
++            , _bandCtx()
++            , _bandCtxOf(nullptr)
++            , _bandCtxH(0)
+             , _resetConvertCtx(true)
+             , _convertCtxSrcPixelFormat(AV_PIX_FMT_NONE)
+             , _convertCtxSrcWidth(0)
+@@ -254,6 +261,19 @@ private:
+             if (_convertCtx) {
+                 sws_freeContext(_convertCtx);
+             }
++            freeBandCtx();
++        }
++
++        void freeBandCtx()
++        {
++            for (std::size_t i = 0; i < _bandCtx.size(); ++i) {
++                if (_bandCtx[i]) {
++                    sws_freeContext(_bandCtx[i]);
++                }
++            }
++            _bandCtx.clear();
++            _bandCtxOf = nullptr;
++            _bandCtxH = 0;
+         }
+ 
+         static void destroy(Stream* s)

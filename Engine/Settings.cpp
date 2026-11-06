@@ -1324,7 +1324,7 @@ Settings::initializeKnobsCaching()
     _maxViewerDiskCacheGB->setMaximum(1000);
     _maxViewerDiskCacheGB->setHintToolTip( tr("The maximum size of the playback cache (the frames the viewer keeps to play back), in GiB. "
                                               "It lives in memory-mapped files in the cache folder, so it also needs that much free disk space. "
-                                              "0 = automatic (40% of the system RAM).") );
+                                              "0 = automatic (30% of the system RAM).") );
     _cachingTab->addKnob(_maxViewerDiskCacheGB);
 
     _maxDiskCacheNodeGB = AppManager::createKnob<KnobInt>( this, tr("Maximum DiskCache node disk usage (GiB)") );
@@ -1572,7 +1572,7 @@ Settings::setDefaultValues()
 
     // Caching
     _aggressiveCaching->setDefaultValue(false);
-    _maxRAMPercent->setDefaultValue(50, 0);
+    _maxRAMPercent->setDefaultValue(30, 0); // SOLVFX: 30% node cache + 30% playback cache (was 50% + a 5 GiB playback cache)
     _unreachableRAMPercent->setDefaultValue(20); // see https://github.com/NatronGitHub/Natron/issues/486
     _maxViewerDiskCacheGB->setDefaultValue(0, 0); // SOLVFX: 0 = automatic (40% of RAM)
     _maxDiskCacheNodeGB->setDefaultValue(10, 0);
@@ -2575,10 +2575,10 @@ U64
 Settings::getMaximumViewerDiskCacheSize() const
 {
     // SOLVFX: 0 (and Natron's old default of 5 GiB, which held only ~38 4K float frames)
-    // = automatic: 40% of the system RAM, at least 5 GiB
+    // = automatic: 30% of the system RAM, at least 5 GiB
     const int v = _maxViewerDiskCacheGB->getValue();
     if ( (v == 0) || (v == 5) ) {
-        const U64 autoSize = (U64)( 0.4 * (double)getSystemTotalRAM() );
+        const U64 autoSize = (U64)( 0.3 * (double)getSystemTotalRAM() );
 
         return std::max( autoSize, (U64)5 * 1024 * 1024 * 1024 );
     }
