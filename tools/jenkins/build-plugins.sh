@@ -21,7 +21,7 @@ CMAKE_PLUGINS=0
 BUILD_IO=1
 BUILD_MISC=1
 BUILD_ARENA=1
-BUILD_GMIC=1
+BUILD_GMIC=0 # SOLVFX: G'MIC off for now (not needed; set to 1 to bring it back)
 BUILD_CV=0
 
 OMP=""
