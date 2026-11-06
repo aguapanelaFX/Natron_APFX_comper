@@ -450,6 +450,18 @@ if [ "$BUILD_GMIC" = "1" ] && [ -d "$TMP_PATH/openfx-gmic" ]; then
 
     echo "Info: build openfx-gmic using make..."
 
+    # SOLVFX: G'MIC sources come from gmic.eu, which is sometimes down. Fetch them first
+    # from our mirror (GMIC_MIRROR_URL, a release asset); after a successful build keep a
+    # copy in GMIC_SRC_SAVE_DIR so CI can publish the mirror. If G'MIC still cannot be
+    # built, warn and skip it instead of failing the whole build.
+    GMIC_SRC="gmic_$(sed -n 's/^GMICVER=\([0-9.]*\).*/\1/p' Makefile | head -1).tar.gz"
+    if [ ! -s "$GMIC_SRC" ] && [ -n "${GMIC_MIRROR_URL:-}" ]; then
+        curl --retry 3 -fsSL -o "$GMIC_SRC" "${GMIC_MIRROR_URL}/${GMIC_SRC}" || rm -f "$GMIC_SRC"
+        if [ -s "$GMIC_SRC" ] && ! gzip -t "$GMIC_SRC" 2>/dev/null; then rm -f "$GMIC_SRC"; fi
+        [ -s "$GMIC_SRC" ] && echo "Info: G'MIC sources from the mirror"
+    fi
+    GMIC_OK=1
+
     # build GMIC.ofx
     set -x
     if [ "$COMPILER" = "clang" ] && [ -n "${GXX:-}" ]; then
@@ -462,7 +474,7 @@ if [ "$BUILD_GMIC" = "1" ] && [ -d "$TMP_PATH/openfx-gmic" ]; then
             LDFLAGS_ADD="${BUILDID:-} -static-libgcc" \
             OPENMP=1 \
             CXXFLAGS_EXTRA="$GMIC_CXXFLAGS_EXTRA ${CXXFLAGS_EXTRA}" \
-            make -j"${GMIC_MKJOBS}" ${MAKEFLAGS_VERBOSE:-}
+            make -j"${GMIC_MKJOBS}" ${MAKEFLAGS_VERBOSE:-} || GMIC_OK=0
     else
         # build with OpenMP support (no OpenGL required)
         env \
@@ -473,9 +485,17 @@ if [ "$BUILD_GMIC" = "1" ] && [ -d "$TMP_PATH/openfx-gmic" ]; then
             LDFLAGS_ADD="${BUILDID:-}" \
             ${OMP} \
             CXXFLAGS_EXTRA="$GMIC_CXXFLAGS_EXTRA ${CXXFLAGS_EXTRA}" \
-            make -j"${GMIC_MKJOBS}" ${MAKEFLAGS_VERBOSE:-}
+            make -j"${GMIC_MKJOBS}" ${MAKEFLAGS_VERBOSE:-} || GMIC_OK=0
     fi
-    ${CP_OR_MV} ./*/*-*-*/*.ofx.bundle "$TMP_BINARIES_PATH/OFX/Plugins/"
+    if [ "$GMIC_OK" = "1" ]; then
+        ${CP_OR_MV} ./*/*-*-*/*.ofx.bundle "$TMP_BINARIES_PATH/OFX/Plugins/"
+        if [ -n "${GMIC_SRC_SAVE_DIR:-}" ] && [ -s "$GMIC_SRC" ] && gzip -t "$GMIC_SRC" 2>/dev/null; then
+            mkdir -p "${GMIC_SRC_SAVE_DIR}"
+            cp "$GMIC_SRC" "${GMIC_SRC_SAVE_DIR}/"
+        fi
+    else
+        echo "WARNING: G'MIC could not be built (sources unavailable?): GMIC.ofx is skipped in this build"
+    fi
     set +x
     maybe_cleanup_binary_files
 

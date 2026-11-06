@@ -12,10 +12,18 @@ on:
       - 'tools/MINGW-packages/**'
       - '.github/workflows/build_pacman_repo.yml'
 
+permissions:
+  contents: write
+
 env:
   NATRON_BUILD_WORKSPACE: 'D:/nbw'
   PLUGINS_CACHE_DIR: 'D:/nbw_plugins'
   PLUGINS_CACHE_KEY: 'natron-plugins-ucrt64'
+  # Prebuilt third-party plugins (+ G'MIC source mirror) live in this release: it never
+  # expires, unlike the Actions cache (deleted after 7 days without use).
+  PLUGINS_RELEASE_TAG: 'windows-ucrt64-plugins'
+  PLUGINS_ZIP: 'natron_plugins-ucrt64.zip'
+  GMIC_SRC_DIR: 'D:/nbw_gmic_src'
   CI: 'True'
   TEST_BUILD: ${{ inputs.test_build && '1' || '0' }}
 
@@ -49,9 +57,24 @@ jobs:
           if [ ! -x ${MSYSTEM_PREFIX}/bin/python3.exe ] && [ -x ${MSYSTEM_PREFIX}/bin/python.exe ]; then cp ${MSYSTEM_PREFIX}/bin/python.exe ${MSYSTEM_PREFIX}/bin/python3.exe; fi
           which python3 && python3 --version
 
-      - name: Restore prebuilt plugins (test build)
-        id: restore-plugins
+      - name: Download prebuilt plugins from the release (test build)
+        id: release-plugins
         if: ${{ inputs.test_build }}
+        run: |
+          DIR=$(cygpath -u "${PLUGINS_CACHE_DIR}")
+          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${PLUGINS_RELEASE_TAG}/${PLUGINS_ZIP}"
+          if wget -q "${URL}" -O "${RUNNER_TEMP}/plugins.zip" && [ -s "${RUNNER_TEMP}/plugins.zip" ]; then
+            mkdir -p "${DIR}" && unzip -q -o "${RUNNER_TEMP}/plugins.zip" -d "${DIR}"
+            ls "${DIR}"
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "No prebuilt plugins in the release yet: they will be built and published."
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore prebuilt plugins (test build, Actions cache fallback)
+        id: restore-plugins
+        if: ${{ inputs.test_build && steps.release-plugins.outputs.found != 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.PLUGINS_CACHE_DIR }}
@@ -65,6 +88,10 @@ jobs:
           NATRON_BUILD_WORKSPACE_UNIX=$(cygpath -u ${NATRON_BUILD_WORKSPACE})
           mkdir ${NATRON_BUILD_WORKSPACE_UNIX}
           PLUGINS_CACHE_DIR_UNIX=$(cygpath -u ${PLUGINS_CACHE_DIR})
+          export GMIC_MIRROR_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${PLUGINS_RELEASE_TAG}"
+          export GMIC_SRC_SAVE_DIR=$(cygpath -u ${GMIC_SRC_DIR})
+          # remember whether the plugins were reused, to publish them only when freshly built
+          ls -d ${PLUGINS_CACHE_DIR_UNIX}/*.ofx.bundle >/dev/null 2>&1 && touch ${RUNNER_TEMP}/plugins_reused || true
 
           cd tools/jenkins
 
@@ -102,13 +129,32 @@ jobs:
           echo "TEST_FAILURES_NAME=${TEST_FAILURES_NAME}" >> $GITHUB_OUTPUT
           echo "TEST_FAILURES_DIR=$(cygpath -m ${TEST_FAILURES_DIR})" >> $GITHUB_OUTPUT
 
-      - name: Save built plugins for test builds
-        # Full builds always refresh the cache; a test build saves only if it had to build them.
-        if: ${{ !inputs.test_build || steps.restore-plugins.outputs.cache-matched-key == '' }}
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.PLUGINS_CACHE_DIR }}
-          key: ${{ env.PLUGINS_CACHE_KEY }}-${{ github.run_id }}
+      - name: Publish built plugins to the release
+        # Full builds always refresh it; a test build publishes only plugins it had to build.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${TEST_BUILD}" = "1" ] && [ -f "${RUNNER_TEMP}/plugins_reused" ]; then
+            echo "Plugins were reused: nothing to publish."
+            exit 0
+          fi
+          DIR="${PLUGINS_CACHE_DIR}"
+          if ! ls -d "${DIR}"/*.ofx.bundle >/dev/null 2>&1; then
+            echo "No built plugins found in ${DIR}"
+            exit 0
+          fi
+          if ! gh release view "${PLUGINS_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            gh release create "${PLUGINS_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" --prerelease \
+              --title "SOLVFX UCRT64 prebuilt plugins" \
+              --notes "Third-party OFX plugin bundles reused by fast test builds, plus a G'MIC source mirror. Updated by the 'Build Installer' workflow. Do not delete."
+          fi
+          (cd "${DIR}" && rm -f "${RUNNER_TEMP}/${PLUGINS_ZIP}" && 7z a -tzip -bd "${RUNNER_TEMP}/${PLUGINS_ZIP}" ./*.ofx.bundle > /dev/null)
+          gh release upload "${PLUGINS_RELEASE_TAG}" "${RUNNER_TEMP}/${PLUGINS_ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
+          for f in "${GMIC_SRC_DIR}"/gmic_*.tar.gz; do
+            [ -s "$f" ] && gh release upload "${PLUGINS_RELEASE_TAG}" "$f" --repo "${GITHUB_REPOSITORY}" --clobber || true
+          done
 
       - name: Build verify_plugin_loads binary
         run: |
