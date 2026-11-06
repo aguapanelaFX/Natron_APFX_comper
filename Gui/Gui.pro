@@ -85,6 +85,7 @@ SOURCES += \
     ColorSelectorWidget.cpp \
     SolvfxColorPanel.cpp \
     SolvfxConsole.cpp \
+    SolvfxShuffleWidget.cpp \
     SolvfxOcioViewer.cpp \
     ComboBox.cpp \
     CurveEditor.cpp \
@@ -240,6 +241,7 @@ HEADERS += \
     ColorSelectorWidget.h \
     SolvfxColorPanel.h \
     SolvfxConsole.h \
+    SolvfxShuffleWidget.h \
     SolvfxOcioViewer.h \
     ComboBox.h \
     CurveEditor.h \

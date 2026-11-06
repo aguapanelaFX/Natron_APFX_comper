@@ -123,6 +123,7 @@ public Q_SLOTS:
 private:
 
     virtual void createWidget(QHBoxLayout* layout) OVERRIDE FINAL;
+    virtual bool shouldCreateLabel() const OVERRIDE FINAL;
     virtual void _hide() OVERRIDE FINAL;
     virtual void _show() OVERRIDE FINAL;
     virtual void setEnabled() OVERRIDE FINAL;

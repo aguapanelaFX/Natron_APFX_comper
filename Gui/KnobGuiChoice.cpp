@@ -79,6 +79,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/ScaleSliderQWidget.h"
 #include "Gui/SpinBox.h"
 #include "Gui/TabGroup.h"
+#include "Gui/SolvfxShuffleWidget.h"
 
 #include <ofxNatron.h>
 
@@ -239,7 +240,8 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     // SOLVFX: Nuke-style short names for layer / channel menus ("Color.RGBA" -> "rgba")
     {
         const std::string& n = knob->getName();
-        const bool isLayerMenu = (n == "channels") || ( (n.size() > 9) && (n.compare(n.size() - 9, 9, "_channels") == 0) );
+        const bool isLayerMenu = (n == "channels") || ( (n.size() > 9) && (n.compare(n.size() - 9, 9, "_channels") == 0) ) ||
+                                 SolvfxShuffleWidget::isShuffleLayerKnob(knob);
         const bool isChannelMenu = (n.compare(0, 11, "maskChannel") == 0);
         if (isLayerMenu) {
             _comboBox->setDisplayTextTransform([](const QString& t) -> QString {
@@ -293,7 +295,22 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     ///set the copy/link actions in the right click menu
     enableRightClickMenu(_comboBox, 0);
 
+    // SOLVFX: Shuffle gets the Nuke-like noodle panel; its output layer menu lives inside it
+    if ( SolvfxShuffleWidget::isShuffleLayerKnob(knob) ) {
+        SolvfxShuffleWidget* noodles = new SolvfxShuffleWidget( knob, _comboBox, layout->parentWidget() );
+        layout->addWidget(noodles, 1);
+
+        return;
+    }
+
     layout->addWidget(_comboBox);
+}
+
+bool
+KnobGuiChoice::shouldCreateLabel() const
+{
+    // SOLVFX: the Shuffle noodle panel spans the whole width
+    return !SolvfxShuffleWidget::isShuffleLayerKnob( _knob.lock() );
 }
 
 void

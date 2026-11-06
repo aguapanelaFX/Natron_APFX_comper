@@ -2705,6 +2705,19 @@ Node::initializeDefaultKnobs(bool loadingSerialization)
     if (mainPage && !isBackdropNode) {
         solvfxArrangeMergeKnobs(_imp->effect.get(), mainPage);
         solvfxArrangeNormalizeButton(mainPage);
+        // SOLVFX: Shuffle channel menus are driven by the noodle panel (Gui/SolvfxShuffleWidget)
+        if ( _imp->effect->getPluginID() == "net.sf.openfx.ShufflePlugin" ) {
+            static const char* names[4] = { "outputR", "outputG", "outputB", "outputA" };
+            bool all = (bool)std::dynamic_pointer_cast<KnobChoice>( _imp->effect->getKnobByName("outputLayer") );
+            for (int i = 0; i < 4; ++i) {
+                all = all && (bool)std::dynamic_pointer_cast<KnobChoice>( _imp->effect->getKnobByName(names[i]) );
+            }
+            if (all) {
+                for (int i = 0; i < 4; ++i) {
+                    _imp->effect->getKnobByName(names[i])->setSecretByDefault(true);
+                }
+            }
+        }
         solvfxArrangeMaskMixBlock(_imp->effect.get(), mainPage);
     }
 
