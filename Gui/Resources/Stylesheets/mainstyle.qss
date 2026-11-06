@@ -1023,7 +1023,7 @@ QTabBar::tab {
     padding: 1px 8px 1px 9px;
     margin-right: 2px;
     min-width: 0px;
-    font-size: 11px;
+    font-size: 10px;
 }
 QTabBar::tab:hover {
     background: #333333;
@@ -1148,3 +1148,16 @@ QPushButton#SolvfxAnimButton[animState="1"] { background-color: #6b4a2a; border:
 QPushButton#SolvfxAnimButton[animState="2"] { background-color: #e0743a; }
 QPushButton#SolvfxAnimButton[animState="3"] { background-color: #24524a; border: 1px solid #5fd3bc; }
 QPushButton#SolvfxAnimButton[animState="4"] { background-color: #3f3358; border: 1px solid #b9a2f0; }
+
+/* SOLVFX: compact square dimension switch ("4") like the panel mock-up */
+QPushButton#SolvfxDimButton {
+    padding: 0px;
+    border-radius: 3px;
+    border: 1px solid #141414;
+    background-color: #4a4a4a;
+    color: #d0d0d0;
+    font-size: 9px;
+    font-weight: bold;
+}
+QPushButton#SolvfxDimButton:hover { background-color: #565656; }
+QPushButton#SolvfxDimButton:checked { background-color: #e0743a; color: #141414; }

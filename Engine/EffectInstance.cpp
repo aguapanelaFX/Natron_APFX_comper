@@ -4545,7 +4545,8 @@ bool
 EffectInstance::getCreateChannelSelectorKnob() const
 {
     return ( !isMultiPlanar() && !isReader() && !isWriter() && !isTrackerNodePlugin() &&
-             getPluginID().rfind("uk.co.thefoundry.furnace", 0) == std::string::npos );
+             getPluginID().rfind("uk.co.thefoundry.furnace", 0) == std::string::npos &&
+             getPluginID() != "com.aguapanelafx.APFX.Retime" ); // SOLVFX: time nodes pass every layer
 }
 
 int

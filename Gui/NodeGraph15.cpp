@@ -58,6 +58,8 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #define NATRON_AUTO_SCROLL_TIMEOUT_MS 50
 
 
+#include <cstdio>
+
 NATRON_NAMESPACE_ENTER
 static bool
 handleConnectionError(const NodeGuiPtr& outputNode,
@@ -79,6 +81,13 @@ handleConnectionError(const NodeGuiPtr& outputNode,
 
             return true;
         } else if (linkRetCode == Node::eCanConnectInput_differentFPS) {
+            // SOLVFX: keyframes live on frames; fps only changes playback. Connect silently,
+            // just note it in the console (Nuke does not warn either).
+            std::fprintf(stderr, "[SOLVFX] %s (%.3f fps) connected to %s (%.3f fps)\n",
+                         inputNode->getNode()->getLabel().c_str(), inputNode->getNode()->getEffectInstance()->getFrameRate(),
+                         outputNode->getNode()->getLabel().c_str(), outputNode->getNode()->getEffectInstance()->getFrameRate() );
+
+            return true;
             QString error = QCoreApplication::translate("NodeGraph", "%1 and %2 do not have the same frame rate (%3 vs. %4).\n"
                                                         "This might yield unwanted results.\n"
                                                         "Either change the FPS from the Read node parameters or change the settings of the project.")

@@ -300,7 +300,7 @@ void
 KnobGui::solvfxCompact(QWidget* fieldContainer,
                        QWidget* label)
 {
-    const int h = TO_DPIY(18);
+    const int h = TO_DPIY(16); // SOLVFX: rows ~10% smaller (was 18)
     if (label) {
         QFont lf = label->font();
         lf.setPointSizeF( lf.pointSizeF() * 0.92 );

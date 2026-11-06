@@ -286,7 +286,7 @@ TimeLineGui::getTimeline() const
 QSize
 TimeLineGui::sizeHint() const
 {
-    return QSize( TO_DPIX(1000), TO_DPIY(58) ); // SOLVFX: room for the frame number above the playhead
+    return QSize( TO_DPIX(1000), TO_DPIY(40) ); // SOLVFX: room for the frame number above the playhead
 }
 
 void
@@ -1247,8 +1247,18 @@ TimeLineGui::centerOn(SequenceTime left,
                       SequenceTime right,
                       int margin)
 {
-    double curveWidth = right - left + 2 * margin;
     double w = width();
+    if (margin < 0) {
+        // SOLVFX: show exactly left..right, with a few pixels so the end frames stay readable
+        const double inset = std::min( 12., w * 0.1 );
+        const double span = std::max(1., (double)(right - left) );
+        _imp->tlZoomCtx.zoomFactor = (w - 2 * inset) / span;
+        _imp->tlZoomCtx.left = left - inset / _imp->tlZoomCtx.zoomFactor;
+        update();
+
+        return;
+    }
+    double curveWidth = right - left + 2 * margin;
 
     _imp->tlZoomCtx.left = left - margin;
     _imp->tlZoomCtx.zoomFactor = w / curveWidth;

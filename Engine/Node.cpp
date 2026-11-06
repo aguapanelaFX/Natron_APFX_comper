@@ -1765,7 +1765,7 @@ Node::createNodePage(const KnobPagePtr& settingsPage)
     fCaching->setName("forceCaching");
     fCaching->setDefaultValue(false);
     fCaching->setAnimationEnabled(false);
-    fCaching->setAddNewLine(false);
+    fCaching->setAddNewLine(true); // SOLVFX: two checkboxes per row
     fCaching->setIsPersistent(true);
     fCaching->setEvaluateOnChange(false);
     fCaching->setHintToolTip( tr("When checked, the output of this node will always be kept in the RAM cache for fast access of already computed "
@@ -1861,7 +1861,7 @@ Node::createNodePage(const KnobPagePtr& settingsPage)
     }
 
 
-    KnobStringPtr knobChangedCallback = AppManager::createKnob<KnobString>(_imp->effect.get(), tr("After param changed callback"), 1, false);
+    KnobStringPtr knobChangedCallback = AppManager::createKnob<KnobString>(_imp->effect.get(), tr("On param change"), 1, false);
     knobChangedCallback->setHintToolTip( tr("Name of a Python function to be called at each  "
                                             "parameter change. Either define this function in the Script Editor "
                                             "or in the init.py script or even in the script of a Python group plug-in.\n"
@@ -1877,7 +1877,7 @@ Node::createNodePage(const KnobPagePtr& settingsPage)
     settingsPage->addKnob(knobChangedCallback);
     _imp->knobChangedCallback = knobChangedCallback;
 
-    KnobStringPtr inputChangedCallback = AppManager::createKnob<KnobString>(_imp->effect.get(), tr("After input changed callback"), 1, false);
+    KnobStringPtr inputChangedCallback = AppManager::createKnob<KnobString>(_imp->effect.get(), tr("On input change"), 1, false);
     inputChangedCallback->setHintToolTip( tr("Name of a Python function to be called after "
                                              "an input connection of the node is changed. "
                                              "Either define this function in the Script Editor "
@@ -2563,7 +2563,7 @@ solvfxArrangeMaskMixBlock(EffectInstance* effect,
     }
     if (premult) {
         premult->setLabel( std::string("(un)premult by") );
-        premult->setAddNewLine(true);
+        premult->setAddNewLine(!premultChannel); // Nuke: "(un)premult by [ ] [rgba.alpha]" on one row
         page->addKnob(premult);
         if (premultChannel) {
             premultChannel->setAddNewLine(true);

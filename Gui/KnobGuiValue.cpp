@@ -466,7 +466,8 @@ KnobGuiValue::createWidget(QHBoxLayout* layout)
     if ( (nDims > 1) && !isSliderDisabled() && sliderVisible ) {
         _imp->dimensionSwitchButton = new Button(QIcon(), QString::number(nDims), _imp->container);
         _imp->dimensionSwitchButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Switch between a single value for all dimensions and multiple values."), NATRON_NAMESPACE::WhiteSpaceNormal) );
-        _imp->dimensionSwitchButton->setFixedSize(medSize);
+        _imp->dimensionSwitchButton->setObjectName( QString::fromUtf8("SolvfxDimButton") );
+        _imp->dimensionSwitchButton->setFixedSize( TO_DPIX(14), TO_DPIY(14) );
         _imp->dimensionSwitchButton->setIconSize(medIconSize);
         _imp->dimensionSwitchButton->setFocusPolicy(Qt::NoFocus);
         _imp->dimensionSwitchButton->setCheckable(true);

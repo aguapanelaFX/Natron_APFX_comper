@@ -333,6 +333,9 @@ win32 {
 
   # SHChangeNotify (refresh Explorer icons after registering .solv)
   LIBS += -lshell32
+
+  # SOLVFX info bar: process memory, GPU counters, VRAM, network
+  LIBS += -lpsapi -lpdh -ldxgi -liphlpapi
 }
 
 win32-g++ {

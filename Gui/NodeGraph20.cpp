@@ -457,7 +457,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         bool shiftdown = modifierHasShift(e);
         moveSelectedNodesBy(shiftdown, controlDown, lastMousePosScene, newPos, sceneR, true);
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::ClosedHandCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
         break;
     }
     case eEventStateMovingArea: {
@@ -465,7 +465,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         moveRootInternal(dx, dy);
         mustUpdate = true;
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::SizeAllCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
         break;
     }
     case eEventStateResizingBackdrop: {
@@ -498,7 +498,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
     }
     case eEventStateDraggingNavigator: {
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::ClosedHandCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
         QPointF mousePosSceneCoordinates;
         bool insideNavigator = isNearbyNavigator(e->pos(), mousePosSceneCoordinates);
         if (insideNavigator) {
@@ -518,7 +518,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
         mustUpdate = true;
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::SizeAllCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
         break;
     }
     case eEventStateNone:
@@ -529,7 +529,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         bool insideNavigator = isNearbyNavigator(e->pos(), mousePosSceneCoordinates);
         if (insideNavigator) {
             _imp->cursorSet = true;
-            setCursor( QCursor(Qt::OpenHandCursor) );
+            setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
         } else if (!groupEdited) {
             if (_imp->cursorSet) {
                 _imp->cursorSet = false;
@@ -547,7 +547,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
             case eNearbyItemBackdropFrame:
             case eNearbyItemEdgeBendPoint: {
                 _imp->cursorSet = true;
-                setCursor( QCursor(Qt::OpenHandCursor) );
+                setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
                 break;
             }
             case eNearbyItemBackdropResizeHandle: {

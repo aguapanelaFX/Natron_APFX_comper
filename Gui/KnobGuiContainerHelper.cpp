@@ -705,6 +705,9 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
         KnobClickableLabel* label = 0;
         Label* warningLabel = 0;
         std::string descriptionLabel = ret->getDescriptionLabel();
+        if ( !makeNewLine && (knob->getName() == "premultChannel") ) {
+            descriptionLabel.clear(); // "(un)premult by [ ] [rgba.alpha]"
+        }
         // SOLVFX: Nuke-like Read panel ("Frame Range [1] [hold] [338] [hold]", "Frame [mode] [value]")
         {
             EffectInstance* fx = dynamic_cast<EffectInstance*>( knob->getHolder() );

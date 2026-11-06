@@ -34,7 +34,7 @@ arrow()
     static QCursor* c = 0;
     if (!c) {
         const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.;
-        const qreal s = 1.0; // arrow ~19 px tall (logical; was 1.25)
+        const qreal s = 0.9; // arrow ~17 px tall (logical; was 1.25, then 1.0)
         const int w = (int)( 18 * s ), h = (int)( 26 * s );
         QPixmap pm( (int)(w * dpr), (int)(h * dpr) );
         pm.setDevicePixelRatio(dpr);

@@ -139,7 +139,7 @@ public Q_SLOTS:
 
     void recenterOnBounds();
 
-    void centerOn(SequenceTime left, SequenceTime right, int margin = 5);
+    void centerOn(SequenceTime left, SequenceTime right, int margin = -1); // SOLVFX: -1 = small pixel inset (range ends at the edges)
 
     void onFrameChanged(SequenceTime, int);
 

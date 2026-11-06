@@ -65,6 +65,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/DockablePanelTabWidget.h"
 #include "Gui/FloatingWidget.h"
 #include <QPushButton>
+#include <QImage>
 #include <QUndoStack>
 #include "Gui/Gui.h"
 #include "Gui/GuiApplicationManager.h"
@@ -215,6 +216,18 @@ DockablePanel::DockablePanel(Gui* gui,
                     int size = iconSize;
                     if (std::max( ic.width(), ic.height() ) != size) {
                         ic = ic.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    }
+                    // SOLVFX: header icons stay grey like the rest of the header
+                    {
+                        QImage im = ic.toImage().convertToFormat(QImage::Format_ARGB32);
+                        for (int y = 0; y < im.height(); ++y) {
+                            QRgb* line = (QRgb*)im.scanLine(y);
+                            for (int x = 0; x < im.width(); ++x) {
+                                const int g = (int)(qGray(line[x]) * 0.8);
+                                line[x] = qRgba( g, g, g, (int)(qAlpha(line[x]) * 0.85) );
+                            }
+                        }
+                        ic = QPixmap::fromImage(im);
                     }
                     _imp->_iconLabel->setPixmap(ic);
                 } else {

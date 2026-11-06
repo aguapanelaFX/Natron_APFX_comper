@@ -1197,7 +1197,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( _imp->timeFormat, SIGNAL(currentIndexChanged(int)), _imp->timeLineGui, SLOT(onTimeFormatChanged(int)) );
     _imp->timeLineGui->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     // SOLVFX 3.3: room above the playhead so the current frame number isn't clipped
-    _imp->timeLineGui->setMinimumHeight( TO_DPIY(58) );
+    _imp->timeLineGui->setMinimumHeight( TO_DPIY(40) ); // SOLVFX: compact (was 58)
+    _imp->timeLineGui->setMaximumHeight( TO_DPIY(44) );
 
     // SOLVFX: Nuke-style layout. Transport row on top, then the timeline row:
     // range dropdown | in point | timeline | out point
@@ -1222,7 +1223,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->setSpacing( TO_DPIX(4) ); // SOLVFX: gap between playback buttons
         {
             // SOLVFX 3.3: wider playback buttons and fields (were cramped)
-            const QSize transportSize( TO_DPIX(32), TO_DPIY(24) );
+            const QSize transportSize( TO_DPIX(24), TO_DPIY(19) ); // SOLVFX: compact (was 32x24)
             QWidget* transport[] = {
                 _imp->firstFrame_Button, _imp->previousKeyFrame_Button, _imp->play_Backward_Button, _imp->previousFrame_Button,
                 _imp->nextFrame_Button, _imp->play_Forward_Button, _imp->nextKeyFrame_Button, _imp->lastFrame_Button,
@@ -1233,50 +1234,26 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
                 if (w) {
                     w->setFixedSize(transportSize);
                     if ( QAbstractButton* b = qobject_cast<QAbstractButton*>(w) ) {
-                        b->setIconSize( QSize( TO_DPIX(16), TO_DPIY(16) ) );
+                        b->setIconSize( QSize( TO_DPIX(13), TO_DPIY(13) ) );
                     }
                 }
             }
             QWidget* fields[] = { _imp->currentFrameBox, _imp->incrementSpinBox, _imp->fpsBox };
             for (QWidget* w : fields) {
                 if (w) {
-                    w->setMinimumWidth( TO_DPIX(56) );
-                    w->setFixedHeight( TO_DPIY(24) );
+                    w->setMinimumWidth( TO_DPIX(44) );
+                    w->setFixedHeight( TO_DPIY(19) );
                 }
             }
         }
-        l->addWidget(_imp->currentFrameBox);
-        l->addWidget(_imp->tripleSyncButton);
-        l->addStretch();
-        l->addWidget(_imp->firstFrame_Button);
-        l->addWidget(_imp->previousKeyFrame_Button);
-        l->addWidget(_imp->play_Backward_Button);
-        l->addWidget(_imp->previousFrame_Button);
-        l->addWidget(_imp->nextFrame_Button);
-        l->addWidget(_imp->play_Forward_Button);
-        l->addWidget(_imp->nextKeyFrame_Button);
-        l->addWidget(_imp->lastFrame_Button);
-        l->addSpacing( TO_DPIX(10) );
-        l->addWidget(_imp->previousIncrement_Button);
-        l->addWidget(_imp->incrementSpinBox);
-        l->addWidget(_imp->nextIncrement_Button);
-        l->addSpacing( TO_DPIX(10) );
-        l->addWidget(_imp->canEditFpsBox);
-        l->addSpacing( TO_DPIX(3) );
-        l->addWidget(_imp->canEditFpsLabel);
-        l->addWidget(_imp->fpsBox);
-        l->addWidget(_imp->timeFormat);
-        l->addWidget(_imp->playbackMode_Button);
-        l->addStretch();
-        l->addWidget(_imp->turboButton);
-
-        // timeline row
+        // SOLVFX: Nuke layout. Row 1 = timeline (in | ruler | out), row 2 = transport:
+        // fps TF range loop | I |< <key << < [frame] > >> key> >| O | -inc+ | sync turbo
         _imp->timelineRow = new QWidget(this);
         QHBoxLayout* tl = new QHBoxLayout(_imp->timelineRow);
         tl->setContentsMargins(0, 0, 0, 0);
         tl->setSpacing(0);
 
-        _imp->timelineRangeCombo = new ComboBox(_imp->timelineRow);
+        _imp->timelineRangeCombo = new ComboBox(_imp->playerButtonsContainer);
         _imp->timelineRangeCombo->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Frame range shown by the timeline: the project range (Global), "
                                                                                        "the range of the viewer input (Input), the in / out points (In/Out) or a range picked with middle-drag on the timeline (Visible, "
                                                                                        "middle click toggles it). I / O set the playback in / out points, "
@@ -1288,27 +1265,50 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         _imp->timelineRangeCombo->setCurrentIndex_no_emit(0);
         QObject::connect( _imp->timelineRangeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onTimelineRangeModeChanged(int)) );
 
-        tl->addWidget(_imp->timelineRangeCombo, 0, Qt::AlignVCenter);
-        tl->addSpacing( TO_DPIX(4) );
-        tl->addWidget(_imp->playBackInputButton, 0, Qt::AlignVCenter);
         tl->addWidget(_imp->playBackInputSpinbox, 0, Qt::AlignVCenter);
         tl->addSpacing( TO_DPIX(4) );
         tl->addWidget(_imp->timeLineGui, 1);
         tl->addSpacing( TO_DPIX(4) );
         tl->addWidget(_imp->playBackOutputSpinbox, 0, Qt::AlignVCenter);
-        tl->addWidget(_imp->playBackOutputButton, 0, Qt::AlignVCenter);
         // clear in / out points (Alt+U)
         _imp->solvfxClearInOutButton = new Button( QString::fromUtf8("\u2715"), _imp->timelineRow );
         _imp->solvfxClearInOutButton->setFocusPolicy(Qt::NoFocus);
-        _imp->solvfxClearInOutButton->setFixedSize( _imp->playBackOutputButton->size() );
+        _imp->solvfxClearInOutButton->setFixedSize( TO_DPIX(16), TO_DPIY(16) );
         _imp->solvfxClearInOutButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Clear the in / out points: playback uses the range the timeline shows (Alt+U)."), NATRON_NAMESPACE::WhiteSpaceNormal) );
         _imp->solvfxClearInOutButton->setEnabled(false);
         QObject::connect( _imp->solvfxClearInOutButton, SIGNAL(clicked()), this, SLOT(onSolvfxClearInOutClicked()) );
         tl->addWidget(_imp->solvfxClearInOutButton, 0, Qt::AlignVCenter);
 
-        _imp->mainLayout->addSpacing( TO_DPIY(3) );
-        _imp->mainLayout->addWidget(_imp->playerButtonsContainer);
+        l->setContentsMargins( TO_DPIX(2), TO_DPIY(1), TO_DPIX(2), TO_DPIY(2) );
+        l->addWidget(_imp->canEditFpsBox);
+        l->addWidget(_imp->canEditFpsLabel);
+        l->addWidget(_imp->fpsBox);
+        l->addWidget(_imp->timeFormat);
+        l->addWidget(_imp->timelineRangeCombo);
+        l->addWidget(_imp->playbackMode_Button);
+        l->addStretch();
+        l->addWidget(_imp->playBackInputButton);
+        l->addWidget(_imp->firstFrame_Button);
+        l->addWidget(_imp->previousKeyFrame_Button);
+        l->addWidget(_imp->play_Backward_Button);
+        l->addWidget(_imp->previousFrame_Button);
+        l->addWidget(_imp->currentFrameBox);
+        l->addWidget(_imp->nextFrame_Button);
+        l->addWidget(_imp->play_Forward_Button);
+        l->addWidget(_imp->nextKeyFrame_Button);
+        l->addWidget(_imp->lastFrame_Button);
+        l->addWidget(_imp->playBackOutputButton);
+        l->addSpacing( TO_DPIX(8) );
+        l->addWidget(_imp->previousIncrement_Button);
+        l->addWidget(_imp->incrementSpinBox);
+        l->addWidget(_imp->nextIncrement_Button);
+        l->addStretch();
+        l->addWidget(_imp->tripleSyncButton);
+        l->addWidget(_imp->turboButton);
+
+        _imp->mainLayout->addSpacing( TO_DPIY(2) );
         _imp->mainLayout->addWidget(_imp->timelineRow);
+        _imp->mainLayout->addWidget(_imp->playerButtonsContainer);
     }
 
     double leftBound, rightBound;

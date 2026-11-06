@@ -915,7 +915,7 @@ void
 ViewerTab::centerOn(SequenceTime left,
                     SequenceTime right)
 {
-    _imp->timeLineGui->centerOn(left, right);
+    _imp->timeLineGui->centerOn(left, right, 0); // SOLVFX: sync from another timeline: exact
 }
 
 void

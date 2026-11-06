@@ -8,9 +8,14 @@
  * (at your option) any later version.
  * ***** END LICENSE BLOCK ***** */
 
-// APFX Retime (Nuke-like): maps an input frame range to an output range or by a speed,
-// with reverse, before/after (hold, loop, bounce, black) and filtering (none, blend, box
-// with shutter). Integer source frames are passed through (no copy).
+// APFX Retime, Nuke-like:
+//  input.first / input.last / output.first / output.last are integer frames, each with a lock.
+//  Unlocked fields always show live values: input = the input clip range, output.first =
+//  input.first, output.last from the speed. Typing a value locks that field.
+//  speed = (input.last - input.first) / (output.last - output.first) when both output ends
+//  are locked, otherwise the unlocked output end follows the speed.
+//  reverse, before/after (continue, loop, bounce, hold, black) outside output.first..last,
+//  filter none (fractional frame) / nearest / box (frames averaged over the shutter).
 
 #include <cmath>
 #include <vector>
@@ -18,6 +23,7 @@
 
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
+#include "ofxNatron.h"
 
 #ifndef OVERRIDE
 #define OVERRIDE override
@@ -32,13 +38,18 @@ namespace {
 
 #define kPluginIdentifier "com.aguapanelafx.APFX.Retime"
 
-enum BeforeAfter { eHold = 0, eLoop, eBounce, eBlack };
-enum Filter { eFilterNone = 0, eFilterBlend, eFilterBox };
+enum BeforeAfter { eContinue = 0, eLoop, eBounce, eHold, eBlack };
+enum Filter { eFilterNone = 0, eFilterNearest, eFilterBox };
 
 struct Sample
 {
     double frame;
     double w;
+};
+
+struct Ranges
+{
+    double inF, inL, outF, outL, speed;
 };
 
 class APFXRetimePlugin
@@ -50,75 +61,105 @@ public:
     {
         _dst = fetchClip(kOfxImageEffectOutputClipName);
         _src = fetchClip(kOfxImageEffectSimpleSourceClipName);
-        _inEnable = fetchBooleanParam("inputRangeEnable");
-        _inFirst = fetchDoubleParam("inputFirst");
-        _inLast = fetchDoubleParam("inputLast");
-        _outEnable = fetchBooleanParam("outputRangeEnable");
-        _outFirst = fetchDoubleParam("outputFirst");
-        _outLast = fetchDoubleParam("outputLast");
+        _inF = fetchIntParam("inputFirst");
+        _inL = fetchIntParam("inputLast");
+        _outF = fetchIntParam("outputFirst");
+        _outL = fetchIntParam("outputLast");
+        _inFLock = fetchBooleanParam("inputFirstLock");
+        _inLLock = fetchBooleanParam("inputLastLock");
+        _outFLock = fetchBooleanParam("outputFirstLock");
+        _outLLock = fetchBooleanParam("outputLastLock");
         _reverse = fetchBooleanParam("reverse");
         _speed = fetchDoubleParam("speed");
         _before = fetchChoiceParam("before");
         _after = fetchChoiceParam("after");
         _filter = fetchChoiceParam("filter");
         _shutter = fetchDoubleParam("shutter");
-        _rangeSet = fetchBooleanParam("rangeSet");
-        update();
+        _shutter->setEnabled(_filter->getValue() == eFilterBox);
     }
 
 private:
-    // ------------------------------------------------------------ mapping
-    void inputRange(double* a, double* b) const
+    // ------------------------------------------------------------ ranges
+    Ranges compute() const
     {
-        if ( _inEnable->getValue() ) {
-            *a = _inFirst->getValue();
-            *b = _inLast->getValue();
+        Ranges r;
+        OfxRangeD clip = { 1., 1. };
+        if ( _src->isConnected() ) {
+            clip = _src->getFrameRange();
+        }
+        r.inF = _inFLock->getValue() ? _inF->getValue() : std::floor(clip.min + 0.5);
+        r.inL = _inLLock->getValue() ? _inL->getValue() : std::floor(clip.max + 0.5);
+        if (r.inL < r.inF) {
+            std::swap(r.inF, r.inL);
+        }
+        const double inLen = r.inL - r.inF;
+        const bool fL = _outFLock->getValue(), lL = _outLLock->getValue();
+        if (fL && lL) {
+            r.outF = _outF->getValue();
+            r.outL = _outL->getValue();
+            if (r.outL < r.outF) {
+                std::swap(r.outF, r.outL);
+            }
+            r.speed = (r.outL > r.outF) ? inLen / (r.outL - r.outF) : 1.;
         } else {
-            OfxRangeD r = _src->getFrameRange();
-            *a = r.min;
-            *b = r.max;
+            r.speed = std::max(1e-4, _speed->getValue());
+            const double outLen = inLen / r.speed;
+            if (lL) {
+                r.outL = _outL->getValue();
+                r.outF = r.outL - outLen;
+            } else {
+                r.outF = fL ? _outF->getValue() : r.inF;
+                r.outL = r.outF + outLen;
+            }
         }
-        if (*b < *a) {
-            std::swap(*a, *b);
+        if (r.speed <= 0.) {
+            r.speed = 1e-4;
         }
+
+        return r;
     }
 
-    // output range and source frames per output frame
-    void outputRange(double inA, double inB, double* oA, double* oB, double* spd) const
+    // writes the live values into the unlocked fields (and speed when both outputs are locked)
+    void refreshFields()
     {
-        if ( _outEnable->getValue() ) {
-            *oA = _outFirst->getValue();
-            *oB = _outLast->getValue();
-            if (*oB < *oA) {
-                std::swap(*oA, *oB);
-            }
-            *spd = (*oB > *oA) ? (inB - inA) / (*oB - *oA) : 0.;
-        } else {
-            double s = _speed->getValue();
-            if (std::fabs(s) < 1e-6) {
-                s = 1e-6;
-            }
-            *spd = std::fabs(s);
-            *oA = inA;
-            *oB = inA + (inB - inA) / *spd;
+        const Ranges r = compute();
+        if ( !_inFLock->getValue() && (_inF->getValue() != (int)r.inF) ) {
+            _inF->setValue( (int)r.inF );
         }
+        if ( !_inLLock->getValue() && (_inL->getValue() != (int)r.inL) ) {
+            _inL->setValue( (int)r.inL );
+        }
+        const int oF = (int)std::floor(r.outF + 0.5), oL = (int)std::floor(r.outL + 0.5);
+        if ( !_outFLock->getValue() && (_outF->getValue() != oF) ) {
+            _outF->setValue(oF);
+        }
+        if ( !_outLLock->getValue() && (_outL->getValue() != oL) ) {
+            _outL->setValue(oL);
+        }
+        if ( _outFLock->getValue() && _outLLock->getValue() && (std::fabs(_speed->getValue() - r.speed) > 1e-9) ) {
+            _speed->setValue(r.speed);
+        }
+        _speed->setEnabled( !( _outFLock->getValue() && _outLLock->getValue() ) );
+        _shutter->setEnabled(_filter->getValue() == eFilterBox);
     }
 
     // source frame for output time t; false = black
     bool sourceFrame(double t, double* srcT, double* spd) const
     {
-        double inA, inB, oA, oB;
-        inputRange(&inA, &inB);
-        outputRange(inA, inB, &oA, &oB, spd);
-        double u = t - oA;               // output frames since start
-        const double len = oB - oA;
-        if ( (t < oA) || (t > oB) ) {
-            const int mode = (t < oA) ? _before->getValue() : _after->getValue();
+        const Ranges r = compute();
+        *spd = r.speed;
+        const double len = r.outL - r.outF;
+        double u = t - r.outF;
+        bool clampToInput = true;
+        if ( (t < r.outF) || (t > r.outL) ) {
+            const int mode = (t < r.outF) ? _before->getValue() : _after->getValue();
             if (mode == eBlack) {
                 return false;
             }
-            if ( (mode == eHold) || (len <= 0.) ) {
-                u = (t < oA) ? 0. : len;
+            if (mode == eContinue) {
+                clampToInput = false; // keep going at the same speed past the range
+            } else if ( (mode == eHold) || (len <= 0.) ) {
+                u = (t < r.outF) ? 0. : len;
             } else if (mode == eLoop) {
                 const double p = len + 1.;
                 u = std::fmod(u, p);
@@ -137,16 +178,16 @@ private:
                 }
             }
         }
-        double s = inA + u * *spd;
-        if ( _reverse->getValue() ) {
-            s = inB - u * *spd;
+        double s = _reverse->getValue() ? r.inL - u * r.speed : r.inF + u * r.speed;
+        if (clampToInput) {
+            s = std::max( r.inF, std::min(r.inL, s) );
         }
-        *srcT = std::max( inA, std::min(inB, s) );
+        *srcT = s;
 
         return true;
     }
 
-    // source frames and weights needed for output time t
+    // source frames and weights for output time t
     bool samples(double t, std::vector<Sample>& out) const
     {
         out.clear();
@@ -156,38 +197,30 @@ private:
         }
         const int f = _filter->getValue();
         if (f == eFilterNone) {
+            out.push_back( { s, 1. } );
+        } else if (f == eFilterNearest) {
             out.push_back( { std::floor(s + 0.5), 1. } );
-        } else if (f == eFilterBlend) {
-            const double a = std::floor(s), fr = s - a;
-            if (fr < 1e-4) {
-                out.push_back( { a, 1. } );
-            } else if (fr > 1. - 1e-4) {
-                out.push_back( { a + 1., 1. } );
-            } else {
-                out.push_back( { a, 1. - fr } );
-                out.push_back( { a + 1., fr } );
-            }
         } else {
-            // box: average the source frames covered by the shutter (in source frames)
+            // box: average the source frames covered by the shutter (output frames * speed)
             const double half = 0.5 * std::max(0., _shutter->getValue()) * spd;
             const double a = s - half, b = s + half;
             if (b - a < 1e-4) {
                 out.push_back( { std::floor(s + 0.5), 1. } );
             } else {
                 double total = 0.;
-                for (double fr = std::floor(a + 0.5); fr <= std::floor(b + 0.5); fr += 1.) {
-                    // overlap of [fr-0.5, fr+0.5] with [a, b]
+                for (double fr = std::floor(a + 0.5); fr <= std::floor(b + 0.5) && out.size() < 64; fr += 1.) {
                     const double w = std::min(b, fr + 0.5) - std::max(a, fr - 0.5);
-                    if (w > 0) {
+                    if (w > 1e-6) {
                         out.push_back( { fr, w } );
                         total += w;
                     }
-                    if (out.size() > 64) {
-                        break;
-                    }
                 }
-                for (size_t i = 0; i < out.size(); ++i) {
-                    out[i].w /= total;
+                if ( out.empty() ) {
+                    out.push_back( { std::floor(s + 0.5), 1. } );
+                } else {
+                    for (size_t i = 0; i < out.size(); ++i) {
+                        out[i].w /= total;
+                    }
                 }
             }
         }
@@ -196,41 +229,30 @@ private:
     }
 
     // ------------------------------------------------------------ actions
-    void update()
+    void changedParam(const InstanceChangedArgs& args, const std::string& n) OVERRIDE FINAL
     {
-        const bool inOn = _inEnable->getValue(), outOn = _outEnable->getValue();
-        _inFirst->setEnabled(inOn);
-        _inLast->setEnabled(inOn);
-        _outFirst->setEnabled(outOn);
-        _outLast->setEnabled(outOn);
-        _speed->setEnabled(!outOn);
-        _shutter->setEnabled(_filter->getValue() == eFilterBox);
-    }
-
-    void fillRangeFromSource()
-    {
-        if ( _rangeSet->getValue() || !_src->isConnected() ) {
+        if (args.reason != eChangeUserEdit) {
             return;
         }
-        OfxRangeD r = _src->getFrameRange();
-        _inFirst->setValue(r.min);
-        _inLast->setValue(r.max);
-        _outFirst->setValue(r.min);
-        _outLast->setValue(r.max);
-        _rangeSet->setValue(true);
-    }
-
-    void changedParam(const InstanceChangedArgs&, const std::string& n) OVERRIDE FINAL
-    {
-        if ( (n == "inputRangeEnable") || (n == "outputRangeEnable") || (n == "filter") ) {
-            update();
+        // Nuke: typing a value locks that field
+        if (n == "inputFirst") {
+            _inFLock->setValue(true);
+        } else if (n == "inputLast") {
+            _inLLock->setValue(true);
+        } else if (n == "outputFirst") {
+            _outFLock->setValue(true);
+        } else if (n == "outputLast") {
+            _outLLock->setValue(true);
+        } else if ( (n == "speed") && _outFLock->getValue() && _outLLock->getValue() ) {
+            _outLLock->setValue(false); // the speed drives the output end again
         }
+        refreshFields();
     }
 
-    void changedClip(const InstanceChangedArgs& args, const std::string& n) OVERRIDE FINAL
+    void changedClip(const InstanceChangedArgs&, const std::string& n) OVERRIDE FINAL
     {
-        if ( (n == kOfxImageEffectSimpleSourceClipName) && (args.reason == eChangeUserEdit) ) {
-            fillRangeFromSource();
+        if (n == kOfxImageEffectSimpleSourceClipName) {
+            refreshFields();
         }
     }
 
@@ -239,11 +261,9 @@ private:
         if ( !_src->isConnected() ) {
             return false;
         }
-        double inA, inB, oA, oB, spd;
-        inputRange(&inA, &inB);
-        outputRange(inA, inB, &oA, &oB, &spd);
-        range.min = std::floor(oA + 0.5);
-        range.max = std::floor(oB + 0.5);
+        const Ranges r = compute();
+        range.min = std::floor(r.outF + 0.5);
+        range.max = std::floor(r.outL + 0.5);
 
         return true;
     }
@@ -251,7 +271,7 @@ private:
     void getFramesNeeded(const FramesNeededArguments& args, FramesNeededSetter& frames) OVERRIDE FINAL
     {
         std::vector<Sample> s;
-        if ( !samples(args.time, s) || s.empty() ) {
+        if ( !samples(args.time, s) ) {
             OfxRangeD r = { args.time, args.time };
             frames.setFramesNeeded(*_src, r);
 
@@ -271,7 +291,7 @@ private:
         }
         rod = _src->getRegionOfDefinition(s[0].frame);
         for (size_t i = 1; i < s.size(); ++i) {
-            OfxRectD r = _src->getRegionOfDefinition(s[i].frame);
+            const OfxRectD r = _src->getRegionOfDefinition(s[i].frame);
             rod.x1 = std::min(rod.x1, r.x1);
             rod.y1 = std::min(rod.y1, r.y1);
             rod.x2 = std::max(rod.x2, r.x2);
@@ -319,62 +339,55 @@ private:
         const int w = win.x2 - win.x1;
         std::vector<Sample> s;
         const bool ok = samples(args.time, s);
-
-        // clear
         for (int y = win.y1; y < win.y2; ++y) {
             float* d = (float*)dst->getPixelAddress(win.x1, y);
             if (d) {
                 std::fill(d, d + (size_t)w * nc, 0.f);
             }
         }
-        if (ok) {
-            for (size_t i = 0; i < s.size(); ++i) {
-                if ( abort() ) {
-                    break;
-                }
-                Image* src = _src->fetchImage(s[i].frame);
-                if (!src) {
-                    continue;
-                }
-                const int snc = src->getPixelComponentCount();
-                const float wt = (float)s[i].w;
-                if ( (src->getPixelDepth() == eBitDepthFloat) && (snc == nc) ) {
-                    for (int y = win.y1; y < win.y2; ++y) {
-                        float* d = (float*)dst->getPixelAddress(win.x1, y);
-                        if (!d) {
-                            continue;
-                        }
-                        for (int x = win.x1; x < win.x2; ++x, d += nc) {
-                            const float* p = (const float*)src->getPixelAddress(x, y);
-                            if (p) {
-                                for (int c = 0; c < nc; ++c) {
-                                    d[c] += p[c] * wt;
-                                }
+        for (size_t i = 0; ok && i < s.size() && !abort(); ++i) {
+            Image* src = _src->fetchImage(s[i].frame);
+            if (!src) {
+                continue;
+            }
+            const float wt = (float)s[i].w;
+            if ( (src->getPixelDepth() == eBitDepthFloat) && (src->getPixelComponentCount() == nc) ) {
+                for (int y = win.y1; y < win.y2; ++y) {
+                    float* d = (float*)dst->getPixelAddress(win.x1, y);
+                    if (!d) {
+                        continue;
+                    }
+                    for (int x = win.x1; x < win.x2; ++x, d += nc) {
+                        const float* p = (const float*)src->getPixelAddress(x, y);
+                        if (p) {
+                            for (int c = 0; c < nc; ++c) {
+                                d[c] += p[c] * wt;
                             }
                         }
                     }
                 }
-                delete src;
             }
+            delete src;
         }
         delete dst;
     }
 
     Clip* _dst;
     Clip* _src;
-    BooleanParam* _inEnable;
-    DoubleParam* _inFirst;
-    DoubleParam* _inLast;
-    BooleanParam* _outEnable;
-    DoubleParam* _outFirst;
-    DoubleParam* _outLast;
+    IntParam* _inF;
+    IntParam* _inL;
+    IntParam* _outF;
+    IntParam* _outL;
+    BooleanParam* _inFLock;
+    BooleanParam* _inLLock;
+    BooleanParam* _outFLock;
+    BooleanParam* _outLLock;
     BooleanParam* _reverse;
     DoubleParam* _speed;
     ChoiceParam* _before;
     ChoiceParam* _after;
     ChoiceParam* _filter;
     DoubleParam* _shutter;
-    BooleanParam* _rangeSet;
 };
 
 mDeclarePluginFactory(APFXRetimeFactory, {}, {});
@@ -384,10 +397,10 @@ APFXRetimeFactory::describe(ImageEffectDescriptor& desc)
 {
     desc.setLabel("Retime");
     desc.setPluginGrouping("Time");
-    desc.setPluginDescription("APFX Retime (Nuke-like): maps an input frame range to an output frame range, "
-                              "or retimes by a speed. Reverse, before/after (hold, loop, bounce, black) and "
-                              "filtering: none (nearest frame), blend (mix of the two nearest frames) or box "
-                              "(averages the frames covered by the shutter).");
+    desc.setPluginDescription("APFX Retime (Nuke-like): maps the input frame range to the output frame range, or "
+                              "retimes by a speed. Each range field has a lock; unlocked fields show live values "
+                              "(typing a value locks it). Reverse, before/after (continue, loop, bounce, hold, black) "
+                              "and filter: none (fractional frames), nearest, box (averages frames over the shutter).");
     desc.addSupportedContext(eContextFilter);
     desc.addSupportedContext(eContextGeneral);
     desc.addSupportedBitDepth(eBitDepthFloat);
@@ -399,37 +412,51 @@ APFXRetimeFactory::describe(ImageEffectDescriptor& desc)
     desc.setRenderTwiceAlways(false);
     desc.setSupportsMultipleClipPARs(false);
     desc.setRenderThreadSafety(eRenderFullySafe);
+#ifdef OFX_EXTENSIONS_NATRON
+    desc.setChannelSelector(ePixelComponentNone); // no channels row (like Nuke's Retime)
+#endif
 }
 
-static ChoiceParamDescriptor*
-beforeAfter(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* name, const char* label)
+static void
+lockParam(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* name, const char* label, const char* hint)
 {
-    ChoiceParamDescriptor* p = desc.defineChoiceParam(name);
+    BooleanParamDescriptor* p = desc.defineBooleanParam(name);
     p->setLabel(label);
-    p->setHint("What to output outside the output range.");
-    p->appendOption("hold");
-    p->appendOption("loop");
-    p->appendOption("bounce");
-    p->appendOption("black");
-    p->setDefault(eHold);
+    p->setHint(hint);
+    p->setDefault(false);
+    p->setAnimates(false);
+    p->setLayoutHint(eLayoutHintNoNewLine, 1);
+    page->addChild(*p);
+}
+
+static IntParamDescriptor*
+frameParam(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* name, const char* label, const char* hint, int def)
+{
+    IntParamDescriptor* p = desc.defineIntParam(name);
+    p->setLabel(label);
+    p->setHint(hint);
+    p->setDefault(def);
+    p->setRange(-10000000, 10000000);
+    p->setDisplayRange(1, 200);
     p->setAnimates(false);
     page->addChild(*p);
 
     return p;
 }
 
-static DoubleParamDescriptor*
-frameParam(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* name, const char* label, double def)
+static ChoiceParamDescriptor*
+beforeAfter(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* name, const char* label, const char* hint)
 {
-    DoubleParamDescriptor* p = desc.defineDoubleParam(name);
+    ChoiceParamDescriptor* p = desc.defineChoiceParam(name);
     p->setLabel(label);
-    p->setHint("Frame.");
-    p->setDefault(def);
-    p->setRange(-1e9, 1e9);
-    p->setDisplayRange(1., 200.);
-    p->setDoubleType(eDoubleTypePlain);
-    p->setIncrement(1.);
-    p->setDigits(0);
+    p->setHint(hint);
+    p->appendOption("continue", "Keep retiming past the range at the same speed.");
+    p->appendOption("loop", "Repeat the range.");
+    p->appendOption("bounce", "Play the range back and forth.");
+    p->appendOption("hold", "Hold the end frame.");
+    p->appendOption("black", "Output black.");
+    p->setDefault(eHold);
+    p->setAnimates(false);
     page->addChild(*p);
 
     return p;
@@ -455,28 +482,12 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         c->setSupportsTiles(true);
     }
     PageParamDescriptor* page = desc.definePageParam("Retime");
-    {
-        BooleanParamDescriptor* p = desc.defineBooleanParam("inputRangeEnable");
-        p->setLabel("input range");
-        p->setHint("Use this input range instead of the input's whole frame range.");
-        p->setDefault(false);
-        p->setAnimates(false);
-        p->setLayoutHint(eLayoutHintNoNewLine, 1);
-        page->addChild(*p);
-    }
-    frameParam(desc, page, "inputFirst", "", 1.)->setLayoutHint(eLayoutHintNoNewLine, 1);
-    frameParam(desc, page, "inputLast", "", 100.);
-    {
-        BooleanParamDescriptor* p = desc.defineBooleanParam("outputRangeEnable");
-        p->setLabel("output range");
-        p->setHint("Stretch the input range to this output range (sets the speed).");
-        p->setDefault(false);
-        p->setAnimates(false);
-        p->setLayoutHint(eLayoutHintNoNewLine, 1);
-        page->addChild(*p);
-    }
-    frameParam(desc, page, "outputFirst", "", 1.)->setLayoutHint(eLayoutHintNoNewLine, 1);
-    frameParam(desc, page, "outputLast", "", 100.);
+
+    // input range  [x] first  [x] last
+    lockParam(desc, page, "inputFirstLock", "input range", "Lock input.first (otherwise it follows the input clip).");
+    frameParam(desc, page, "inputFirst", "", "First input frame used. Typing a value locks it.", 1)->setLayoutHint(eLayoutHintNoNewLine, 1);
+    lockParam(desc, page, "inputLastLock", "", "Lock input.last (otherwise it follows the input clip).");
+    frameParam(desc, page, "inputLast", "", "Last input frame used. Typing a value locks it.", 100);
     {
         BooleanParamDescriptor* p = desc.defineBooleanParam("reverse");
         p->setLabel("reverse");
@@ -485,10 +496,15 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         p->setAnimates(false);
         page->addChild(*p);
     }
+    // output range [x] first  [x] last
+    lockParam(desc, page, "outputFirstLock", "output range", "Lock output.first (otherwise it equals input.first).");
+    frameParam(desc, page, "outputFirst", "", "First output frame. Typing a value locks it; the last frame follows the speed unless locked.", 1)->setLayoutHint(eLayoutHintNoNewLine, 1);
+    lockParam(desc, page, "outputLastLock", "", "Lock output.last (both ends locked: the speed is computed so the ranges match).");
+    frameParam(desc, page, "outputLast", "", "Last output frame. Typing a value locks it.", 100);
     {
         DoubleParamDescriptor* p = desc.defineDoubleParam("speed");
         p->setLabel("speed");
-        p->setHint("Playback speed: 0.5 = half speed (twice as long), 2 = double speed.");
+        p->setHint("Playback speed: 0.5 = half speed (twice as long), 2 = double speed. Computed when both output ends are locked.");
         p->setDefault(1.);
         p->setRange(0.0001, 1000.);
         p->setDisplayRange(0.1, 4.);
@@ -496,15 +512,14 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         p->setLayoutHint(eLayoutHintDivider);
         page->addChild(*p);
     }
-    beforeAfter(desc, page, "before", "before");
-    ChoiceParamDescriptor* after = beforeAfter(desc, page, "after", "after");
-    after->setLayoutHint(eLayoutHintDivider);
+    beforeAfter(desc, page, "before", "before", "What to output before output.first.");
+    beforeAfter(desc, page, "after", "after", "What to output after output.last.")->setLayoutHint(eLayoutHintDivider);
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("filter");
         p->setLabel("filter");
-        p->setHint("none: nearest frame. blend: mix of the two nearest frames. box: average of the frames covered by the shutter.");
+        p->setHint("none: asks the input for the fractional frame. nearest: rounds to the nearest frame. box: averages the frames covered by the shutter.");
         p->appendOption("none");
-        p->appendOption("blend");
+        p->appendOption("nearest");
         p->appendOption("box");
         p->setDefault(eFilterBox);
         p->setAnimates(false);
@@ -513,18 +528,10 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
     {
         DoubleParamDescriptor* p = desc.defineDoubleParam("shutter");
         p->setLabel("shutter");
-        p->setHint("Box filter width, in output frames.");
+        p->setHint("Box filter width in output frames: lower values blend less.");
         p->setDefault(1.);
         p->setRange(0., 100.);
         p->setDisplayRange(0., 4.);
-        page->addChild(*p);
-    }
-    {
-        BooleanParamDescriptor* p = desc.defineBooleanParam("rangeSet");
-        p->setLabel("rangeSet");
-        p->setDefault(false);
-        p->setIsSecret(true);
-        p->setAnimates(false);
         page->addChild(*p);
     }
 }

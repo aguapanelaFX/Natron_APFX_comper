@@ -35,6 +35,8 @@
 #include <QHBoxLayout>
 #include <QGraphicsScene>
 #include <QUndoGroup>
+#include <QStatusBar>
+#include "Gui/SolvfxStatusBar.h"
 
 #ifdef DEBUG
 #include "Global/FloatingPointExceptions.h"
@@ -91,6 +93,14 @@ Gui::setupUi()
     //======================
     _imp->_centralWidget = new QWidget(this);
     setCentralWidget(_imp->_centralWidget);
+    // SOLVFX: Nuke-like info bar (memory, CPU, GPU, disk, network) at the bottom
+    {
+        QStatusBar* sb = statusBar();
+        sb->setSizeGripEnabled(false);
+        sb->setFixedHeight( TO_DPIY(18) );
+        sb->setStyleSheet( QString::fromUtf8("QStatusBar { background-color: #262626; border-top: 1px solid #141414; } QStatusBar::item { border: none; }") );
+        sb->addPermanentWidget( new SolvfxStatusBar(sb) );
+    }
     _imp->_mainLayout = new QHBoxLayout(_imp->_centralWidget);
     _imp->_mainLayout->setContentsMargins(0, 0, 0, 0);
     _imp->_centralWidget->setLayout(_imp->_mainLayout);

@@ -968,10 +968,10 @@ SpinBox::paintEvent(QPaintEvent* e)
     LineEdit::paintEvent(e);
 
     if (_imp->useLineColor) {
+        // SOLVFX: 2 px channel colour bar along the bottom (inside the rounded corners)
         QPainter p(this);
-        p.setPen(_imp->lineColor);
-        int h = height() - 1;
-        p.drawLine(0, h - 1, width() - 1, h - 1);
+        const int h = height();
+        p.fillRect( QRect(2, h - 2, width() - 4, 2), _imp->lineColor );
     }
 }
 
