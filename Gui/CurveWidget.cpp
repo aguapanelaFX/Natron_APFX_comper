@@ -23,6 +23,7 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include "Gui/SolvfxCursor.h"
 #include "CurveWidget.h"
 
 #include <cmath> // floor
@@ -979,7 +980,7 @@ CurveWidget::mousePressEvent(QMouseEvent* e)
         _imp->_drawSelectedKeyFramesBbox = false;
         _imp->_mustSetDragOrientation = true;
         _imp->_state = eEventStateDraggingKeys;
-        setCursor( QCursor(Qt::CrossCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
 
         if ( !modCASIsControl(e) ) {
             _imp->_selectedKeyFrames.clear();
@@ -1203,7 +1204,7 @@ CurveWidget::mouseMoveEvent(QMouseEvent* e)
 
         //if there's a keyframe or derivative handle nearby set the cursor to cross
         if (hasSelectedKey || selectedTan.second) {
-            setCursor( QCursor(Qt::CrossCursor) );
+            setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
         } else {
             KeyPtr keyframeText = _imp->isNearbyKeyFrameText( e->pos() );
             if (keyframeText) {
@@ -2315,7 +2316,7 @@ CurveWidget::addKey(const CurveGuiPtr& curve, double xCurve, double yCurve)
     _imp->_drawSelectedKeyFramesBbox = false;
     _imp->_mustSetDragOrientation = true;
     _imp->_state = eEventStateDraggingKeys;
-    setCursor( QCursor(Qt::CrossCursor) );
+    setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
 
     _imp->_selectedKeyFrames.clear();
 

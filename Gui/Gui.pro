@@ -242,6 +242,7 @@ HEADERS += \
     SolvfxColorPanel.h \
     SolvfxConsole.h \
     SolvfxShuffleWidget.h \
+    SolvfxCursor.h \
     SolvfxOcioViewer.h \
     ComboBox.h \
     CurveEditor.h \

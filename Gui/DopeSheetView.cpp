@@ -23,6 +23,7 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include "Gui/SolvfxCursor.h"
 #include "DopeSheetView.h"
 
 #include <algorithm> // min, max
@@ -3502,7 +3503,15 @@ DopeSheetView::mouseMoveEvent(QMouseEvent *e)
     QPointF mouseZoomCoords = _imp->zoomContext.toZoomCoordinates( e->x(), e->y() );
 
     if (e->buttons() == Qt::NoButton) {
-        setCursor( _imp->getCursorDuringHover( e->pos() ) );
+        {
+            // SOLVFX: the SOLVFX arrow instead of the system arrow / cross
+            const Qt::CursorShape shape = _imp->getCursorDuringHover( e->pos() );
+            if ( (shape == Qt::ArrowCursor) || (shape == Qt::CrossCursor) ) {
+                setCursor( SolvfxCursor::arrow() );
+            } else {
+                setCursor(shape);
+            }
+        }
     } else if (_imp->eventState == DopeSheetView::esZoomingView) {
         _imp->zoomOrPannedSinceLastFit = true;
 

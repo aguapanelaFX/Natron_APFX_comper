@@ -528,10 +528,11 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
 
     QFontMetrics fontM(_imp->font, 0);
     // SOLVFX: tick numbers in a dark grey, barely above the panel (Nuke-like)
-    const QColor solvfxNumberColor = _imp->altered ? textColor.darker(170) : QColor(0x6b, 0x6b, 0x6b);
+    const QColor solvfxNumberColor = _imp->altered ? textColor.darker(300) : QColor(0x12, 0x12, 0x12); // SOLVFX: black numbers
+    const QColor solvfxTickColor(0x7a, 0x7a, 0x7a); // SOLVFX: gray ticks
 
     if (!_imp->useLineColor) {
-        p.setPen( QColor(0x7a, 0x7a, 0x7a) ); // SOLVFX: thin gray track
+        p.setPen( QColor(0x12, 0x12, 0x12) ); // SOLVFX: thin black track
     } else {
         p.setPen(_imp->lineColor);
     }
@@ -584,9 +585,9 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     const std::vector<std::pair<double, QString> >& fixedTicks = _imp->customTicks.empty() ? pivotTicks : _imp->customTicks;
     if ( !fixedTicks.empty() ) {
         // SOLVFX: fixed ticks with custom labels
-        QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
+        QColor c = _imp->readOnly || !isEnabled() ? QColor(0x3a, 0x3a, 0x3a) : solvfxTickColor;
         QPen pen(c);
-        const QColor numberColor = _imp->readOnly || !isEnabled() ? QColor(0x3a, 0x3a, 0x3a) : solvfxNumberColor;
+        const QColor numberColor = _imp->readOnly || !isEnabled() ? QColor(0x2a, 0x2a, 0x2a) : solvfxNumberColor;
         pen.setWidthF(1.);
         p.setFont(_imp->font);
         for (std::size_t i = 0; i < fixedTicks.size(); ++i) {
@@ -615,10 +616,10 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         double value = i * smallTickSize + offset;
         const double tickSize = ticks[i - m1] * smallTickSize;
         const double alpha = ticks_alpha(smallestTickSize, largestTickSize, tickSize);
-        QColor color(textColor);
+        QColor color(solvfxTickColor);
         color.setAlphaF(alpha);
         QPen pen(color);
-        pen.setWidthF(1.9);
+        pen.setWidthF(1.2); // SOLVFX: thin ticks
         p.setPen(pen);
 
         // for Int slider, because smallTickSize is at least 1, isFloating can never be true
@@ -669,7 +670,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
 
     SettingsPtr settings = appPTR->getCurrentSettings();
     if (!_imp->useSliderColor) {
-        _imp->sliderColor = QColor(0xbd, 0xbd, 0xbd); // SOLVFX handle
+        _imp->sliderColor = QColor(0x9a, 0x9a, 0x9a); // SOLVFX gray handle
     } else {
         _imp->sliderColor = _imp->customSliderColor;
     }

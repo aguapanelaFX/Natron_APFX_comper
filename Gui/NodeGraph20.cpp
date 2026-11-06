@@ -23,6 +23,7 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include "Gui/SolvfxCursor.h"
 #include "NodeGraph.h"
 #include "NodeGraphPrivate.h"
 
@@ -492,7 +493,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         _imp->_selectionRect = selRect;
         mustUpdate = true;
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::CrossCursor) );
+        setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
         break;
     }
     case eEventStateDraggingNavigator: {
@@ -556,7 +557,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
             }
             case eNearbyItemNone: {
                 _imp->cursorSet = true;
-                setCursor( QCursor(Qt::CrossCursor) );
+                setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
                 break;
             }
             case eNearbyItemNodeEdge:

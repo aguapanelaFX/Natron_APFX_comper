@@ -23,6 +23,7 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include "Gui/SolvfxCursor.h"
 #include "SolvfxColorPanel.h"
 
 #include <algorithm>
@@ -607,7 +608,7 @@ SolvfxColorWheel::SolvfxColorWheel(QWidget* parent)
     QSizePolicy sp(QSizePolicy::Preferred, QSizePolicy::Preferred);
     sp.setHeightForWidth(true);
     setSizePolicy(sp);
-    setCursor(Qt::CrossCursor);
+    setCursor( SolvfxCursor::arrow() ); // SOLVFX: arrow instead of the cross
 }
 
 QSize

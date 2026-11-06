@@ -23,6 +23,7 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include "Gui/SolvfxCursor.h"
 #include "GuiApplicationManager.h"
 #include "GuiApplicationManagerPrivate.h"
 
@@ -855,6 +856,7 @@ GuiApplicationManager::initGui(const CLArgs& args)
 
     // SOLVFX: keep the UI responsive while rendering / caching uses every core
     SolvfxConsole::raiseUiThreadPriority();
+    SolvfxCursor::install(); // SOLVFX: dark arrow cursor with a white outline everywhere
 
     // SOLVFX: debug console window (Preferences > User Interface > Show console window)
     if ( settings.value( QString::fromUtf8("solvfxShowConsole"), QVariant(true) ).toBool() ) {
