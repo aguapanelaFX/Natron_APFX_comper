@@ -47,6 +47,8 @@ public:
 
     // true for the knob whose GUI is replaced by this panel
     static bool isShuffleLayerKnob(const KnobIPtr& knob);
+    // true for the Shuffle knobs the panel replaces (always hidden in the GUI)
+    static bool isHiddenShuffleKnob(const KnobIPtr& knob);
 
 protected:
     virtual void paintEvent(QPaintEvent* e) OVERRIDE FINAL;
@@ -69,11 +71,11 @@ private:
         std::vector<Channel> channels;
     };
 
-    // a left-side source (input channel row or constant) with its dot position
+    // a left-side source (input channel row) with its dot position
     struct Source
     {
-        int clip;       // 0 = B, 1 = A, 2 = constants
-        int row;        // channel row (constants: 0 = "0", 1 = "1")
+        int clip;       // 0 = B, 1 = A
+        int row;        // channel row
         int entry;      // menu index, -1 if none
         QPointF dot;
         QRectF hit;
@@ -82,8 +84,10 @@ private:
     struct Target
     {
         int knob;       // 0..3 = outputR / G / B / A
+        QString label;  // "rgba.red"
         QPointF dot;
         QRectF hit;
+        QRectF zero, one; // the 0 / 1 buttons of the row
     };
 
     void rebuild();
@@ -92,7 +96,8 @@ private:
     void onInputLayerChosen(int clip, int index);
     const Plane* shownPlane(int clip) const;
     QString parseOutputChannels(QString* planeLabel) const;
-    void outputRows(std::vector<std::pair<QString, int> >* rows) const; // (display name, knob index)
+    void outputRows(std::vector<std::pair<QString, int> >* rows) const; // (channel name, knob index)
+    QString outputPlane() const;
     int currentEntry(int knob) const;
     void setEntry(int knob, int entry);
     bool sourceOfEntry(int entry, int* clip, QString* plane, int* row) const;

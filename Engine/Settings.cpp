@@ -1252,6 +1252,7 @@ Settings::initializeKnobsNodeGraph()
                                                       "A and B, input A is be preferred "
                                                       "for auto-connection. When the node is disabled, B is always output, whether this is checked or not.") );
     _nodegraphTab->addKnob(_useInputAForMergeAutoConnect);
+    _useInputAForMergeAutoConnect->setSecret(true); // SOLVFX: always B
 } // Settings::initializeKnobsNodeGraph
 
 void
@@ -1607,7 +1608,7 @@ Settings::setDefaultValues()
     _maxUndoRedoNodeGraph->setDefaultValue(20, 0);
     _disconnectedArrowLength->setDefaultValue(30);
     _hideOptionalInputsAutomatically->setDefaultValue(false); // SOLVFX: mask inputs always visible, like Nuke
-    _useInputAForMergeAutoConnect->setDefaultValue(true);
+    _useInputAForMergeAutoConnect->setDefaultValue(false); // SOLVFX: B is the main stream (Nuke-like)
     _usePluginIconsInNodeGraph->setDefaultValue(true);
     _useAntiAliasing->setDefaultValue(true);
 
@@ -3305,7 +3306,8 @@ Settings::setUseGlobalThreadPool(bool use)
 bool
 Settings::useInputAForMergeAutoConnect() const
 {
-    return _useInputAForMergeAutoConnect->getValue();
+    // SOLVFX: nodes with A / B inputs always connect B first (B = main stream, like Nuke)
+    return false;
 }
 
 void

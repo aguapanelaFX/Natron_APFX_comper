@@ -240,10 +240,20 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     // SOLVFX: Nuke-style short names for layer / channel menus ("Color.RGBA" -> "rgba")
     {
         const std::string& n = knob->getName();
-        const bool isLayerMenu = (n == "channels") || ( (n.size() > 9) && (n.compare(n.size() - 9, 9, "_channels") == 0) ) ||
-                                 SolvfxShuffleWidget::isShuffleLayerKnob(knob);
+        const bool isShuffleLayer = SolvfxShuffleWidget::isShuffleLayerKnob(knob);
+        const bool isLayerMenu = (n == "channels") || ( (n.size() > 9) && (n.compare(n.size() - 9, 9, "_channels") == 0) );
         const bool isChannelMenu = (n.compare(0, 11, "maskChannel") == 0);
-        if (isLayerMenu) {
+        if (isShuffleLayer) {
+            // Shuffle output layer: the colour plane is rgba (Output Components is hidden, rgba by default)
+            _comboBox->setDisplayTextTransform([](const QString& t) -> QString {
+                int dot = t.indexOf( QLatin1Char('.') );
+                QString plane = (dot < 0) ? t : t.left(dot);
+                if ( (plane == QString::fromUtf8("Color")) || t.isEmpty() ) {
+                    return QString::fromUtf8("rgba");
+                }
+                return plane.toLower();
+            });
+        } else if (isLayerMenu) {
             _comboBox->setDisplayTextTransform([](const QString& t) -> QString {
                 int dot = t.indexOf( QLatin1Char('.') );
                 if (dot < 0) {

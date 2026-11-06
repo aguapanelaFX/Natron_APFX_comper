@@ -36,6 +36,7 @@
 #include "Engine/Utils.h" // convertFromPlainText
 #include "Engine/ViewIdx.h"
 
+#include "Gui/SolvfxShuffleWidget.h"
 #include "Gui/KnobGuiPrivate.h"
 #include "Gui/KnobUndoCommand.h" // SetExpressionCommand...
 
@@ -179,6 +180,10 @@ void
 KnobGui::setSecret()
 {
     bool showit = !isSecretRecursive();
+    // SOLVFX: the Shuffle knobs replaced by the noodle panel never show
+    if ( showit && SolvfxShuffleWidget::isHiddenShuffleKnob( getKnob() ) ) {
+        showit = false;
+    }
 
     if (showit) {
         show(); //

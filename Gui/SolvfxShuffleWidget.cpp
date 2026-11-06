@@ -30,12 +30,13 @@ NATRON_NAMESPACE_ENTER
 
 // layout (pixels before DPI scaling)
 static const int kMargin = 4;
-static const int kBlockW = 118;
-static const int kHeaderH = 22;
-static const int kRowH = 16;
-static const int kBlockPad = 4;
+static const int kLinesW = 64;     // space for the lines between input and output blocks
+static const int kMinBlockW = 130;
+static const int kMaxBlockW = 210;
+static const int kHeaderH = 24;
+static const int kRowH = 18;
+static const int kBlockPad = 5;
 static const int kGap = 6;
-static const int kConstH = 16;
 
 #define SHUFFLE_PLUGIN_ID "net.sf.openfx.ShufflePlugin"
 
@@ -66,6 +67,25 @@ SolvfxShuffleWidget::isShuffleLayerKnob(const KnobIPtr& knob)
     return true;
 }
 
+bool
+SolvfxShuffleWidget::isHiddenShuffleKnob(const KnobIPtr& knob)
+{
+    if (!knob) {
+        return false;
+    }
+    const std::string& n = knob->getName();
+    if ( (n != "outputR") && (n != "outputG") && (n != "outputB") && (n != "outputA") &&
+         (n != "outputComponents") && (n != "setGBAFromR") ) {
+        return false;
+    }
+    EffectInstance* fx = dynamic_cast<EffectInstance*>( knob->getHolder() );
+    if ( !fx || (fx->getPluginID() != SHUFFLE_PLUGIN_ID) ) {
+        return false;
+    }
+
+    return isShuffleLayerKnob( fx->getKnobByName("outputLayer") );
+}
+
 SolvfxShuffleWidget::SolvfxShuffleWidget(const KnobChoicePtr& outLayer,
                                          QWidget* outCombo,
                                          QWidget* parent)
@@ -81,8 +101,9 @@ SolvfxShuffleWidget::SolvfxShuffleWidget(const KnobChoicePtr& outLayer,
     setFocusPolicy(Qt::ClickFocus);
     setMouseTracking(false);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    setMinimumWidth( (int)D(2 * kBlockW + 60) );
-    setToolTip( tr("Drag from an input channel (or 0 / 1) to an output channel.\n"
+    setMinimumWidth( (int)D(2 * kMinBlockW + kLinesW + 2 * kMargin) );
+    setToolTip( tr("Drag from an input channel to an output channel.\n"
+                   "0 / 1 on an output row: black / white.\n"
                    "Click a line and press Delete to remove it (the channel becomes black).") );
 
     EffectInstance* fx = dynamic_cast<EffectInstance*>( outLayer->getHolder() );
@@ -98,6 +119,13 @@ SolvfxShuffleWidget::SolvfxShuffleWidget(const KnobChoicePtr& outLayer,
             if (i == 0) {
                 QObject::connect( k.get(), &KnobChoice::populated, this, [this]() { rebuild(); } );
             }
+        }
+    }
+    if (fx) {
+        KnobIPtr comps = fx->getKnobByName("outputComponents");
+        KnobSignalSlotHandlerPtr h = comps ? comps->getSignalSlotHandler() : KnobSignalSlotHandlerPtr();
+        if (h) {
+            QObject::connect( h.get(), SIGNAL(valueChanged(ViewSpec,int,int)), this, SLOT(update()) );
         }
     }
     {
@@ -326,22 +354,38 @@ SolvfxShuffleWidget::parseOutputChannels(QString* planeLabel) const
     return label.mid(dot + 1);
 }
 
+QString
+SolvfxShuffleWidget::outputPlane() const
+{
+    QString plane;
+    parseOutputChannels(&plane);
+
+    return plane;
+}
+
 void
 SolvfxShuffleWidget::outputRows(std::vector<std::pair<QString, int> >* rows) const
 {
     rows->clear();
     QString plane;
-    const QString chans = parseOutputChannels(&plane);
-    const bool isColor = (plane == QString::fromUtf8("Color"));
-    if ( isColor && (chans.toUpper() == QString::fromUtf8("A") || chans.toLower() == QString::fromUtf8("alpha")) ) {
-        rows->push_back( std::make_pair(QString::fromUtf8("alpha"), 3) );
+    QString chans = parseOutputChannels(&plane);
+    if ( plane.isEmpty() || (plane == QString::fromUtf8("Color")) ) {
+        // the colour plane is rgba unless Output Components says otherwise
+        KnobChoicePtr k = _layerKnob.lock();
+        EffectInstance* fx = k ? dynamic_cast<EffectInstance*>( k->getHolder() ) : 0;
+        KnobChoicePtr comps = fx ? std::dynamic_pointer_cast<KnobChoice>( fx->getKnobByName("outputComponents") ) : KnobChoicePtr();
+        const QString c = comps ? QString::fromUtf8( comps->getActiveEntry().id.c_str() ).toLower() : QString::fromUtf8("rgba");
+        if ( c == QString::fromUtf8("alpha") ) {
+            rows->push_back( std::make_pair(QString::fromUtf8("A"), 3) );
 
-        return;
+            return;
+        }
+        chans = ( c == QString::fromUtf8("rgb") ) ? QString::fromUtf8("RGB") : QString::fromUtf8("RGBA");
     }
     const int n = std::min( 4, std::max( 1, (int)chans.size() ) );
     for (int i = 0; i < n; ++i) {
         const QString ch = ( i < chans.size() ) ? QString( chans.at(i) ) : QString::number(i);
-        rows->push_back( std::make_pair(displayChannel(plane, ch), i) );
+        rows->push_back( std::make_pair(ch, i) );
     }
 }
 
@@ -414,71 +458,68 @@ SolvfxShuffleWidget::sourceDot(int entry) const
     int clip, row;
     QString plane;
     if ( sourceOfEntry(entry, &clip, &plane, &row) && (clip < 2) ) {
+        // its layer is not the one shown: start at the block header
         const QRectF& b = _blockRect[clip];
 
         return QPointF( b.right(), b.top() + D(kHeaderH) / 2. );
     }
 
-    return QPointF(-1, -1);
+    return QPointF(-1, -1); // constants (0 / 1) or nothing: no line
 }
 
+// Nuke-like: input block (B, then A under it) on the left, output block on the right,
+// rows facing each other so the lines are short
 void
 SolvfxShuffleWidget::relayout()
 {
     _sources.clear();
     _targets.clear();
-    const double m = D(kMargin), bw = D(kBlockW), hh = D(kHeaderH), rh = D(kRowH), pad = D(kBlockPad), gap = D(kGap);
+    const double m = D(kMargin), hh = D(kHeaderH), rh = D(kRowH), pad = D(kBlockPad), gap = D(kGap), lw = D(kLinesW);
+    const double bw = std::max( D(kMinBlockW), std::min( D(kMaxBlockW), (width() - 2 * m - lw) / 2. ) );
+    const double lx = m, rx = m + bw + lw;
 
     double y = m;
     for (int c = 0; c < 2; ++c) {
         const Plane* p = shownPlane(c);
         const int n = p ? (int)p->channels.size() : 4;
         const double h = hh + n * rh + pad;
-        _blockRect[c] = QRectF(m, y, bw, h);
+        _blockRect[c] = QRectF(lx, y, bw, h);
         for (int r = 0; r < n; ++r) {
             Source s;
             s.clip = c;
             s.row = r;
             s.entry = p ? p->channels[r].entry : -1;
-            s.dot = QPointF( m + bw, y + hh + r * rh + rh / 2. );
-            s.hit = QRectF(m, y + hh + r * rh, bw + D(6), rh);
+            s.dot = QPointF( lx + bw, y + hh + r * rh + rh / 2. );
+            s.hit = QRectF(lx, y + hh + r * rh, bw + D(8), rh);
             _sources.push_back(s);
         }
-        _inCombo[c]->setGeometry( (int)(m + D(18)), (int)(y + D(2)), (int)(bw - D(22)), (int)(hh - D(4)) );
+        _inCombo[c]->setGeometry( (int)(lx + D(22)), (int)(y + D(3)), (int)(bw - D(28)), (int)(hh - D(6)) );
         y += h + gap;
     }
-    // constants 0 / 1
-    const double cw = (bw - D(4)) / 2.;
-    for (int i = 0; i < 2; ++i) {
-        Source s;
-        s.clip = 2;
-        s.row = i;
-        s.entry = (i == 0) ? _const0 : _const1;
-        const QRectF r( m + i * (cw + D(4)), y, cw, D(kConstH) );
-        s.dot = QPointF( r.right(), r.center().y() );
-        s.hit = r.adjusted( 0, 0, D(6), 0 );
-        _sources.push_back(s);
-    }
-    const double leftBottom = y + D(kConstH) + m;
+    const double leftBottom = y - gap + m;
 
-    // output block, right side, vertically centred on the left column
+    // output block, aligned with the B block
     std::vector<std::pair<QString, int> > rows;
     outputRows(&rows);
+    const QString plane = outputPlane();
     const double oh = hh + rows.size() * rh + pad;
-    const double ox = std::max( m + bw + D(60), width() - m - bw );
-    const double oy = std::max( m, (leftBottom - oh) / 2. - D(10) );
-    _blockRect[2] = QRectF(ox, oy, bw, oh);
+    _blockRect[2] = QRectF(rx, m, bw, oh);
+    const double bs = D(13); // 0 / 1 button size
     for (std::size_t r = 0; r < rows.size(); ++r) {
         Target t;
         t.knob = rows[r].second;
-        t.dot = QPointF( ox, oy + hh + r * rh + rh / 2. );
-        t.hit = QRectF( ox - D(6), oy + hh + r * rh, bw + D(6), rh );
+        t.label = displayPlane(plane) + QLatin1Char('.') + displayChannel(plane, rows[r].first);
+        const double cy = m + hh + r * rh + rh / 2.;
+        t.dot = QPointF(rx, cy);
+        t.hit = QRectF( rx - D(8), cy - rh / 2., bw + D(8), rh );
+        t.zero = QRectF( rx + D(10), cy - bs / 2., bs, bs );
+        t.one = QRectF( rx + D(10) + bs + D(3), cy - bs / 2., bs, bs );
         _targets.push_back(t);
     }
     if (_outCombo) {
-        _outCombo->setGeometry( (int)(ox + D(4)), (int)(oy + D(2)), (int)(bw - D(32)), (int)(hh - D(4)) );
+        _outCombo->setGeometry( (int)(rx + D(6)), (int)(m + D(3)), (int)(bw - D(12)), (int)(hh - D(6)) );
     }
-    const int hNeeded = (int)std::ceil( std::max(leftBottom, oy + oh + m) );
+    const int hNeeded = (int)std::ceil( std::max(leftBottom, m + oh + m) );
     if ( height() != hNeeded ) {
         setFixedHeight(hNeeded);
     }
@@ -496,7 +537,7 @@ wirePath(const QPointF& a,
          const QPointF& b)
 {
     QPainterPath path(a);
-    const double dx = std::max( 20., (b.x() - a.x()) * 0.5 );
+    const double dx = std::max( 8., (b.x() - a.x()) * 0.45 );
     path.cubicTo( QPointF(a.x() + dx, a.y()), QPointF(b.x() - dx, b.y()), b );
 
     return path;
@@ -505,23 +546,23 @@ wirePath(const QPointF& a,
 void
 SolvfxShuffleWidget::paintEvent(QPaintEvent* /*e*/)
 {
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    QFont f = font();
-    f.setPointSizeF( std::max( 6., f.pointSizeF() * 0.92 ) );
-    p.setFont(f);
-    const double hh = D(kHeaderH), rh = D(kRowH), sq = D(8), dotR = D(3.5);
-    const QColor blockBg(0x2a, 0x2a, 0x2a), border(0x14, 0x14, 0x14), sep(0x3c, 0x3c, 0x3c), text(0xc8, 0xc8, 0xc8), tag(0xe2, 0xc7, 0x9a);
-
-    // which inputs feed a line (others are dimmed)
-    std::vector<int> used;
     std::vector<std::pair<QString, int> > rows;
     outputRows(&rows);
     if ( rows.size() != _targets.size() ) {
         relayout(); // the output layer changed
     }
-    for (std::size_t r = 0; r < rows.size(); ++r) {
-        used.push_back( currentEntry(rows[r].second) );
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QFont f = font();
+    f.setPointSizeF( std::max( 6., f.pointSizeF() * 0.92 ) );
+    p.setFont(f);
+    const double hh = D(kHeaderH), rh = D(kRowH), dotR = D(4);
+    const QColor blockBg(0x2a, 0x2a, 0x2a), border(0x14, 0x14, 0x14), sep(0x3c, 0x3c, 0x3c), text(0xc8, 0xc8, 0xc8), tag(0xe2, 0xc7, 0x9a);
+
+    std::vector<int> used;
+    for (std::size_t r = 0; r < _targets.size(); ++r) {
+        used.push_back( currentEntry(_targets[r].knob) );
     }
     const auto isUsed = [&](int entry) { return std::find(used.begin(), used.end(), entry) != used.end(); };
 
@@ -533,61 +574,54 @@ SolvfxShuffleWidget::paintEvent(QPaintEvent* /*e*/)
         p.drawRoundedRect(r, D(5), D(5));
         p.setPen( QPen(sep, 1) );
         p.drawLine( QPointF(r.left() + 1, r.top() + hh), QPointF(r.right() - 1, r.top() + hh) );
-        p.setPen(tag);
-        QFont bf = f;
-        bf.setBold(true);
-        p.setFont(bf);
         if (b < 2) {
-            p.drawText( QRectF(r.left() + D(5), r.top(), D(12), hh), Qt::AlignVCenter | Qt::AlignLeft, (b == 0) ? QString::fromUtf8("B") : QString::fromUtf8("A") );
-        } else {
-            p.drawText( QRectF(r.right() - D(28), r.top(), D(24), hh), Qt::AlignVCenter | Qt::AlignRight, QString::fromUtf8("out") );
+            QFont bf = f;
+            bf.setBold(true);
+            p.setFont(bf);
+            p.setPen(tag);
+            p.drawText( QRectF(r.left() + D(6), r.top(), D(14), hh), Qt::AlignVCenter | Qt::AlignLeft, (b == 0) ? QString::fromUtf8("B") : QString::fromUtf8("A") );
+            p.setFont(f);
         }
-        p.setFont(f);
     }
 
-    // input rows
+    // input rows: "rgba.red" right-aligned, dot on the right edge
     for (std::size_t i = 0; i < _sources.size(); ++i) {
         const Source& s = _sources[i];
+        const Plane* pl = shownPlane(s.clip);
+        const QString chan = pl ? pl->channels[s.row].name : QString::fromUtf8("RGBA").mid(s.row, 1);
+        const QString planeName = pl ? pl->label : QString();
+        const QString name = displayChannel(planeName, chan);
         const bool on = (s.entry >= 0) && isUsed(s.entry);
-        p.setOpacity( (s.entry < 0) ? 0.35 : (on ? 1. : 0.45) );
-        if (s.clip < 2) {
-            const Plane* pl = shownPlane(s.clip);
-            const QString chan = pl ? pl->channels[s.row].name : QString::fromUtf8("RGBA").mid(s.row, 1);
-            const QString name = displayChannel(pl ? pl->label : QString(), chan);
-            p.setPen(Qt::NoPen);
-            p.setBrush( channelColor(name) );
-            p.drawRoundedRect( QRectF(s.hit.left() + D(7), s.dot.y() - sq / 2., sq, sq), D(2), D(2) );
-            p.setPen(text);
-            p.drawText( QRectF(s.hit.left() + D(20), s.dot.y() - rh / 2., D(kBlockW) - D(26), rh), Qt::AlignVCenter | Qt::AlignLeft, name );
-        } else {
-            const QRectF r( s.hit.left(), s.hit.top(), s.hit.width() - D(6), s.hit.height() );
-            p.setPen( QPen(border, 1) );
-            p.setBrush(blockBg);
-            p.drawRoundedRect(r, D(5), D(5));
-            p.setPen(text);
-            p.drawText(r, Qt::AlignCenter, (s.row == 0) ? QString::fromUtf8("0") : QString::fromUtf8("1"));
-        }
+        p.setOpacity( (s.entry < 0) ? 0.3 : (on ? 1. : 0.55) );
+        p.setPen(text);
+        p.drawText( QRectF(s.hit.left() + D(6), s.dot.y() - rh / 2., s.dot.x() - s.hit.left() - D(16), rh),
+                    Qt::AlignVCenter | Qt::AlignRight, displayPlane(planeName) + QLatin1Char('.') + name );
         p.setPen( QPen(QColor(0x11, 0x11, 0x11), 1) );
-        p.setBrush( QColor(0x55, 0x55, 0x55) );
+        p.setBrush( on ? channelColor(name) : QColor(0x55, 0x55, 0x55) );
         p.drawEllipse(s.dot, dotR, dotR);
     }
     p.setOpacity(1.);
 
-    // output rows
-    {
-        QString plane;
-        parseOutputChannels(&plane);
-        for (std::size_t r = 0; r < rows.size() && r < _targets.size(); ++r) {
-            const Target& t = _targets[r];
-            p.setPen(Qt::NoPen);
-            p.setBrush( channelColor(rows[r].first) );
-            p.drawRoundedRect( QRectF(t.dot.x() + D(10), t.dot.y() - sq / 2., sq, sq), D(2), D(2) );
-            p.setPen(text);
-            p.drawText( QRectF(t.dot.x() + D(23), t.dot.y() - rh / 2., D(kBlockW) - D(26), rh), Qt::AlignVCenter | Qt::AlignLeft, rows[r].first );
-            p.setPen( QPen(QColor(0x11, 0x11, 0x11), 1) );
-            p.setBrush( QColor(0x55, 0x55, 0x55) );
-            p.drawEllipse(t.dot, dotR, dotR);
-        }
+    // output rows: dot on the left edge, 0 / 1 buttons, "rgba.red"
+    for (std::size_t r = 0; r < _targets.size(); ++r) {
+        const Target& t = _targets[r];
+        const int entry = currentEntry(t.knob);
+        const bool isZero = (entry == _const0) || (entry < 0);
+        const bool isOne = (entry == _const1);
+        const QString chanName = t.label.mid( t.label.indexOf( QLatin1Char('.') ) + 1 );
+        p.setPen( QPen(QColor(0x11, 0x11, 0x11), 1) );
+        p.setBrush( (isZero || isOne) ? QColor(0x55, 0x55, 0x55) : channelColor(chanName) );
+        p.drawEllipse(t.dot, dotR, dotR);
+        // 0 = black, 1 = white; lit when that constant is used
+        p.setPen( QPen(isZero ? QColor(0xe0, 0x74, 0x3a) : QColor(0x60, 0x60, 0x60), 1) );
+        p.setBrush( QColor(0x10, 0x10, 0x10) );
+        p.drawEllipse( t.zero.center(), t.zero.width() / 2. - 0.5, t.zero.height() / 2. - 0.5 );
+        p.setPen( QPen(isOne ? QColor(0xe0, 0x74, 0x3a) : QColor(0x60, 0x60, 0x60), 1) );
+        p.setBrush( isOne ? QColor(0xf0, 0xf0, 0xf0) : QColor(0x9a, 0x9a, 0x9a) );
+        p.drawEllipse( t.one.center(), t.one.width() / 2. - 0.5, t.one.height() / 2. - 0.5 );
+        p.setPen(text);
+        p.drawText( QRectF(t.one.right() + D(6), t.dot.y() - rh / 2., _blockRect[2].right() - t.one.right() - D(8), rh),
+                    Qt::AlignVCenter | Qt::AlignLeft, t.label );
     }
 
     // lines
@@ -601,14 +635,10 @@ SolvfxShuffleWidget::paintEvent(QPaintEvent* /*e*/)
         int clip, row;
         QString plane;
         QColor col(0x9a, 0x9a, 0x9a);
-        if ( sourceOfEntry(entry, &clip, &plane, &row) ) {
-            if (clip == 2) {
-                col = (row == 0) ? QColor(0x70, 0x70, 0x70) : QColor(0xe8, 0xe8, 0xe8);
-            } else {
-                for (std::size_t j = 0; j < _planes[clip].size(); ++j) {
-                    if (_planes[clip][j].label == plane) {
-                        col = channelColor( displayChannel(plane, _planes[clip][j].channels[row].name) );
-                    }
+        if ( sourceOfEntry(entry, &clip, &plane, &row) && (clip < 2) ) {
+            for (std::size_t j = 0; j < _planes[clip].size(); ++j) {
+                if (_planes[clip][j].label == plane) {
+                    col = channelColor( displayChannel(plane, _planes[clip][j].channels[row].name) );
                 }
             }
         }
@@ -616,18 +646,17 @@ SolvfxShuffleWidget::paintEvent(QPaintEvent* /*e*/)
         if (sel) {
             col = QColor(0xe0, 0x74, 0x3a);
         }
-        QPen pen(col, sel ? D(2.6) : D(2));
+        QPen pen(col, sel ? D(2.4) : D(1.8));
         pen.setCapStyle(Qt::RoundCap);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
         p.drawPath( wirePath(from, t.dot) );
         p.setPen(Qt::NoPen);
         p.setBrush(col);
-        p.drawEllipse(from, dotR - D(0.5), dotR - D(0.5));
-        p.drawEllipse(t.dot, dotR - D(0.5), dotR - D(0.5));
+        p.drawEllipse(from, dotR - D(1), dotR - D(1));
+        p.drawEllipse(t.dot, dotR - D(1), dotR - D(1));
     }
 
-    // line being dragged
     if (_dragging) {
         QPen pen( QColor(0xe8, 0xe8, 0xe8), D(1.6), Qt::DashLine );
         p.setPen(pen);
@@ -663,6 +692,18 @@ SolvfxShuffleWidget::mousePressEvent(QMouseEvent* e)
         return;
     }
     const QPointF pos = e->pos();
+    for (std::size_t r = 0; r < _targets.size(); ++r) {
+        if ( _targets[r].zero.adjusted( -2, -2, 2, 2 ).contains(pos) ) {
+            setEntry(_targets[r].knob, _const0);
+
+            return;
+        }
+        if ( _targets[r].one.adjusted( -2, -2, 2, 2 ).contains(pos) ) {
+            setEntry(_targets[r].knob, _const1);
+
+            return;
+        }
+    }
     for (std::size_t i = 0; i < _sources.size(); ++i) {
         if ( _sources[i].hit.contains(pos) && (_sources[i].entry >= 0) ) {
             _dragEntry = _sources[i].entry;
