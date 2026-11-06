@@ -1720,6 +1720,27 @@ Node::findPluginFormatKnobs(const KnobsVec & knobs,
             int defValue;
             getApp()->getProject()->getProjectFormatEntries(&formats, &defValue);
             refreshFormatParamChoice(formats, defValue, loadingSerialization);
+
+            // SOLVFX: new nodes use "root.format" (the project format, followed when it changes)
+            // through the format menu alone, like Nuke: the extent menu is set to "Format" and hidden
+            if (!loadingSerialization) {
+                KnobChoicePtr choice = _imp->pluginFormatKnobs.formatChoice.lock();
+                if (choice) {
+                    choice->setValue(0);
+                    handleFormatKnob( choice.get() );
+                }
+                for (std::size_t i = 0; i < knobs.size(); ++i) {
+                    if (knobs[i]->getName() == "extent") {
+                        KnobChoicePtr extent = std::dynamic_pointer_cast<KnobChoice>(knobs[i]);
+                        if (extent) {
+                            extent->setValue(0, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0); // "Format"
+                            extent->setSecretByDefault(true);
+                            extent->setSecret(true);
+                        }
+                        break;
+                    }
+                }
+            }
         }
     }
 }
@@ -2879,9 +2900,10 @@ Node::handleFormatKnob(KnobI* knob)
     }
     int curIndex = choice->getValue();
     Format f;
-    if ( !getApp()->getProject()->getProjectFormatAtIndex(curIndex, &f) ) {
-        assert(false);
-
+    // SOLVFX: entry 0 is "root.format" (the project format); the project formats follow
+    if (curIndex <= 0) {
+        getApp()->getProject()->getProjectDefaultFormat(&f);
+    } else if ( !getApp()->getProject()->getProjectFormatAtIndex(curIndex - 1, &f) ) {
         return true;
     }
 
@@ -2913,14 +2935,27 @@ Node::refreshFormatParamChoice(const std::vector<ChoiceOption>& entries,
         return;
     }
     int curIndex = choice->getValue();
-    choice->populateChoices(entries);
+    // SOLVFX: first entry "root.format WxH" = the project format (default, like Nuke)
+    std::vector<ChoiceOption> solvfxEntries;
+    {
+        Format pf;
+        getApp()->getProject()->getProjectDefaultFormat(&pf);
+        std::string label = "root.format " + std::to_string( pf.width() ) + "x" + std::to_string( pf.height() );
+        if ( pf.getPixelAspectRatio() != 1. ) {
+            label += " " + std::to_string( pf.getPixelAspectRatio() ).substr(0, 4);
+        }
+        solvfxEntries.push_back( ChoiceOption("root.format", label, "The project format (Comp Settings): follows it when it changes.") );
+        solvfxEntries.insert( solvfxEntries.end(), entries.begin(), entries.end() );
+    }
+    (void)defValue;
+    choice->populateChoices(solvfxEntries);
     choice->beginChanges();
-    choice->setDefaultValueWithoutApplying(defValue);
+    choice->setDefaultValueWithoutApplying(0);
     if (!loadingProject) {
         //changedKnob was not called because we are initializing knobs
         handleFormatKnob( choice.get() );
     } else {
-        if ( curIndex < (int)entries.size() ) {
+        if ( curIndex < (int)solvfxEntries.size() ) {
             choice->setValue(curIndex);
         }
     }

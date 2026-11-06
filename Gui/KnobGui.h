@@ -358,6 +358,7 @@ public Q_SLOTS:
 
     // SOLVFX: put a checkbox label after the checkbox, in the field column (Nuke-like checkbox rows)
     void setSolvfxInlineLabel(bool inlineLabel);
+    void solvfxCompact(QWidget* fieldContainer, QWidget* label);
 
     void setEnabledSlot();
 

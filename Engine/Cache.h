@@ -1016,6 +1016,38 @@ public:
     /**
      * @brief Clears entirely the disk portion and memory portion.
      **/
+    /**
+     * @brief SOLVFX: removes (unmaps and deletes) the tile files that no entry uses anymore,
+     * so a cleared playback cache really gives its memory back. Entries are destroyed on the
+     * deleter thread after clear() returns, so their tile files used to stay mapped.
+     **/
+    void releaseUnusedTileFiles()
+    {
+        QMutexLocker k(&_tileCacheMutex);
+
+        if (!_isTiled) {
+            return;
+        }
+        for (typename std::set<TileCacheFilePtr>::iterator it = _cacheFiles.begin(); it != _cacheFiles.end(); ) {
+            bool used = false;
+            for (std::size_t i = 0; i < (*it)->usedTiles.size(); ++i) {
+                if ( (*it)->usedTiles[i] ) {
+                    used = true;
+                    break;
+                }
+            }
+            if ( !used && ( (*it).use_count() <= 1 ) ) {
+                if ( _nextAvailableCacheFile.lock() == *it ) {
+                    _nextAvailableCacheFile.reset();
+                }
+                (*it)->file->remove();
+                it = _cacheFiles.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void clear()
     {
         {

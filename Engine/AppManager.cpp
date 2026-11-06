@@ -48,6 +48,11 @@
 #endif
 
 #include <clocale>
+#ifdef __NATRON_WIN32__
+#include <windows.h>
+#include <malloc.h> // _heapmin
+#endif
+#include <QTimer>
 #include <csignal>
 #include <cstddef>
 #include <cassert>
@@ -1304,6 +1309,27 @@ AppManager::clearAllCaches()
     }
 
     Project::clearAutoSavesDir();
+
+    // SOLVFX: the cleared entries are deleted on background threads; once they are gone,
+    // release the playback cache files and give the freed memory back to the system
+    QTimer::singleShot( 1500, this, [this]() { solvfxReleaseMemory(); } );
+    QTimer::singleShot( 5000, this, [this]() { solvfxReleaseMemory(); } );
+}
+
+void
+AppManager::solvfxReleaseMemory()
+{
+    if (_imp->_viewerCache) {
+        _imp->_viewerCache->releaseUnusedTileFiles();
+    }
+    if (_imp->_diskCache) {
+        _imp->_diskCache->releaseUnusedTileFiles();
+    }
+#ifdef __NATRON_WIN32__
+    _heapmin();
+    ::HeapCompact( ::GetProcessHeap(), 0 );
+    ::SetProcessWorkingSetSize( ::GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1 );
+#endif
 }
 
 void

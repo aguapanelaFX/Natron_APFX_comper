@@ -860,6 +860,9 @@ SolvfxColorPanel::SolvfxColorPanel(bool withAlpha,
     _hexEdit->setToolTip( tr("Hex color (sRGB, like a brand or web color). It is converted to the working "
                              "linear colorspace with your OCIO config. HDR values above 1 are clipped here.") );
     QObject::connect( _hexEdit, SIGNAL(editingFinished()), this, SLOT(onHexEdited()) );
+    // SOLVFX: the hex field never takes the focus by itself (it would keep a stale value
+    // and apply it when the window closes)
+    _hexEdit->setFocusPolicy(Qt::ClickFocus);
     topLayout->addWidget(_hexEdit);
     topLayout->addStretch();
 
@@ -1275,6 +1278,15 @@ void
 SolvfxColorPanel::onHexEdited()
 {
     double r, g, b;
+
+    // SOLVFX: only apply what the user typed (editingFinished is also emitted when the
+    // field just loses the focus, e.g. when the window closes, with a stale value)
+    if ( !_hexEdit->isModified() ) {
+        _hexEdit->setText( _displayMode ? displayToHex(_r, _g, _b) : linearToHex(_r, _g, _b) );
+
+        return;
+    }
+    _hexEdit->setModified(false);
 
     const bool hexOk = _displayMode ? hexToDisplay(_hexEdit->text(), &r, &g, &b) : hexToLinear(_hexEdit->text(), &r, &g, &b);
     if (!hexOk) {

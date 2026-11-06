@@ -139,8 +139,8 @@ Gui::setupUi()
 
     initProjectGuiKnobs();
 
-
-    setVisibleProjectSettingsPanel();
+    // SOLVFX: the Comp Settings panel does not open on start (S opens it)
+    _imp->_projectGui->getPanel()->setClosed(true);
 
     _imp->_aboutWindow = new AboutWindow(this);
     _imp->_aboutWindow->hide();

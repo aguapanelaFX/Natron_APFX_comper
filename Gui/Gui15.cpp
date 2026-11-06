@@ -496,7 +496,7 @@ Gui::openPanelFloating(DockablePanel* panel)
             QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
             panel->adjustSize();
             QSize hint = panel->sizeHint().expandedTo( panel->minimumSizeHint() );
-            int w = std::max( hint.width() + TO_DPIX(30), TO_DPIX(480) );
+            int w = std::max( hint.width() + TO_DPIX(30), TO_DPIX(530) ); // SOLVFX: ~10% wider
             int h = std::max( hint.height() + TO_DPIY(30), TO_DPIY(200) );
             w = std::min( w, (int)(avail.width() * 0.6) );
             h = std::min( h, (int)(avail.height() * 0.85) );

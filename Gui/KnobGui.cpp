@@ -277,7 +277,12 @@ KnobGui::createGUI(QWidget* fieldContainer,
 
     for (int i = 0; i < knob->getDimension(); ++i) {
         onExprChanged(i);
-
+    }
+    // SOLVFX: compact panels (rows ~25% shorter, 18 px fields, slightly smaller text)
+    if (!_imp->isInViewerUIKnob) {
+        solvfxCompact(fieldContainer, label);
+    }
+    for (int i = 0; i < 0; ++i) {
         /*updateGuiInternal(i);
            std::string exp = knob->getExpression(i);
            reflectExpressionState(i,!exp.empty());
@@ -287,6 +292,53 @@ KnobGui::createGUI(QWidget* fieldContainer,
     }
     solvfxRefreshAnimButton();
 } // KnobGui::createGUI
+
+// SOLVFX: compact single-line widgets of a knob row (fields, menus, buttons, checkboxes,
+// sliders) to 18 px and the text to ~92%; tall custom widgets (curves, text areas, the
+// Shuffle panel...) are left alone
+void
+KnobGui::solvfxCompact(QWidget* fieldContainer,
+                       QWidget* label)
+{
+    const int h = TO_DPIY(18);
+    if (label) {
+        QFont lf = label->font();
+        lf.setPointSizeF( lf.pointSizeF() * 0.92 );
+        label->setFont(lf);
+    }
+    if (!fieldContainer) {
+        return;
+    }
+    const QList<QWidget*> widgets = fieldContainer->findChildren<QWidget*>();
+    for (QWidget* w : widgets) {
+        if ( !w || w->isWindow() ) {
+            continue;
+        }
+        // skip anything inside a tall custom widget
+        bool insideTall = false;
+        for (QWidget* p = w->parentWidget(); p && p != fieldContainer; p = p->parentWidget()) {
+            if ( p->sizeHint().height() > TO_DPIY(30) ) {
+                insideTall = true;
+                break;
+            }
+        }
+        if ( insideTall || ( w->sizeHint().height() > TO_DPIY(30) ) ) {
+            continue;
+        }
+        QFont f = w->font();
+        f.setPointSizeF( f.pointSizeF() * 0.92 );
+        w->setFont(f);
+        const bool fixedSize = ( w->minimumWidth() == w->maximumWidth() ) && ( w->minimumHeight() == w->maximumHeight() ) && (w->minimumHeight() > 0);
+        if (fixedSize) {
+            if (w->minimumHeight() > h) {
+                const int nw = std::max( h, (int)( (double)w->minimumWidth() * h / w->minimumHeight() + 0.5 ) );
+                w->setFixedSize(nw, h);
+            }
+        } else if (w->maximumHeight() > h) {
+            w->setMaximumHeight(h);
+        }
+    }
+}
 
 void
 KnobGui::setSolvfxInlineLabel(bool inlineLabel)

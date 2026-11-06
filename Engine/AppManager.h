@@ -623,6 +623,9 @@ public Q_SLOTS:
 
     void clearAllCaches();
 
+    // SOLVFX: release cleared cache memory back to the system
+    void solvfxReleaseMemory();
+
     void wipeAndCreateDiskCacheStructure();
 
     void onNodeMemoryRegistered(qint64 mem);

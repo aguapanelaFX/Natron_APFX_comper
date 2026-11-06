@@ -31,6 +31,7 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QPushButton>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QStyle>
@@ -353,6 +354,18 @@ KnobGuiColor::onColorSelectorButtonClicked()
         SolvfxColorWindow* window = new SolvfxColorWindow( getGui() );
         _colorSelector = new SolvfxColorPanel(knob->getDimension() == 4, window);
         window->layout()->addWidget(_colorSelector);
+        // SOLVFX: explicit "Accept & close" (closing the window also keeps the color)
+        {
+            QWidget* bar = new QWidget(window);
+            QHBoxLayout* bl = new QHBoxLayout(bar);
+            bl->setContentsMargins( TO_DPIX(6), TO_DPIY(2), TO_DPIX(6), TO_DPIY(6) );
+            bl->addStretch();
+            QPushButton* accept = new QPushButton( tr("Accept && close"), bar );
+            accept->setFocusPolicy(Qt::NoFocus);
+            QObject::connect( accept, &QPushButton::clicked, window, &QWidget::close );
+            bl->addWidget(accept);
+            window->layout()->addWidget(bar);
+        }
         QObject::connect( _colorSelector, SIGNAL( colorChanged(float, float, float, float) ),
                           this, SLOT( onColorSelectorChanged(float, float, float, float) ) );
         QObject::connect( _colorSelector, SIGNAL( updateColor() ),
