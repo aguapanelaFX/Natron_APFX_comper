@@ -31,6 +31,7 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QImage>
 #include <QPushButton>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -312,6 +313,18 @@ KnobGuiColor::addExtraWidgets(QHBoxLayout* containerLayout)
     // add color selector popup
     QPixmap colorSelectorPix;
     appPTR->getIcon(NATRON_PIXMAP_COLORWHEEL, NATRON_MEDIUM_BUTTON_ICON_SIZE, &colorSelectorPix);
+    // SOLVFX: neutral, dimmed wheel icon (no rainbow)
+    {
+        QImage img = colorSelectorPix.toImage().convertToFormat(QImage::Format_ARGB32);
+        for (int y = 0; y < img.height(); ++y) {
+            QRgb* line = (QRgb*)img.scanLine(y);
+            for (int x = 0; x < img.width(); ++x) {
+                const int g = (int)(qGray(line[x]) * 0.75);
+                line[x] = qRgba( g, g, g, (int)(qAlpha(line[x]) * 0.85) );
+            }
+        }
+        colorSelectorPix = QPixmap::fromImage(img);
+    }
 
     _colorSelectorButton = new QToolButton( containerLayout->widget() );
     _colorSelectorButton->setObjectName( QString::fromUtf8("ColorSelectorButton") );
@@ -594,10 +607,10 @@ KnobGuiColor::onDimensionsExpanded()
 {
     QColor colors[4];
 
-    colors[0].setRgbF(0.851643, 0.196936, 0.196936);
-    colors[1].setRgbF(0, 0.654707, 0);
-    colors[2].setRgbF(0.345293, 0.345293, 1);
-    colors[3].setRgbF(0.398979, 0.398979, 0.398979);
+    colors[0] = QColor(0xd3, 0x3a, 0x3a);
+    colors[1] = QColor(0x2f, 0xa8, 0x4f);
+    colors[2] = QColor(0x55, 0x77, 0xff);
+    colors[3] = QColor(0xc8, 0xc8, 0xc8);
 
     KnobColorPtr knob = _knob.lock();
     int nDims = knob->getDimension();
@@ -613,6 +626,9 @@ KnobGuiColor::onDimensionsExpanded()
         getSpinBox(i, &sb, &label);
         assert(sb);
         sb->setUseLineColor(true, colors[i]);
+        if (label) {
+            label->hide(); // SOLVFX: colour underline instead of r/g/b/a letters
+        }
     }
     Q_EMIT dimensionSwitchToggled(true);
 }

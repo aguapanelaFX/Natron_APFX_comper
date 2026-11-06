@@ -1,0 +1,89 @@
+diff --git a/ofxsMaskMix.h b/ofxsMaskMix.h
+index 0ec9e88..436972c 100644
+--- a/ofxsMaskMix.h
++++ b/ofxsMaskMix.h
+@@ -36,13 +36,13 @@
+     "Use if the input images are premultiplied."
+ 
+ #define kParamPremultChannel "premultChannel"
+-#define kParamPremultChannelLabel "By"
++#define kParamPremultChannelLabel "by"
+ #define kParamPremultChannelHint \
+     "The channel to use for (un)premult."
+-#define kParamPremultChannelR "R", "R channel from input", "r"
+-#define kParamPremultChannelG "G", "G channel from input", "g"
+-#define kParamPremultChannelB "B", "B channel from input", "b"
+-#define kParamPremultChannelA "A", "A channel from input", "a"
++#define kParamPremultChannelR "rgba.red", "R channel from input", "r"
++#define kParamPremultChannelG "rgba.green", "G channel from input", "g"
++#define kParamPremultChannelB "rgba.blue", "B channel from input", "b"
++#define kParamPremultChannelA "rgba.alpha", "A channel from input", "a"
+ 
+ #define kParamMix "mix"
+ #define kParamMixLabel "Mix"
+@@ -81,7 +81,7 @@ ofxsPremultDescribeParams(OFX::ImageEffectDescriptor &desc,
+         param->appendOption(kParamPremultChannelB);
+         param->appendOption(kParamPremultChannelA);
+         param->setDefault(3); // alpha
+-        param->setIsSecret(true); // not yet implemented
++        // SOLVFX: implemented (un)premult by any of the input channels
+         if (page) {
+             page->addChild(*param);
+         }
+@@ -233,7 +233,7 @@ void
+ ofxsUnPremult(const PIX *srcPix,
+               float unpPix[4],
+               bool premult,
+-              int /*premultChannel*/)
++              int premultChannel)
+ {
+     if (!srcPix) {
+         // no src pixel here, be black and transparent
+@@ -273,6 +273,20 @@ ofxsUnPremult(const PIX *srcPix,
+     }
+ 
+     assert(nComponents == 4);
++    if ( (premultChannel >= 0) && (premultChannel < 3) ) {
++        // SOLVFX: unpremult by r, g or b; the "by" channel itself is kept
++        const PIX by = srcPix[premultChannel];
++        for (int c = 0; c < 3; ++c) {
++            if ( (c != premultChannel) && ( by > (PIX)(FLT_EPSILON * maxValue) ) ) {
++                unpPix[c] = srcPix[c] / (float)by;
++            } else {
++                unpPix[c] = srcPix[c] / (float)maxValue;
++            }
++        }
++        unpPix[3] = srcPix[3] / (float)maxValue;
++
++        return;
++    }
+     PIX alpha = srcPix[3];
+     if ( alpha > (PIX)(FLT_EPSILON * maxValue) ) {
+         unpPix[0] = srcPix[0] / (float)alpha;
+@@ -296,7 +310,7 @@ void
+ ofxsPremult(const float unpPix[4],
+             float *tmpPix,
+             bool premult,
+-            int /*premultChannel*/)
++            int premultChannel)
+ {
+     if (nComponents == 1) {
+         tmpPix[0] = unpPix[3] * maxValue;
+@@ -304,6 +318,17 @@ ofxsPremult(const float unpPix[4],
+         return;
+     }
+ 
++    if ( premult && (nComponents == 4) && (premultChannel >= 0) && (premultChannel < 3) ) {
++        // SOLVFX: premult by r, g or b; the "by" channel itself is kept
++        const float by = (std::max)(0.f, unpPix[premultChannel]);
++        for (int c = 0; c < 3; ++c) {
++            tmpPix[c] = (c == premultChannel ? unpPix[c] : unpPix[c] * by) * maxValue;
++        }
++        tmpPix[3] = unpPix[3] * maxValue;
++
++        return;
++    }
++
+     if ( !premult ) {
+         tmpPix[0] = unpPix[0] * maxValue;
+         if (nComponents >= 2) {

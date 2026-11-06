@@ -511,6 +511,9 @@ Gui::openPanelFloating(DockablePanel* panel)
     }
     FloatingWidget* window = panel->getFloatingWindow();
     if (window) {
+        if ( !window->isVisible() ) {
+            panel->solvfxShowBottomBar(true); // new revert point
+        }
         window->show();
         window->raise();
         window->activateWindow();

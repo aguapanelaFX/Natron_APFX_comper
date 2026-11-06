@@ -40,6 +40,7 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/KnobTypes.h"
+#include "Engine/EffectInstance.h"
 #include "Gui/KnobGui.h"
 #include "Gui/ClickableLabel.h"
 #include "Gui/KnobGuiGroup.h"
@@ -704,6 +705,23 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
         KnobClickableLabel* label = 0;
         Label* warningLabel = 0;
         std::string descriptionLabel = ret->getDescriptionLabel();
+        // SOLVFX: Nuke-like Read panel ("Frame Range [1] [hold] [338] [hold]", "Frame [mode] [value]")
+        {
+            EffectInstance* fx = dynamic_cast<EffectInstance*>( knob->getHolder() );
+            if ( fx && fx->isReader() ) {
+                const std::string& n = knob->getName();
+                if (n == "firstFrame") {
+                    descriptionLabel = "Frame Range";
+                } else if (n == "frameMode") {
+                    descriptionLabel = "Frame";
+                } else if (n == "onMissingFrame") {
+                    descriptionLabel = "Missing Frames";
+                } else if ( !makeNewLine && (n == "before" || n == "lastFrame" || n == "after" ||
+                                             n == "startingTime" || n == "timeOffset") ) {
+                    descriptionLabel.clear();
+                }
+            }
+        }
         const std::string& labelIconFilePath = knob->getIconLabel();
         QWidget *labelContainer = 0;
         QHBoxLayout *labelLayout = 0;

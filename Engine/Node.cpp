@@ -2804,6 +2804,35 @@ Node::initializeKnobs(bool loadingSerialization)
     }
     _imp->effect->endChanges();
 
+    // SOLVFX: Nuke-like Read: "Frame Range [first] [before] [last] [after]" on one row
+    if ( _imp->effect->isReader() ) {
+        KnobIPtr before = _imp->effect->getKnobByName("before");
+        if (before) {
+            before->setAddNewLine(false);
+        }
+    }
+
+    // SOLVFX: a row whose leading knobs are hidden (e.g. the generators' extent/recenter
+    // sharing a line with Format) would show the visible ones inline after an empty label.
+    // End the row at the last hidden leading knob so the visible ones start their own row.
+    {
+        const KnobsVec& all = _imp->effect->getKnobs();
+        std::size_t rowStart = 0;
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            const bool endsRow = all[i]->isNewLineActivated() || (i + 1 == all.size());
+            if (endsRow) {
+                std::size_t j = rowStart;
+                while ( j < i && all[j]->getIsSecret() && all[j]->getParentKnob() == all[i]->getParentKnob() ) {
+                    ++j;
+                }
+                if (j > rowStart && j <= i && !all[j]->getIsSecret()) {
+                    all[j - 1]->setAddNewLine(true);
+                }
+                rowStart = i + 1;
+            }
+        }
+    }
+
     _imp->knobsInitialized = true;
 
     Q_EMIT knobsInitialized();

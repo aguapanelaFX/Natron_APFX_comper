@@ -911,6 +911,8 @@ GuiApplicationManager::initGui(const CLArgs& args)
             }
         }
         QFont font(fontFamily, fontSize);
+        // SOLVFX: the whole UI text ~10% smaller
+        font.setPointSizeF(fontSize * 0.9);
         if ( !font.exactMatch() ) {
             QFontInfo fi(font);
             qDebug() << "Not an exact match, got: " << fi.family() << fi.pointSize();

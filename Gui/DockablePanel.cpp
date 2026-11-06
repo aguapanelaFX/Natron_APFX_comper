@@ -64,6 +64,8 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/DockablePanelPrivate.h"
 #include "Gui/DockablePanelTabWidget.h"
 #include "Gui/FloatingWidget.h"
+#include <QPushButton>
+#include <QUndoStack>
 #include "Gui/Gui.h"
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/GuiDefines.h"
@@ -1301,7 +1303,9 @@ DockablePanel::floatPanel()
         _imp->_floatingWidget->setWidget(this);
         _imp->_floatingWidget->resize(curSize);
         _imp->_gui->registerFloatingWindow(_imp->_floatingWidget);
+        solvfxShowBottomBar(true);
     } else {
+        solvfxShowBottomBar(false);
         assert(_imp->_floatingWidget);
         _imp->_gui->unregisterFloatingWindow(_imp->_floatingWidget);
         _imp->_floatingWidget->removeEmbeddedWidget();
@@ -1325,6 +1329,59 @@ DockablePanel::setName(const QString & str)
         _imp->_nameLabel->setText(str);
     } else if (_imp->_nameLineEdit) {
         _imp->_nameLineEdit->setText(str);
+    }
+}
+
+// SOLVFX: Nuke-like Revert / Cancel / Close at the bottom of floating properties windows.
+// Revert undoes every change made since the window opened; Cancel reverts and closes.
+void
+DockablePanel::solvfxShowBottomBar(bool show)
+{
+    QWidget* bar = findChild<QWidget*>( QString::fromUtf8("solvfxBottomBar") );
+    if (!bar && show) {
+        bar = new QWidget(this);
+        bar->setObjectName( QString::fromUtf8("solvfxBottomBar") );
+        QHBoxLayout* l = new QHBoxLayout(bar);
+        l->setContentsMargins( TO_DPIX(6), TO_DPIY(3), TO_DPIX(6), TO_DPIY(5) );
+        l->setSpacing( TO_DPIX(6) );
+        l->addStretch();
+        const char* names[3] = { "Revert", "Cancel", "Close" };
+        QPushButton* btns[3];
+        for (int i = 0; i < 3; ++i) {
+            btns[i] = new QPushButton(tr(names[i]), bar);
+            btns[i]->setFocusPolicy(Qt::NoFocus);
+            btns[i]->setFixedHeight( TO_DPIY(20) );
+            btns[i]->setMinimumWidth( TO_DPIX(64) );
+            l->addWidget(btns[i]);
+        }
+        btns[0]->setToolTip( tr("Undo every change made since this window was opened.") );
+        btns[1]->setToolTip( tr("Revert the changes and close the window.") );
+        btns[2]->setToolTip( tr("Keep the changes and close the window.") );
+        QObject::connect( btns[0], &QPushButton::clicked, this, [this]() { solvfxRevert(); } );
+        QObject::connect( btns[1], &QPushButton::clicked, this, [this]() { solvfxRevert(); closePanel(); } );
+        QObject::connect( btns[2], &QPushButton::clicked, this, [this]() { closePanel(); } );
+        _imp->_mainLayout->addWidget(bar);
+    }
+    if (bar) {
+        if (show) {
+            QUndoStackPtr stack = getUndoStack();
+            bar->setProperty( "solvfxUndoIndex", stack ? stack->index() : 0 );
+        }
+        bar->setVisible(show);
+    }
+}
+
+void
+DockablePanel::solvfxRevert()
+{
+    QWidget* bar = findChild<QWidget*>( QString::fromUtf8("solvfxBottomBar") );
+    QUndoStackPtr stack = getUndoStack();
+    if (!bar || !stack) {
+        return;
+    }
+    int idx = bar->property("solvfxUndoIndex").toInt();
+    if ( idx < stack->index() ) {
+        stack->setIndex(idx);
     }
 }
 

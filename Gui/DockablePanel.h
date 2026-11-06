@@ -179,6 +179,12 @@ public Q_SLOTS:
     /*Internal slot, not meant to be called externally.*/
     void closePanel();
 
+public:
+    void solvfxShowBottomBar(bool show);
+    void solvfxRevert();
+
+public Q_SLOTS:
+
     /*Internal slot, not meant to be called externally.*/
     void minimizeOrMaximize(bool toggled);
 

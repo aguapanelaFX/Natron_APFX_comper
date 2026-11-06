@@ -150,6 +150,20 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
 
     cd "$TMP_PATH/openfx-misc"
 
+    # SOLVFX patches to the SupportExt submodule (e.g. (un)premult by channel)
+    for patch in "$INC_PATH"/patches/openfx-misc-supportext/*.patch; do
+        [ -f "$patch" ] || continue
+        if (cd SupportExt && git apply --check "$patch" 2>/dev/null); then
+            echo "Info: applying $(basename "$patch") to openfx-misc/SupportExt"
+            (cd SupportExt && git apply "$patch")
+        elif (cd SupportExt && git apply --check --reverse "$patch" 2>/dev/null); then
+            echo "Info: $(basename "$patch") already applied, skipping"
+        else
+            echo "Error: $(basename "$patch") does not apply to openfx-misc/SupportExt"
+            exit 1
+        fi
+    done
+
     # OSMesa (CPU OpenGL fallback for Shadertoy) is optional: it is only available
     # as a prebuilt package for MINGW64. Without it, Shadertoy renders on the GPU only.
     HAVE_OSMESA_LIB=0

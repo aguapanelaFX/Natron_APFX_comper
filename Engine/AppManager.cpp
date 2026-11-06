@@ -2053,6 +2053,10 @@ AppManager::registerPlugin(const QString& resourcesPath,
     if (mustCreateMutex) {
         pluginMutex = new QRecursiveMutex();
     }
+    // SOLVFX: plugins replaced by APFX ones are hidden from the menus (old projects still load them)
+    if ( pluginID == QString::fromUtf8("net.sf.openfx.Retime") ) {
+        isDeprecated = true;
+    }
     Plugin* plugin = new Plugin(binary, resourcesPath, pluginID, pluginLabel, pluginIconPath, groupIconPath, groups, pluginMutex, major, minor,
                                 isReader, isWriter, isDeprecated);
     std::string stdID = pluginID.toStdString();

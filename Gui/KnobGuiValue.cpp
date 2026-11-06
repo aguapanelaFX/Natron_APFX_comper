@@ -491,8 +491,8 @@ KnobGuiValue::createWidget(QHBoxLayout* layout)
             }
         }
         if (!showSlider || !isAutoFoldDimensionsEnabled()) {
-            _imp->slider->hide();
-            _imp->dimensionSwitchButton->setChecked(true);
+            // SOLVFX: go through expandAllDimensions so the fields share the slider width
+            expandAllDimensions();
         } else {
             foldAllDimensions();
         }
@@ -632,8 +632,16 @@ KnobGuiValue::expandAllDimensions()
     _imp->dimensionSwitchButton->setDown(true);
     _imp->slider->hide();
     for (std::size_t i = 0; i < _imp->spinBoxes.size(); ++i) {
+        SpinBox* sb = _imp->spinBoxes[i].first;
+        // SOLVFX: expanded fields fill the slider area and stay inside the panel
+        sb->setMinimumWidth( TO_DPIX(26) );
+        sb->setMaximumWidth(QWIDGETSIZE_MAX);
+        sb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        if ( sb->parentWidget() ) {
+            sb->parentWidget()->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        }
         if (i > 0) {
-            _imp->spinBoxes[i].first->show();
+            sb->show();
         }
         if (_imp->spinBoxes[i].second) {
             _imp->spinBoxes[i].second->show();
@@ -653,8 +661,15 @@ KnobGuiValue::foldAllDimensions()
     _imp->dimensionSwitchButton->setDown(false);
     _imp->slider->show();
     for (std::size_t i = 0; i < _imp->spinBoxes.size(); ++i) {
+        SpinBox* sb = _imp->spinBoxes[i].first;
+        sb->setMinimumWidth( TO_DPIX(35) );
+        sb->setMaximumWidth( TO_DPIX(50) );
+        sb->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        if ( sb->parentWidget() ) {
+            sb->parentWidget()->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        }
         if (i > 0) {
-            _imp->spinBoxes[i].first->hide();
+            sb->hide();
         }
         if (_imp->spinBoxes[i].second) {
             _imp->spinBoxes[i].second->hide();
