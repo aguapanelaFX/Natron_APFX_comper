@@ -51,7 +51,15 @@ jobs:
       - name: Install Natron pacman repository
         run: |
           ${GITHUB_WORKSPACE}/.github/workflows/install_natron_pacman_repo.sh ${GITHUB_WORKSPACE} ${GITHUB_WORKSPACE}/natron_pacman_repo
-          pacman -S --needed --noconfirm --overwrite "*" ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5 ${MINGW_PACKAGE_PREFIX}-python
+          # MSYS2 mirrors are sometimes very slow: no low-speed timeout, and retry
+          grep -q '^DisableDownloadTimeout' /etc/pacman.conf || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout/' /etc/pacman.conf
+          for attempt in 1 2 3 4; do
+            if pacman -S --needed --noconfirm --overwrite "*" ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5 ${MINGW_PACKAGE_PREFIX}-python; then
+              break
+            fi
+            echo "pacman failed (attempt ${attempt}), retrying in 20 s..."
+            sleep 20
+          done
           # Fail early if the deps meta-package could not be installed.
           pacman -Q ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5
           if [ ! -x ${MSYSTEM_PREFIX}/bin/python3.exe ] && [ -x ${MSYSTEM_PREFIX}/bin/python.exe ]; then cp ${MSYSTEM_PREFIX}/bin/python.exe ${MSYSTEM_PREFIX}/bin/python3.exe; fi
@@ -229,7 +237,15 @@ jobs:
       - name: Install Natron pacman repository
         run: |
           ${GITHUB_WORKSPACE}/.github/workflows/install_natron_pacman_repo.sh ${GITHUB_WORKSPACE} ${GITHUB_WORKSPACE}/natron_pacman_repo
-          pacman -S --needed --noconfirm --overwrite "*" ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5 ${MINGW_PACKAGE_PREFIX}-python
+          # MSYS2 mirrors are sometimes very slow: no low-speed timeout, and retry
+          grep -q '^DisableDownloadTimeout' /etc/pacman.conf || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout/' /etc/pacman.conf
+          for attempt in 1 2 3 4; do
+            if pacman -S --needed --noconfirm --overwrite "*" ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5 ${MINGW_PACKAGE_PREFIX}-python; then
+              break
+            fi
+            echo "pacman failed (attempt ${attempt}), retrying in 20 s..."
+            sleep 20
+          done
           # Fail early if the deps meta-package could not be installed.
           pacman -Q ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5
           if [ ! -x ${MSYSTEM_PREFIX}/bin/python3.exe ] && [ -x ${MSYSTEM_PREFIX}/bin/python.exe ]; then cp ${MSYSTEM_PREFIX}/bin/python.exe ${MSYSTEM_PREFIX}/bin/python3.exe; fi
