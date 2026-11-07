@@ -247,31 +247,45 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
 
     QSize buttonSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
     QSize buttonIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE) );
+    // SOLVFX: navigation buttons 50% bigger, grey icons
+    const QSize navSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE * 3 / 2), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE * 3 / 2) );
+    const QSize navIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE * 3 / 2), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE * 3 / 2) );
+    auto solvfxGrey = [&](QStyle::StandardPixmap sp) {
+        QImage im = style()->standardIcon(sp).pixmap(navIconSize * 2).toImage().convertToFormat(QImage::Format_ARGB32);
+        for (int y = 0; y < im.height(); ++y) {
+            QRgb* line = (QRgb*)im.scanLine(y);
+            for (int x = 0; x < im.width(); ++x) {
+                const int g = std::min(215, 150 + qGray(line[x]) / 4);
+                line[x] = qRgba( g, g, g, qAlpha(line[x]) );
+            }
+        }
+        return QIcon( QPixmap::fromImage(im) );
+    };
 
-    _previousButton = new Button(style()->standardIcon(QStyle::SP_ArrowBack), QString(), _buttonsWidget);
-    _previousButton->setFixedSize(buttonSize);
-    _previousButton->setIconSize(buttonIconSize);
+    _previousButton = new Button(solvfxGrey(QStyle::SP_ArrowBack), QString(), _buttonsWidget);
+    _previousButton->setFixedSize(navSize);
+    _previousButton->setIconSize(navIconSize);
     _previousButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Go back in the directory history."), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _buttonsLayout->addWidget(_previousButton);
     QObject::connect( _previousButton, SIGNAL(clicked()), this, SLOT(previousFolder()) );
 
-    _nextButton = new Button(style()->standardIcon(QStyle::SP_ArrowForward), QString(), _buttonsWidget);
-    _nextButton->setFixedSize(buttonSize);
-    _nextButton->setIconSize(buttonIconSize);
+    _nextButton = new Button(solvfxGrey(QStyle::SP_ArrowForward), QString(), _buttonsWidget);
+    _nextButton->setFixedSize(navSize);
+    _nextButton->setIconSize(navIconSize);
     _nextButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Go forward in the directory history."), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _buttonsLayout->addWidget(_nextButton);
     QObject::connect( _nextButton, SIGNAL(clicked()), this, SLOT(nextFolder()) );
 
-    _upButton = new Button(style()->standardIcon(QStyle::SP_ArrowUp), QString(), _buttonsWidget);
-    _upButton->setIconSize(buttonIconSize);
-    _upButton->setFixedSize(buttonSize);
+    _upButton = new Button(solvfxGrey(QStyle::SP_ArrowUp), QString(), _buttonsWidget);
+    _upButton->setIconSize(navIconSize);
+    _upButton->setFixedSize(navSize);
     _upButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Go to the parent directory."), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _buttonsLayout->addWidget(_upButton);
     QObject::connect( _upButton, SIGNAL(clicked()), this, SLOT(parentFolder()) );
 
-    _createDirButton = new Button(style()->standardIcon(QStyle::SP_FileDialogNewFolder), QString(), _buttonsWidget);
-    _createDirButton->setIconSize(buttonIconSize);
-    _createDirButton->setFixedSize(buttonSize);
+    _createDirButton = new Button(solvfxGrey(QStyle::SP_FileDialogNewFolder), QString(), _buttonsWidget);
+    _createDirButton->setIconSize(navIconSize);
+    _createDirButton->setFixedSize(navSize);
     _createDirButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Create a new directory here."), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _buttonsLayout->addWidget(_createDirButton);
     QObject::connect( _createDirButton, SIGNAL(clicked()), this, SLOT(createDir()) );
@@ -490,6 +504,23 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
     initialBookmarks.push_back( QUrl::fromLocalFile( QLatin1String("") ) );
 #endif
 
+    // SOLVFX: standard places + every drive in the sidebar
+    {
+        const QStandardPaths::StandardLocation locs[] = {
+            QStandardPaths::DesktopLocation, QStandardPaths::DocumentsLocation, QStandardPaths::DownloadLocation,
+            QStandardPaths::PicturesLocation, QStandardPaths::MoviesLocation
+        };
+        for (QStandardPaths::StandardLocation l : locs) {
+            const QString path = QStandardPaths::writableLocation(l);
+            if ( !path.isEmpty() && QDir(path).exists() ) {
+                initialBookmarks.push_back( QUrl::fromLocalFile(path) );
+            }
+        }
+        const QFileInfoList drives = QDir::drives();
+        for (int i = 0; i < drives.size(); ++i) {
+            initialBookmarks.push_back( QUrl::fromLocalFile( drives[i].absoluteFilePath() ) );
+        }
+    }
     _favoriteView->setModelAndUrls(_favoriteViewModel.get(), initialBookmarks);
 
 
@@ -2477,6 +2508,16 @@ FileDialogComboBox::showPopup()
     }
     // add "my computer"
     list.push_back( QUrl::fromLocalFile( QLatin1String("") ) );
+    // SOLVFX: every drive
+    {
+        const QFileInfoList drives = QDir::drives();
+        for (int i = 0; i < drives.size(); ++i) {
+            const QUrl u = QUrl::fromLocalFile( drives[i].absoluteFilePath() );
+            if ( std::find(list.begin(), list.end(), u) == list.end() ) {
+                list.push_back(u);
+            }
+        }
+    }
     urlModel->addUrls(list, 0);
     idx = model()->index(model()->rowCount() - 1, 0);
 
