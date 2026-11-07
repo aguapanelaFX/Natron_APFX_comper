@@ -34,6 +34,7 @@
 #include "Engine/GroupOutput.h"
 #include "Engine/AppInstance.h"
 #include "Engine/KnobTypes.h"
+#include "Engine/KnobFile.h"
 #include "Engine/Settings.h"
 #include "Engine/TimeLine.h"
 #include "Engine/Project.h"
@@ -1610,6 +1611,25 @@ Node::onInputChanged(int inputNb,
 
     refreshMaskEnabledNess(inputNb);
     refreshLayersChoiceSecretness(inputNb);
+
+    // SOLVFX: APFX Cryptomatte reads its manifest from the EXR of the upstream Read
+    if ( _imp->effect && (_imp->effect->getPluginID() == "com.aguapanelafx.APFX.Cryptomatte") ) {
+        KnobStringBasePtr manifest = std::dynamic_pointer_cast<KnobStringBase>( getKnobByName("manifestFile") );
+        NodePtr n = getInput(0);
+        for (int guard = 0; n && guard < 128; ++guard) {
+            if ( n->getEffectInstance() && n->getEffectInstance()->isReader() ) {
+                KnobFilePtr file = std::dynamic_pointer_cast<KnobFile>( n->getKnobByName(kOfxImageEffectFileParamName) );
+                if (file && manifest) {
+                    const std::string path = file->getFileName( (int)getApp()->getTimeLine()->currentFrame(), ViewSpec(0) );
+                    if ( !path.empty() && (manifest->getValue() != path) ) {
+                        manifest->setValue(path);
+                    }
+                }
+                break;
+            }
+            n = n->getInput(0);
+        }
+    }
 
     InspectorNode* isInspector = dynamic_cast<InspectorNode*>(this);
     if (isInspector) {
