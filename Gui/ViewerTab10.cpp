@@ -573,23 +573,15 @@ ViewerTab::seek(SequenceTime time)
 void
 ViewerTab::previousFrame()
 {
-    int prevFrame = _imp->timeLineGui->currentFrame() - 1;
-
-    if ( prevFrame  < _imp->timeLineGui->leftBound() ) {
-        prevFrame = _imp->timeLineGui->rightBound();
-    }
-    seek(prevFrame);
+    // SOLVFX: Nuke-like, stepping does not wrap around the range
+    seek(_imp->timeLineGui->currentFrame() - 1);
 }
 
 void
 ViewerTab::nextFrame()
 {
-    int nextFrame = _imp->timeLineGui->currentFrame() + 1;
-
-    if ( nextFrame  > _imp->timeLineGui->rightBound() ) {
-        nextFrame = _imp->timeLineGui->leftBound();
-    }
-    seek(nextFrame);
+    // SOLVFX: Nuke-like, stepping does not wrap around the range
+    seek(_imp->timeLineGui->currentFrame() + 1);
 }
 
 void

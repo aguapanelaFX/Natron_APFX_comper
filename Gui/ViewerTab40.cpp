@@ -218,6 +218,9 @@ ViewerTab::solvfxSetInOut(int in,
     _imp->inPoint = in;
     _imp->outPoint = out;
     _imp->inOutPointsSet = true;
+    if (_imp->timelineRangeMode == 2) {
+        _imp->timeLineGui->solvfxSetRangeEnds(in, out);
+    }
     _imp->solvfxApplyingRange = true;
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged(in, out);
@@ -1330,6 +1333,13 @@ ViewerTab::applyTimelineRangeMode()
         in = _imp->inPoint;
         out = _imp->outPoint;
     }
+    _imp->solvfxPolledFirst = first;
+    _imp->solvfxPolledLast = last;
+    if (_imp->timelineRangeMode == 2) {
+        _imp->timeLineGui->solvfxSetRangeEnds(in, out);
+    } else {
+        _imp->timeLineGui->solvfxSetRangeEnds( (int)first, (int)last );
+    }
     _imp->solvfxApplyingRange = true;
     setTimelineBounds(in, out);
     onTimelineBoundariesChanged( (SequenceTime)in, (SequenceTime)out );
@@ -1344,6 +1354,21 @@ ViewerTab::applyTimelineRangeMode()
         _imp->timeLineGui->centerOn( (SequenceTime)in, (SequenceTime)out );
     } else {
         _imp->timeLineGui->centerOn( (SequenceTime)first, (SequenceTime)last );
+    }
+}
+
+void
+ViewerTab::solvfxPollModeRange()
+{
+    // SOLVFX: re-apply the Input range when what is upstream changes it
+    const int mode = (_imp->timelineRangeMode == 3) ? _imp->solvfxPrevRangeMode : _imp->timelineRangeMode;
+    if ( (mode != 1) || (_imp->timelineRangeMode == 3) || !_imp->timeLineGui || !isVisible() ) {
+        return;
+    }
+    double f, l;
+    solvfxModeRange(&f, &l);
+    if ( (f != _imp->solvfxPolledFirst) || (l != _imp->solvfxPolledLast) ) {
+        applyTimelineRangeMode();
     }
 }
 

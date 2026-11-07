@@ -88,6 +88,10 @@ private:
     virtual void resizeEvent(QResizeEvent* e) OVERRIDE FINAL;
     virtual void closeEvent(QCloseEvent* e) OVERRIDE;
     virtual void keyPressEvent(QKeyEvent* e) OVERRIDE;
+#ifdef Q_OS_WIN
+    // SOLVFX: bigger resize grab zones (corners / bottom edge)
+    virtual bool nativeEvent(const QByteArray& eventType, void* message, long* result) OVERRIDE;
+#endif
     QWidget* _embeddedWidget;
     QScrollArea* _scrollArea;
     QVBoxLayout* _layout;

@@ -172,6 +172,7 @@ struct TimelineGuiPrivate
     mutable QMutex frameRangeEditedMutex;
     bool isFrameRangeEdited;
     bool solvfxBoundsVisible = false;
+    int solvfxRangeFirst = 0, solvfxRangeLast = -1; // SOLVFX: shown range ends, always labelled
     bool seekingTimeline;
     bool isTimeFormatFrames;
 
@@ -406,6 +407,8 @@ TimeLineGui::paintGL()
     double clearR, clearG, clearB;
     SettingsPtr settings = appPTR->getCurrentSettings();
     settings->getTimelineBGColor(&clearR, &clearG, &clearB);
+    // SOLVFX: the whole timeline uses the default grey (no dark zone outside the range)
+    settings->getBaseColor(&clearR, &clearG, &clearB);
 
     if ( (left == right) || (top == bottom) ) {
         glClearColor(clearR, clearG, clearB, 1.);
@@ -579,7 +582,10 @@ TimeLineGui::paintGL()
             glEnd();
             glCheckErrorIgnoreOSXBug();
 
-            if (tickSize > minTickSizeText) {
+            const bool solvfxNearEnd = (_imp->solvfxRangeLast >= _imp->solvfxRangeFirst) &&
+                                       ( ( std::abs(value - _imp->solvfxRangeFirst) < minTickSizeText ) ||
+                                         ( std::abs(value - _imp->solvfxRangeLast) < minTickSizeText ) );
+            if ( (tickSize > minTickSizeText) && !solvfxNearEnd ) {
                 const int tickSizePixel = rangePixel * tickSize / range;
                 const QString s = _imp->isTimeFormatFrames ? QString::number(value) : timecodeString(value, fps);
                 const int sSizePixel =  fm.horizontalAdvance(s) / _imp->_screenPixelRatio;
@@ -603,6 +609,32 @@ TimeLineGui::paintGL()
             }
         }
         glCheckError();
+
+        // SOLVFX: first / last frame of the shown range are always labelled
+        if (_imp->solvfxRangeLast >= _imp->solvfxRangeFirst) {
+            QColor c;
+            c.setRgbF( Image::clamp<qreal>(txtR, 0., 1.),
+                       Image::clamp<qreal>(txtG, 0., 1.),
+                       Image::clamp<qreal>(txtB, 0., 1.) );
+            const int ends[2] = { _imp->solvfxRangeFirst, _imp->solvfxRangeLast };
+            for (int e = 0; e < 2; ++e) {
+                if ( (e == 1) && (ends[1] == ends[0]) ) {
+                    break;
+                }
+                const double v = ends[e];
+                if ( (v < range_min) || (v > range_max) ) {
+                    continue;
+                }
+                glColor4f(txtR, txtG, txtB, 1.);
+                glLineWidth(1.5 * _imp->_screenPixelRatio);
+                glBegin(GL_LINES);
+                glVertex2f(v, tickBottom);
+                glVertex2f(v, tickTop);
+                glEnd();
+                const QString s = _imp->isTimeFormatFrames ? QString::number(ends[e]) : timecodeString(v, fps);
+                renderText(v, btmLeft.y(), s, c, *_imp->_textFont, Qt::AlignHCenter);
+            }
+        }
 
         int cursorWidth = TO_DPIX(CURSOR_WIDTH);
         int cursorHeight = TO_DPIY(CURSOR_HEIGHT);
@@ -938,6 +970,17 @@ TimeLineGui::seek(SequenceTime time)
         _imp->seekingTimeline = true;
         _imp->timeline->onFrameChanged(time);
         _imp->seekingTimeline = false;
+        update();
+    }
+}
+
+void
+TimeLineGui::solvfxSetRangeEnds(int first,
+                                int last)
+{
+    if ( (_imp->solvfxRangeFirst != first) || (_imp->solvfxRangeLast != last) ) {
+        _imp->solvfxRangeFirst = first;
+        _imp->solvfxRangeLast = last;
         update();
     }
 }

@@ -445,6 +445,7 @@ public Q_SLOTS:
     void onSolvfxEmptyPlayTick();
     void onSolvfxClearInOutClicked();
     void applyTimelineRangeMode();
+    void solvfxPollModeRange();
     // SOLVFX: range of the current dropdown mode (Global / Input)
     void solvfxModeRange(double* first, double* last);
     // SOLVFX: Alt+I / Alt+O / Alt+U

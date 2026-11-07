@@ -37,6 +37,13 @@
 
 #include <QScrollArea>
 #include <QKeyEvent>
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <windowsx.h>
+#endif
 #include "Engine/Project.h"
 #include "Gui/DockablePanel.h"
 #include "Gui/Gui.h"
@@ -197,4 +204,47 @@ FloatingWidget::keyPressEvent(QKeyEvent* e)
 NATRON_NAMESPACE_EXIT
 
 NATRON_NAMESPACE_USING
+#ifdef Q_OS_WIN
+bool
+FloatingWidget::nativeEvent(const QByteArray& eventType,
+                            void* message,
+                            long* result)
+{
+    MSG* msg = static_cast<MSG*>(message);
+    if ( msg && (msg->message == WM_NCHITTEST) && !isMaximized() ) {
+        // let Windows answer first (title bar, its own thin borders)
+        const LRESULT def = DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
+        if (def != HTCLIENT) {
+            *result = (long)def;
+
+            return true;
+        }
+        RECT r;
+        GetWindowRect(msg->hwnd, &r);
+        const int x = GET_X_LPARAM(msg->lParam), y = GET_Y_LPARAM(msg->lParam);
+        const qreal dpr = devicePixelRatioF();
+        const int corner = (int)(18 * dpr), edge = (int)(6 * dpr);
+        const bool left = x < r.left + corner, right = x >= r.right - corner;
+        const bool bottom = y >= r.bottom - corner;
+        if (bottom && right) {
+            *result = HTBOTTOMRIGHT;
+
+            return true;
+        }
+        if (bottom && left) {
+            *result = HTBOTTOMLEFT;
+
+            return true;
+        }
+        if (y >= r.bottom - edge) {
+            *result = HTBOTTOM;
+
+            return true;
+        }
+    }
+
+    return QWidget::nativeEvent(eventType, message, result);
+}
+#endif
+
 #include "moc_FloatingWidget.cpp"

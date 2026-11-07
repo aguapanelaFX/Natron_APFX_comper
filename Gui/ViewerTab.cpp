@@ -1223,7 +1223,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->setSpacing( TO_DPIX(4) ); // SOLVFX: gap between playback buttons
         {
             // SOLVFX 3.3: wider playback buttons and fields (were cramped)
-            const QSize transportSize( TO_DPIX(24), TO_DPIY(19) ); // SOLVFX: compact (was 32x24)
+            const QSize transportSize( TO_DPIX(36), TO_DPIY(28) ); // SOLVFX: +50% (was 24x19)
             QWidget* transport[] = {
                 _imp->firstFrame_Button, _imp->previousKeyFrame_Button, _imp->play_Backward_Button, _imp->previousFrame_Button,
                 _imp->nextFrame_Button, _imp->play_Forward_Button, _imp->nextKeyFrame_Button, _imp->lastFrame_Button,
@@ -1234,7 +1234,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
                 if (w) {
                     w->setFixedSize(transportSize);
                     if ( QAbstractButton* b = qobject_cast<QAbstractButton*>(w) ) {
-                        b->setIconSize( QSize( TO_DPIX(13), TO_DPIY(13) ) );
+                        b->setIconSize( QSize( TO_DPIX(20), TO_DPIY(20) ) ); // SOLVFX: +50%
                     }
                 }
             }
@@ -1264,6 +1264,13 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         _imp->timelineRangeCombo->addItem( tr("Visible") );
         _imp->timelineRangeCombo->setCurrentIndex_no_emit(0);
         QObject::connect( _imp->timelineRangeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onTimelineRangeModeChanged(int)) );
+        // SOLVFX: Input mode follows upstream changes (e.g. a FrameRange enabled / disabled)
+        {
+            QTimer* poll = new QTimer(this);
+            poll->setInterval(400);
+            QObject::connect( poll, SIGNAL(timeout()), this, SLOT(solvfxPollModeRange()) );
+            poll->start();
+        }
 
         tl->addWidget(_imp->playBackInputSpinbox, 0, Qt::AlignVCenter);
         tl->addSpacing( TO_DPIX(4) );

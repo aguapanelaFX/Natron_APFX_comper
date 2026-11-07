@@ -128,6 +128,7 @@ public:
 
     // SOLVFX: the in / out markers are only drawn when the user set in / out points
     void solvfxSetBoundsVisible(bool visible);
+    void solvfxSetRangeEnds(int first, int last);
 
     void setTimeFormatFrames(bool value);
 

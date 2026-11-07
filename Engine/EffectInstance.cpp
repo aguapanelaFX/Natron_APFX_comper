@@ -3987,7 +3987,13 @@ EffectInstance::getFrameRange_public(U64 hash,
         }
 
         NON_RECURSIVE_ACTION();
-        getFrameRange(first, last);
+        // SOLVFX: a disabled FrameRange node gives the project (global) range
+        NodePtr solvfxNode = getNode();
+        if ( solvfxNode && solvfxNode->isNodeDisabled() && (solvfxNode->getPluginID() == "net.sf.openfx.FrameRange") && getApp() ) {
+            getApp()->getFrameRange(first, last);
+        } else {
+            getFrameRange(first, last);
+        }
         _imp->actionsCache->setTimeDomainResult(hash, *first, *last);
     }
 }

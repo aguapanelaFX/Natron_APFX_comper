@@ -210,6 +210,7 @@ struct ViewerTabPrivate
     bool solvfxApplyingRange = false; // true while the dropdown sets the bounds
     QTimer* solvfxEmptyPlayTimer = nullptr; // SOLVFX: plays the timeline when the viewer has no input
     int solvfxEmptyPlayDir = 1;
+    double solvfxPolledFirst = 0., solvfxPolledLast = -1.; // SOLVFX: last Input range applied
     int solvfxPrevRangeMode = 0;      // SOLVFX: mode to go back to from Visible
     bool solvfxVisibleSet = false;
     int solvfxVisibleFirst = 0, solvfxVisibleLast = 0;
