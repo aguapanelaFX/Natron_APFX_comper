@@ -58,6 +58,9 @@ public:
 
     // SOLVFX: true for SolvRoto (Roto + planar tracking)
     virtual bool isSolvRoto() const { return false; }
+    void solvfxShowTrackedFrames(bool shown);
+    std::list<std::pair<BezierCPPtr, BezierCPPtr> > solvfxCollectFeatherPoints(double time) const;
+    void solvfxDragFeather(double time, double amount);
 
     virtual bool isRotoPaintNode() const OVERRIDE FINAL WARN_UNUSED_RETURN  { return true; }
 

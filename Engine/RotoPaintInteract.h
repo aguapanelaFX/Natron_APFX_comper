@@ -536,6 +536,9 @@ public:
     bool evaluateOnKeyUp;  //< if true the next key up will call context->evaluateChange()
     bool iSelectingwithCtrlA;
     int shiftDown;
+    bool solvfxFeatherKey = false;   // SOLVFX: E held
+    bool solvfxFeatherDrag = false;  // SOLVFX: E + drag in progress
+    QPointF solvfxFeatherLast;
     int ctrlDown;
     int altDown;
     bool lastTabletDownTriggeredEraser;

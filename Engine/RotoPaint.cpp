@@ -116,6 +116,86 @@ RotoNode::getPluginDescription() const
     return "Create masks and shapes";
 }
 
+// SOLVFX: points the E feather drag works on: the selected points, else every point of the selected shapes
+std::list<std::pair<BezierCPPtr, BezierCPPtr> >
+RotoPaint::solvfxCollectFeatherPoints(double /*time*/) const
+{
+    std::list<std::pair<BezierCPPtr, BezierCPPtr> > ret;
+    for (SelectedCPs::const_iterator it = _imp->ui->selectedCps.begin(); it != _imp->ui->selectedCps.end(); ++it) {
+        if ( it->first && it->second ) {
+            ret.push_back( it->first->isFeatherPoint() ? std::make_pair(it->second, it->first) : *it );
+        }
+    }
+    if ( !ret.empty() ) {
+        return ret;
+    }
+    for (SelectedItems::const_iterator it = _imp->ui->selectedItems.begin(); it != _imp->ui->selectedItems.end(); ++it) {
+        BezierPtr b = std::dynamic_pointer_cast<Bezier>(*it);
+        if ( !b || b->isOpenBezier() ) {
+            continue;
+        }
+        std::list<BezierCPPtr> cps = b->getControlPoints_mt_safe();
+        std::list<BezierCPPtr> fps = b->getFeatherPoints_mt_safe();
+        std::list<BezierCPPtr>::iterator f = fps.begin();
+        for (std::list<BezierCPPtr>::iterator c = cps.begin(); c != cps.end() && f != fps.end(); ++c, ++f) {
+            ret.push_back( std::make_pair(*c, *f) );
+        }
+    }
+
+    return ret;
+}
+
+void
+RotoPaint::solvfxDragFeather(double time,
+                             double amount)
+{
+    std::list<std::pair<BezierCPPtr, BezierCPPtr> > pts = solvfxCollectFeatherPoints(time);
+    std::map<Bezier*, std::pair<double, double> > centroids;
+    for (std::list<std::pair<BezierCPPtr, BezierCPPtr> >::iterator it = pts.begin(); it != pts.end(); ++it) {
+        Bezier* b = it->first->getBezier().get();
+        if ( !b || ( centroids.find(b) != centroids.end() ) ) {
+            continue;
+        }
+        double sx = 0, sy = 0;
+        int n = 0;
+        const std::list<BezierCPPtr> cps = b->getControlPoints_mt_safe();
+        for (std::list<BezierCPPtr>::const_iterator c = cps.begin(); c != cps.end(); ++c, ++n) {
+            double x, y;
+            (*c)->getPositionAtTime(true, time, ViewIdx(0), &x, &y);
+            sx += x; sy += y;
+        }
+        centroids[b] = std::make_pair( n ? sx / n : 0., n ? sy / n : 0. );
+    }
+    for (std::list<std::pair<BezierCPPtr, BezierCPPtr> >::iterator it = pts.begin(); it != pts.end(); ++it) {
+        double cx, cy, fx, fy;
+        it->first->getPositionAtTime(true, time, ViewIdx(0), &cx, &cy);
+        it->second->getPositionAtTime(true, time, ViewIdx(0), &fx, &fy);
+        double dx = fx - cx, dy = fy - cy;
+        double len = std::sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) {
+            // no feather yet: push outward from the shape centre (the command projects it on the normal)
+            const std::pair<double, double>& c = centroids[ it->first->getBezier().get() ];
+            dx = cx - c.first; dy = cy - c.second;
+            len = std::sqrt(dx * dx + dy * dy);
+            if (len < 1e-6) {
+                continue;
+            }
+        }
+        dx = dx / len * amount;
+        dy = dy / len * amount;
+        pushUndoCommand( new MoveFeatherBarUndoCommand(_imp->ui, dx, dy, *it, time) );
+    }
+    redrawOverlayInteract();
+}
+
+void
+RotoPaint::solvfxShowTrackedFrames(bool shown)
+{
+    if (_imp->solv) {
+        _imp->solv->publishTrackedFrames(shown);
+    }
+}
+
 std::string
 SolvRotoNode::getPluginID() const
 {
@@ -1159,7 +1239,7 @@ RotoPaint::getPluginShortcuts(std::list<PluginActionShortcut>* shortcuts)
     shortcuts->push_back( PluginActionShortcut(kRotoUIParamPaintBrushToolButton, kRotoUIParamPaintBrushToolButtonLabel, Key_N) );
     shortcuts->push_back( PluginActionShortcut(kRotoUIParamCloneBrushToolButton, kRotoUIParamCloneBrushToolButtonLabel, Key_C) );
     shortcuts->push_back( PluginActionShortcut(kRotoUIParamEffectBrushToolButton, kRotoUIParamEffectBrushToolButtonLabel, Key_X) );
-    shortcuts->push_back( PluginActionShortcut(kRotoUIParamMergeBrushToolButton, kRotoUIParamMergeBrushToolButtonLabel, Key_E) );
+    shortcuts->push_back( PluginActionShortcut(kRotoUIParamMergeBrushToolButton, kRotoUIParamMergeBrushToolButtonLabel, Key_B) ); // SOLVFX: E = feather drag (Nuke)
 
     // Right click actions
     shortcuts->push_back( PluginActionShortcut(kRotoUIParamRightClickMenuActionRemoveItems, kRotoUIParamRightClickMenuActionRemoveItemsLabel, Key_BackSpace) );
@@ -1196,8 +1276,8 @@ RotoPaint::onKnobsLoaded()
 {
     _imp->ui->selectedItems = getNode()->getRotoContext()->getSelectedCurves();
 
-    // When loading a roto node, always switch to selection mode by default
-    KnobButtonPtr defaultAction = _imp->ui->selectAllAction.lock();
+    // When loading a roto node, always switch to selection mode by default (SOLVFX: select points, Nuke-like)
+    KnobButtonPtr defaultAction = _imp->ui->selectPointsAction.lock();
     KnobGroupPtr defaultRole = _imp->ui->selectToolGroup.lock();;
 
     _imp->ui->setCurrentTool(defaultAction);
@@ -1339,7 +1419,7 @@ RotoPaint::knobChanged(KnobI* k,
 
             _imp->ui->builtBezier.reset();
             _imp->ui->selectedCps.clear();
-            _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+            _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
             _imp->ui->getContext()->evaluateChange();
         }
     } else if ( k == _imp->ui->lockShapeMenuAction.lock().get() ) {
@@ -2166,7 +2246,7 @@ RotoPaint::onInteractViewportSelectionCleared()
 
             _imp->ui->builtBezier.reset();
             _imp->ui->selectedCps.clear();
-            _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+            _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
             _imp->ui->getContext()->evaluateChange();
         }
     }
@@ -2299,6 +2379,12 @@ RotoPaint::onOverlayPenDown(double time,
 
     if ( _imp->solv && _imp->solv->penDown( time, pos.x(), pos.y(), pixelScale.first ) ) {
         return true; // SOLVFX: dragging a SolvRoto surface corner
+    }
+    if ( _imp->ui->solvfxFeatherKey && solvfxCollectFeatherPoints(time).size() ) {
+        _imp->ui->solvfxFeatherDrag = true; // SOLVFX: E + drag feather
+        _imp->ui->solvfxFeatherLast = pos;
+
+        return true;
     }
     bool didSomething = false;
     double tangentSelectionTol = kTangentHandleSelectionTolerance * pixelScale.first;
@@ -2592,7 +2678,7 @@ RotoPaint::onOverlayPenDown(double time,
         if ( _imp->ui->builtBezier && _imp->ui->builtBezier->isCurveFinished() ) {
             _imp->ui->builtBezier.reset();
             _imp->ui->clearSelection();
-            _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+            _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
 
             return true;
         }
@@ -2612,7 +2698,7 @@ RotoPaint::onOverlayPenDown(double time,
                         _imp->ui->builtBezier.reset();
 
                         _imp->ui->selectedCps.clear();
-                        _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+                        _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
 
                         // continue editing the tangent
 
@@ -2735,6 +2821,15 @@ RotoPaint::onOverlayPenMotion(double time,
                               double timestamp)
 {
     if ( _imp->solv && _imp->solv->penMotion( time, pos.x(), pos.y() ) ) {
+        return true;
+    }
+    if (_imp->ui->solvfxFeatherDrag) {
+        const double amount = pos.x() - _imp->ui->solvfxFeatherLast.x(); // drag right = more feather
+        _imp->ui->solvfxFeatherLast = pos;
+        if (amount != 0.) {
+            solvfxDragFeather(time, amount);
+        }
+
         return true;
     }
     std::pair<double, double> pixelScale;
@@ -3167,6 +3262,11 @@ RotoPaint::onOverlayPenUp(double /*time*/,
     if ( _imp->solv && _imp->solv->penUp() ) {
         return true;
     }
+    if (_imp->ui->solvfxFeatherDrag) {
+        _imp->ui->solvfxFeatherDrag = false;
+
+        return true;
+    }
     RotoContextPtr context = getNode()->getRotoContext();
 
     assert(context);
@@ -3238,7 +3338,7 @@ RotoPaint::onOverlayPenUp(double /*time*/,
 
     if ( (_imp->ui->selectedTool == eRotoToolDrawEllipse) || (_imp->ui->selectedTool == eRotoToolDrawRectangle) ) {
         _imp->ui->selectedCps.clear();
-        _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+        _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
         ret = true;
     }
 
@@ -3259,6 +3359,10 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
 {
     bool didSomething = false;
 
+    if ( ( (key == Key_E) || (key == Key_e) ) && !(_imp->ui->ctrlDown) && !(_imp->ui->shiftDown) && !(_imp->ui->altDown) ) {
+        _imp->ui->solvfxFeatherKey = true; // SOLVFX: hold E + drag = feather of the selected points / shapes (Nuke)
+        return true;
+    }
     if ( _imp->solv && (key == Key_Escape) ) {
         KnobIPtr stop = getKnobByName("solvTrackStop");
         if (stop) {
@@ -3287,7 +3391,7 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
 
             _imp->ui->builtBezier.reset();
             _imp->ui->selectedCps.clear();
-            _imp->ui->setCurrentTool( _imp->ui->selectAllAction.lock() );
+            _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
             getNode()->getRotoContext()->evaluateChange();
             didSomething = true;
         }
@@ -3305,6 +3409,10 @@ RotoPaint::onOverlayKeyUp(double /*time*/,
 {
     bool didSomething = false;
 
+    if ( (key == Key_E) || (key == Key_e) ) {
+        _imp->ui->solvfxFeatherKey = false;
+        return true;
+    }
     if ( (key == Key_Shift_L) || (key == Key_Shift_R) ) {
         if (_imp->ui->shiftDown) {
             --_imp->ui->shiftDown;

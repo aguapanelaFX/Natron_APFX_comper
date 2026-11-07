@@ -49,6 +49,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/Project.h"
 #include "Engine/Settings.h"
 #include "Engine/TimeLine.h"
+#include "Engine/SolvRotoTrack.h"
 #include "Engine/ViewerInstance.h"
 
 #include "Gui/SolvfxConsole.h"
@@ -790,6 +791,23 @@ TimeLineGui::paintGL()
             }
         }
         glEnd();
+
+        // SOLVFX: SolvRoto tracked frames (blue), manual keyframes stay red on top
+        {
+            const std::vector<double> tracked = SolvRotoTrack::visibleTrackedFrames();
+            if ( !tracked.empty() ) {
+                glLineWidth(2 * _imp->_screenPixelRatio);
+                glBegin(GL_LINES);
+                glColor4f(0.24f, 0.55f, 1.f, 1.f);
+                for (std::size_t i = 0; i < tracked.size(); ++i) {
+                    if ( ( tracked[i] >= btmLeft.x() ) && ( tracked[i] <= topRight.x() ) ) {
+                        glVertex2f(tracked[i], lineYpos);
+                        glVertex2f(tracked[i] + 1, lineYpos);
+                    }
+                }
+                glEnd();
+            }
+        }
 
         ///now draw keyframes
         glLineWidth(2 * _imp->_screenPixelRatio);

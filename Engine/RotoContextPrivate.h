@@ -2010,6 +2010,8 @@ public:
         extraMatrix->setDefaultValue(1, 0);
         extraMatrix->setDefaultValue(1, 4);
         extraMatrix->setDefaultValue(1, 8);
+        // SOLVFX: holds the baked SolvRoto track; hidden so its keys show as tracked frames (blue), not keyframes (red)
+        extraMatrix->setSecretByDefault(true);
         transformPage->addKnob(extraMatrix);
         knobs.push_back(extraMatrix);
         extraMatrixKnob = extraMatrix;

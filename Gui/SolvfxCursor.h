@@ -28,6 +28,51 @@
 
 namespace SolvfxCursor {
 
+// arrow pixmap: fill + outline colours
+inline QCursor
+makeArrow(const QColor& fill, const QColor& outline, qreal outlineWidth)
+{
+    const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.;
+    const qreal s = 0.9;
+    const int w = (int)( 18 * s ), h = (int)( 26 * s );
+    QPixmap pm( (int)(w * dpr), (int)(h * dpr) );
+    pm.setDevicePixelRatio(dpr);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.scale(s, s);
+    p.translate(0.6, 0.6);
+    QPainterPath path;
+    path.moveTo(1, 1);
+    path.lineTo(1, 18.5);
+    path.lineTo(5.2, 14.6);
+    path.lineTo(8.1, 21.2);
+    path.lineTo(10.9, 20);
+    path.lineTo(8.1, 13.6);
+    path.lineTo(13.8, 13.6);
+    path.closeSubpath();
+    QPen pen(outline, outlineWidth);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(fill);
+    p.drawPath(path);
+    p.end();
+
+    return QCursor( pm, (int)(1.6 * s), (int)(1.6 * s) );
+}
+
+// white arrow with a thin black outline: viewer overlays (roto / tracker points)
+inline QCursor
+arrowWhite()
+{
+    static QCursor* c = 0;
+    if (!c) {
+        c = new QCursor( makeArrow( QColor(245, 245, 245), QColor(0, 0, 0), 0.9 ) );
+    }
+
+    return *c;
+}
+
 inline QCursor
 arrow()
 {

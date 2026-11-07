@@ -2804,6 +2804,33 @@ Node::initializeKnobs(bool loadingSerialization)
     }
     _imp->effect->endChanges();
 
+    // SOLVFX: Nuke-like FrameHold: "first frame [ ] [set to current frame]", new ones start at the current frame
+    if ( _imp->effect->getPluginID() == "net.sf.openfx.FrameHold" ) {
+        KnobIntPtr first = std::dynamic_pointer_cast<KnobInt>( _imp->effect->getKnobByName("firstFrame") );
+        KnobPagePtr page = first ? std::dynamic_pointer_cast<KnobPage>( first->getParentKnob() ) : KnobPagePtr();
+        if (first && page) {
+            KnobButtonPtr setBtn = AppManager::createKnob<KnobButton>( _imp->effect.get(), tr("set to current frame") );
+            setBtn->setName("solvfxSetToCurrentFrame");
+            setBtn->setHintToolTip( tr("Hold the current frame.") );
+            setBtn->setEvaluateOnChange(false);
+            setBtn->setIsPersistent(false);
+            KnobsVec children = page->getChildren();
+            int idx = 0;
+            for (std::size_t i = 0; i < children.size(); ++i) {
+                if (children[i] == first) {
+                    idx = (int)i + 1;
+                }
+            }
+            page->removeKnob( setBtn.get() );
+            page->insertKnob(idx, setBtn);
+            setBtn->setAddNewLine( first->isNewLineActivated() );
+            first->setAddNewLine(false);
+            if (!loadingSerialization) {
+                first->setValue( (int)getApp()->getTimeLine()->currentFrame() );
+            }
+        }
+    }
+
     // SOLVFX: Nuke-like Read: "Frame Range [first] [before] [last] [after]" on one row
     if ( _imp->effect->isReader() ) {
         KnobIPtr before = _imp->effect->getKnobByName("before");
@@ -5293,6 +5320,15 @@ Node::onEffectKnobValueChanged(KnobI* what,
     }
 
     bool ret = true;
+    if ( what->getName() == "solvfxSetToCurrentFrame" ) {
+        // SOLVFX FrameHold "set to current frame"
+        KnobIntPtr first = std::dynamic_pointer_cast<KnobInt>( _imp->effect->getKnobByName("firstFrame") );
+        if (first) {
+            first->setValue( (int)getApp()->getTimeLine()->currentFrame() );
+        }
+
+        return true;
+    }
     if ( what == _imp->previewEnabledKnob.lock().get() ) {
         if ( (reason == eValueChangedReasonUserEdited) || (reason == eValueChangedReasonSlaveRefresh) || (reason == eValueChangedReasonNatronInternalEdited) ) {
             Q_EMIT previewKnobToggled();
@@ -5957,6 +5993,9 @@ Node::showKeyframesOnTimeline(bool emitSignal)
         return;
     }
     _imp->keyframesDisplayedOnTimeline = true;
+    if ( RotoPaint* roto = dynamic_cast<RotoPaint*>( _imp->effect.get() ) ) {
+        roto->solvfxShowTrackedFrames(true); // SOLVFX: SolvRoto tracked frames in blue
+    }
     std::list<SequenceTime> keys;
     getAllKnobsKeyframes(&keys);
     getApp()->addMultipleKeyframeIndicatorsAdded(keys, emitSignal);
@@ -5970,6 +6009,9 @@ Node::hideKeyframesFromTimeline(bool emitSignal)
         return;
     }
     _imp->keyframesDisplayedOnTimeline = false;
+    if ( RotoPaint* roto = dynamic_cast<RotoPaint*>( _imp->effect.get() ) ) {
+        roto->solvfxShowTrackedFrames(false);
+    }
     std::list<SequenceTime> keys;
     getAllKnobsKeyframes(&keys);
     getApp()->removeMultipleKeyframeIndicator(keys, emitSignal);

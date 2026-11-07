@@ -67,6 +67,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Utils.h" // convertFromPlainText
 #include "Engine/ViewerInstance.h"
 
+#include "Gui/SolvfxCursor.h"
 #include "Gui/ActionShortcuts.h"
 #include "Gui/BackdropGui.h"
 #include "Gui/Button.h"
@@ -349,7 +350,7 @@ NodeGui::getColorFromGrouping(QColor* color)
 
     // SOLVFX Stamps: Anchors and Stamps share one colour (a disconnected Stamp turns red)
     if ( solvfxIsAnchorID( internalNode->getPluginID() ) || solvfxIsStampID( internalNode->getPluginID() ) ) {
-        color->setRgb(0x8a, 0x7c, 0x55);
+        color->setRgb(0x3c, 0x3c, 0x3c); // SOLVFX: dark gray (was khaki)
 
         return true;
     }
@@ -3134,12 +3135,19 @@ NodeGui::getOutputArrow() const
 }
 
 void
-NodeGui::setNameItemHtml(const QString & name,
+NodeGui::setNameItemHtml(const QString & nameIn,
                          const QString & label)
 {
     if ( !_graph->getGui() || !_nameItem) {
         return;
     }
+    // SOLVFX: Anchors / Stamps: name in capitals, light text on the dark gray body
+    bool solvfxStamp = false;
+    {
+        NodePtr n = getNode();
+        solvfxStamp = n && ( solvfxIsAnchorID( n->getPluginID() ) || solvfxIsStampID( n->getPluginID() ) );
+    }
+    const QString name = solvfxStamp ? nameIn.toUpper() : nameIn;
     QString textLabel;
 
     if ( !label.isEmpty() ) {
@@ -3240,6 +3248,10 @@ NodeGui::setNameItemHtml(const QString & name,
     bool antialias = appPTR->getCurrentSettings()->isNodeGraphAntiAliasingEnabled();
     if (!antialias) {
         f.setStyleStrategy(QFont::NoAntialias);
+    }
+    if (solvfxStamp) {
+        color = QColor(0xe8, 0xe8, 0xe8);
+        f.setBold(true);
     }
     _nameItem->setDefaultTextColor(color);
     _nameItem->setFont(f);
@@ -4097,6 +4109,12 @@ NodeGui::setCurrentCursor(CursorEnum defaultCursor)
     if (defaultCursor == eCursorDefault) {
         isViewer->unsetCursor();
     }
+    if (defaultCursor == eCursorCross) {
+        // SOLVFX: overlays (roto points, ...) use a white arrow with a thin black outline, not a cross
+        isViewer->setCursor( SolvfxCursor::arrowWhite() );
+
+        return;
+    }
     Qt::CursorShape qtCursor;
     bool ok = QtEnumConvert::toQtCursor(defaultCursor, &qtCursor);
     if (!ok) {
@@ -4313,6 +4331,9 @@ void
 NodeGui::solvfxRefreshStampLook()
 {
     NodePtr node = getNode();
+    if ( node && solvfxIsAnchorID( node->getPluginID() ) && ( getCurrentColor() == QColor(0x8a, 0x7c, 0x55) ) ) {
+        setCurrentColor( QColor(0x3c, 0x3c, 0x3c) ); // old khaki Anchors (earlier comps) -> dark gray
+    }
     if ( !node || !solvfxIsStampID( node->getPluginID() ) ) {
         return;
     }
@@ -4320,7 +4341,7 @@ NodeGui::solvfxRefreshStampLook()
     const bool connected = in && solvfxIsAnchorID( in->getPluginID() );
     QColor c;
     if (connected) {
-        c.setRgb(0x8a, 0x7c, 0x55);
+        c.setRgb(0x3c, 0x3c, 0x3c);
         if ( node->getLabel() != in->getLabel() ) {
             node->setLabel( in->getLabel() );
         }

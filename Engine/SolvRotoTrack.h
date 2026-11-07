@@ -58,6 +58,10 @@ public:
 
     static std::vector<std::string> exportOptions();
 
+    // timeline: tracked frames of the SolvRoto whose keyframes are shown (drawn blue)
+    static std::vector<double> visibleTrackedFrames();
+    void publishTrackedFrames(bool shown);
+
 private:
     struct Quad
     {

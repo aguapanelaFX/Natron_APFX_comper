@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include <QtCore/QMetaObject>
+#include <QtCore/QMutex>
 #include <QtCore/QString>
 
 #include <libmv/image/image.h>
@@ -49,6 +50,11 @@
 #include "Engine/TrackerContext.h"
 
 NATRON_NAMESPACE_ENTER
+
+// tracked frames shown on the timeline (one SolvRoto at a time: the last one whose panel is open)
+static QMutex g_trackedMutex;
+static const void* g_trackedOwner = 0;
+static std::vector<double> g_trackedFrames;
 
 // --------------------------------------------------------------------------------------------
 // knobs
@@ -87,9 +93,42 @@ SolvRotoTrack::SolvRotoTrack(RotoPaint* effect)
 
 SolvRotoTrack::~SolvRotoTrack()
 {
+    {
+        QMutexLocker l(&g_trackedMutex);
+        if (g_trackedOwner == this) {
+            g_trackedOwner = 0;
+            g_trackedFrames.clear();
+        }
+    }
     _abort = true;
     if ( _worker.joinable() ) {
         _worker.join();
+    }
+}
+
+
+std::vector<double>
+SolvRotoTrack::visibleTrackedFrames()
+{
+    QMutexLocker l(&g_trackedMutex);
+
+    return g_trackedFrames;
+}
+
+void
+SolvRotoTrack::publishTrackedFrames(bool shown)
+{
+    QMutexLocker l(&g_trackedMutex);
+    if (shown) {
+        g_trackedOwner = this;
+        std::vector<double> f;
+        l.unlock();
+        getTrackedFrames(&f);
+        l.relock();
+        g_trackedFrames.swap(f);
+    } else if (g_trackedOwner == this) {
+        g_trackedOwner = 0;
+        g_trackedFrames.clear();
     }
 }
 
@@ -258,7 +297,7 @@ SolvRotoTrack::createKnobs()
         }
         exportMenu->populateChoices(o);
     }
-    exportMenu->setDefaultValue(1);
+    exportMenu->setDefaultValue(6); // Transform (match-move)
     exportMenu->setAnimationEnabled(false);
     exportMenu->setEvaluateOnChange(false);
     exportMenu->setAddNewLine(false);
@@ -943,6 +982,7 @@ SolvRotoTrack::onFrameTracked(int frame,
     ss << "tracking frame " << frame << " (match " << (int)std::floor(correlation * 100 + 0.5) << "%)";
     _k->status.lock()->setValue( ss.str() );
     NodePtr node = _effect->getNode();
+    publishTrackedFrames(true);
     node->getApp()->getTimeLine()->seekFrame(frame, false, 0, eTimelineChangeReasonOtherSeek);
     redraw();
 }
@@ -1104,6 +1144,7 @@ SolvRotoTrack::clearTrack(int which)
         _k->shapes.lock()->setValue("");
         _k->status.lock()->setValue("track cleared");
     }
+    publishTrackedFrames(true);
     redraw();
 }
 
@@ -1180,6 +1221,17 @@ SolvRotoTrack::exportNode(int option)
     const bool useCurrentFrame = (option == 0) || (option == 2);
     const bool stabilize = (option == 4) || (option == 5) || (option == 8) || (option == 9);
     const bool onePoint = (option == 5) || (option == 7) || (option == 9) || (option == 11);
+
+    if (!linked) {
+        // baked nodes show the frame they are relative to (node label under the name)
+        const int identity = useCurrentFrame ? (int)now : _k->refFrame.lock()->getValue();
+        KnobStringPtr label = std::dynamic_pointer_cast<KnobString>( created->getKnobByName(kUserLabelKnobName) );
+        if (label) {
+            std::stringstream ss;
+            ss << "ref frame : " << identity;
+            label->setValue( ss.str() );
+        }
+    }
 
     if (option < 4) {
         // CornerPin2D: from = surface at the identity frame, to = surface per frame
