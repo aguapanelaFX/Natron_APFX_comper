@@ -26,19 +26,19 @@ Natron--Label[altered="false"] { color: %5; }
 NodeSettingsPanel[_selected="true"],
 Natron--NodeSettingsPanel[_selected="true"] {
     border:1px solid white;
-    border-radius: 2px;
+    border-radius: 1px;
 }
 NodeSettingsPanel[_selected="false"],
 Natron--NodeSettingsPanel[_selected="false"] {
     border:1px solid black;
-    border-radius: 2px;
+    border-radius: 1px;
 }
 
 QToolTip {
    color: %5;
    background-color: black;
    border: 2px solid black;
-   border-radius: 5px;
+   border-radius: 2px;
    opacity: 200;
 }
 
@@ -194,7 +194,7 @@ QHeaderView:section {
 
 ComboBox,
 Natron--ComboBox {
-    border-radius: 2px;
+    border-radius: 1px;
     border: 1px solid black;
 }
 
@@ -283,7 +283,7 @@ QPushButton{
     background-color: %3;
     color: %5;
     border: 0.5px solid black;
-    border-radius: 3px;
+    border-radius: 1px;
     padding: 3px;
 }
 QPushButton:pressed{
@@ -317,7 +317,7 @@ NodeCreationDialog,
 Natron--NodeCreationDialog {
     background-color: %2;
     border: 5px black;
-    border-radius:2px;
+    border-radius:1px;
 }
 
 QToolButton {
@@ -437,7 +437,7 @@ QLineEdit {
 
 QLineEdit:focus {
     border: 2px groove %1;
-    border-radius: 2px;
+    border-radius: 1px;
     /*padding: 2px 4px;*/
 }
 QLineEdit:!enabled {
@@ -479,8 +479,8 @@ QTabBar::tab {
     padding-right: 6px;
     padding-top: 4px;
     padding-bottom: 2px;
-    border-top-right-radius: 5px;
-    border-top-left-radius: 5px;
+    border-top-right-radius: 2px;
+    border-top-left-radius: 2px;
 }
 
 QTabBar::tab#DockablePanelTabWidget,
@@ -634,7 +634,7 @@ QTextEdit:read-only{
 }
 QTextEdit:focus {
     border: 2px groove %1;
-    border-radius: 4px;
+    border-radius: 2px;
     padding: 2px 4px;
 }
 
@@ -807,7 +807,7 @@ QMenuBar::item {
 QMenuBar::item:selected {
     background: #e0743a;
     color: #141414;
-    border-radius: 4px;
+    border-radius: 2px;
 }
 
 QMenu {
@@ -817,7 +817,7 @@ QMenu {
 }
 QMenu::item {
     padding: 4px 22px 4px 22px;
-    border-radius: 4px;
+    border-radius: 2px;
 }
 QMenu::item:selected {
     background-color: #e0743a;
@@ -836,7 +836,7 @@ QToolTip {
     color: #dcdcdc;
     background-color: #1b1b1b;
     border: 1px solid #4a4a4a;
-    border-radius: 6px;
+    border-radius: 2px;
     padding: 4px 6px;
 }
 
@@ -845,7 +845,7 @@ QPushButton {
     background-color: #444444;
     color: #dcdcdc;
     border: 1px solid #141414;
-    border-radius: 6px;
+    border-radius: 2px;
     padding: 2px 6px;
 }
 QPushButton:hover {
@@ -879,14 +879,14 @@ QDialogButtonBox QPushButton:default {
 QLineEdit {
     background-color: #262626;
     border: 1px solid #141414;
-    border-radius: 3px;
+    border-radius: 1px;
     padding: 1px 4px;
     selection-background-color: #e0743a;
     selection-color: #141414;
 }
 QLineEdit:focus {
     border: 1px solid #e0743a;
-    border-radius: 3px;
+    border-radius: 1px;
 }
 SpinBox[animation="0"],
 Natron--SpinBox[animation="0"],
@@ -897,13 +897,13 @@ Natron--LineEdit[animation="0"] {
 QTextEdit, QPlainTextEdit {
     background-color: #262626;
     border: 1px solid #141414;
-    border-radius: 3px;
+    border-radius: 1px;
     selection-background-color: #e0743a;
     selection-color: #141414;
 }
 QTextEdit:focus {
     border: 1px solid #e0743a;
-    border-radius: 3px;
+    border-radius: 1px;
     padding: 0px;
 }
 
@@ -911,7 +911,7 @@ QTextEdit:focus {
 QComboBox {
     background-color: #262626;
     border: 1px solid #141414;
-    border-radius: 6px;
+    border-radius: 2px;
     padding: 1px 18px 1px 7px;
     selection-background-color: #e0743a;
 }
@@ -928,7 +928,7 @@ QCheckBox::indicator {
     width: 13px;
     height: 13px;
     border: 1px solid #141414;
-    border-radius: 3px;
+    border-radius: 1px;
     background-color: #262626;
 }
 QCheckBox::indicator:unchecked,
@@ -957,28 +957,28 @@ QScrollBar:vertical {
     background: #262626;
     width: 10px;
     margin: 0px;
-    border-radius: 5px;
+    border-radius: 2px;
 }
 QScrollBar:horizontal {
     border: none;
     background: #262626;
     height: 10px;
     margin: 0px;
-    border-radius: 5px;
+    border-radius: 2px;
 }
 QScrollBar::handle:vertical {
     image: none;
     background: #5a5a5a;
     min-height: 24px;
     margin: 2px;
-    border-radius: 3px;
+    border-radius: 1px;
 }
 QScrollBar::handle:horizontal {
     image: none;
     background: #5a5a5a;
     min-width: 24px;
     margin: 2px;
-    border-radius: 3px;
+    border-radius: 1px;
 }
 QScrollBar::handle:vertical:hover,
 QScrollBar::handle:horizontal:hover {
@@ -1018,8 +1018,8 @@ QTabBar::tab {
     color: #8e8e8e;
     border: 1px solid #151515;
     border-bottom-style: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 2px;
     padding: 1px 8px 1px 9px;
     margin-right: 2px;
     min-width: 0px;
@@ -1069,7 +1069,7 @@ Natron--AutoHideToolBar QToolButton {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5a5a5a, stop:1 #4a4a4a);
     color: #d6d6d6;
     border: 1px solid #151515;
-    border-radius: 6px;
+    border-radius: 2px;
     margin: 1px 4px;
     padding: 2px;
 }
@@ -1118,20 +1118,20 @@ ClickableLabel[dirty="false"][animation="4"], Natron--ClickableLabel[dirty="fals
 NodeSettingsPanel[_selected="true"], Natron--NodeSettingsPanel[_selected="true"],
 NodeSettingsPanel[_selected="false"], Natron--NodeSettingsPanel[_selected="false"] {
     border: 2px solid transparent;
-    border-radius: 10px;
+    border-radius: 3px;
 }
 QFrame#SolvfxPanelHeader {
     background-color: #3b3b3b;
     border: none;
     border-bottom: 1px solid #222222;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
 }
 /* SOLVFX: header buttons are plain icons (no button body); a light tint on hover / when on */
 QFrame#SolvfxPanelHeader QPushButton {
     background-color: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: 1px;
     padding: 0px;
 }
 QFrame#SolvfxPanelHeader QPushButton:hover { background-color: #4a4a4a; }
@@ -1142,7 +1142,7 @@ QFrame#SolvfxPanelHeader QPushButton:focus { border: none; }
 /* SOLVFX: per-knob animation button (state follows the knob) */
 QPushButton#SolvfxAnimButton {
     padding: 0px;
-    border-radius: 6px;
+    border-radius: 2px;
 }
 QPushButton#SolvfxAnimButton[animState="1"] { background-color: #6b4a2a; border: 1px solid #e0743a; }
 QPushButton#SolvfxAnimButton[animState="2"] { background-color: #e0743a; }
@@ -1152,7 +1152,7 @@ QPushButton#SolvfxAnimButton[animState="4"] { background-color: #3f3358; border:
 /* SOLVFX: compact square dimension switch ("4") like the panel mock-up */
 QPushButton#SolvfxDimButton {
     padding: 0px;
-    border-radius: 3px;
+    border-radius: 1px;
     border: 1px solid #141414;
     background-color: #4a4a4a;
     color: #d0d0d0;

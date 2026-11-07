@@ -81,6 +81,7 @@ private:
     void bakeToSelectedShapes();
     void clearTrack(int which); // 0 all, -1 backward, +1 forward (from the current frame)
     void exportNode(int option);
+    void exportRoto();
     std::list<RotoDrawableItemPtr> trackedShapes() const;
     void getTrackedFrames(std::vector<double>* frames) const;
     void redraw();

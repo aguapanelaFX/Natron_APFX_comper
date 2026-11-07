@@ -5362,11 +5362,24 @@ EffectInstance::getDefaultMetadata(NodeMetadata &metadata)
 
     double inputPar = 1.;
     bool inputParSet = false;
+    // SOLVFX: Nuke-like, the B input rules fps / pixel aspect / format on A/B nodes (Merge, ...)
+    int solvfxB = -1;
+    for (int i = 0; i < nInputs; ++i) {
+        if ( inputs[i] && (node->getInputLabel(i) == "B") ) {
+            solvfxB = i;
+            break;
+        }
+    }
+    if (solvfxB >= 0) {
+        frameRate = inputs[solvfxB]->getFrameRate();
+        inputPar = inputs[solvfxB]->getAspectRatio(-1);
+        inputParSet = true;
+    }
     ImagePremultiplicationEnum premult = eImagePremultiplicationOpaque;
     bool premultSet = false;
     for (int i = 0; i < nInputs; ++i) {
         const EffectInstancePtr& input = inputs[i];
-        if (input) {
+        if (input && solvfxB < 0) {
             frameRate = std::max( frameRate, input->getFrameRate() );
         }
 
@@ -5435,6 +5448,12 @@ EffectInstance::getDefaultMetadata(NodeMetadata &metadata)
     // Format: Take format from the first non optional input if any. Otherwise from the first optional input.
     // Otherwise fallback on project format
     bool firstOptionalInputFormatSet = false, firstNonOptionalInputFormatSet = false;
+    if (solvfxB >= 0) {
+        firstNonOptionalInputFormat = inputs[solvfxB]->getOutputFormat();
+        firstNonOptionalInputFormatSet = true;
+        firstOptionalInputFormat = firstNonOptionalInputFormat;
+        firstOptionalInputFormatSet = true;
+    }
 
     // now add the input gubbins to the per inputs metadata
     for (int i = -1; i < (int)inputs.size(); ++i) {

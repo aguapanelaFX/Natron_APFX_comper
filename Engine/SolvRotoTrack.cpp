@@ -58,7 +58,9 @@ struct SolvRotoTrack::Knobs
     KnobPageWPtr page;
     KnobStringWPtr status;
     KnobChoiceWPtr motion;
-    KnobIntWPtr refFrame;
+    KnobIntWPtr refFrame;          // user reference frame (identity for exports)
+    KnobIntWPtr origin;            // frame where the track started (shapes defined there)
+    KnobButtonWPtr setRef;
     KnobButtonWPtr trackBw, trackPrev, stop, trackNext, trackFw;
     KnobBoolWPtr showSurface, showGrid;
     KnobIntWPtr gridSize;
@@ -96,6 +98,7 @@ SolvRotoTrack::exportOptions()
 {
     std::vector<std::string> o = TrackerContext::solvfxExportOptions();
     o.push_back("Tracker (4 surface corners)");
+    o.push_back("Roto (baked)");
 
     return o;
 }
@@ -117,6 +120,29 @@ makeButton(RotoPaint* fx, const KnobPagePtr& page, const char* name, const char*
     return b;
 }
 
+static KnobStringPtr
+makeRowLabel(RotoPaint* fx, const KnobPagePtr& page, const char* name, const char* label)
+{
+    // a row heading in the label column; the buttons follow on the same row
+    KnobStringPtr l = AppManager::createKnob<KnobString>( fx, std::string(label) );
+    l->setName(name);
+    l->setAsLabel();
+    l->setIsPersistent(false);
+    l->setEvaluateOnChange(false);
+    l->setAddNewLine(false);
+    page->addKnob(l);
+
+    return l;
+}
+
+static void
+makeDivider(RotoPaint* fx, const KnobPagePtr& page, const char* name)
+{
+    KnobSeparatorPtr d = AppManager::createKnob<KnobSeparator>( fx, std::string() );
+    d->setName(name);
+    page->addKnob(d);
+}
+
 void
 SolvRotoTrack::createKnobs()
 {
@@ -125,12 +151,13 @@ SolvRotoTrack::createKnobs()
     page->setName("solvTrackPage");
     _k->page = page;
 
-    KnobStringPtr status = AppManager::createKnob<KnobString>( fx, std::string("tracking") );
+    // status / motion / reference frame
+    KnobStringPtr status = AppManager::createKnob<KnobString>( fx, std::string("status") );
     status->setName("solvTrackStatus");
     status->setAsLabel();
     status->setIsPersistent(false);
     status->setEvaluateOnChange(false);
-    status->setDefaultValue("select the shapes to track, then press track forward / backward");
+    status->setDefaultValue("select the shapes to track, then track forward / backward");
     page->addKnob(status);
     _k->status = status;
 
@@ -139,11 +166,11 @@ SolvRotoTrack::createKnobs()
     motion->setHintToolTip( std::string("Motion of the tracked surface: translation, + rotation, + scale, affine (+ shear) or perspective (planar).") );
     {
         std::vector<ChoiceOption> o;
-        o.push_back( ChoiceOption("translation", "T", "") );
-        o.push_back( ChoiceOption("rotation", "T R", "") );
-        o.push_back( ChoiceOption("scale", "T R S", "") );
-        o.push_back( ChoiceOption("affine", "T R S + shear", "") );
-        o.push_back( ChoiceOption("perspective", "perspective (planar)", "") );
+        o.push_back( ChoiceOption("translation", "translation", "") );
+        o.push_back( ChoiceOption("rotation", "translation, rotation", "") );
+        o.push_back( ChoiceOption("scale", "translation, rotation, scale", "") );
+        o.push_back( ChoiceOption("affine", "affine (+ shear)", "") );
+        o.push_back( ChoiceOption("perspective", "perspective", "") );
         motion->populateChoices(o);
     }
     motion->setDefaultValue(4);
@@ -154,22 +181,24 @@ SolvRotoTrack::createKnobs()
 
     KnobIntPtr ref = AppManager::createKnob<KnobInt>( fx, std::string("reference frame") );
     ref->setName("solvTrackRefFrame");
-    ref->setHintToolTip( std::string("Frame where the track started: the shapes are defined at this frame and the surface corners are set here. "
-                        "Clear the track to start again from another frame.") );
+    ref->setHintToolTip( std::string("Identity frame for the exports (CornerPin2D / Transform 'use transform ref frame') and the transform data.") );
     ref->setAnimationEnabled(false);
     ref->setEvaluateOnChange(false);
     ref->setDefaultValue(1);
-    ref->setAllDimensionsEnabled(false);
     ref->disableSlider();
+    ref->setAddNewLine(false);
     page->addKnob(ref);
     _k->refFrame = ref;
+    _k->setRef = makeButton(fx, page, "solvTrackSetRef", "set to current frame", "Use the current frame as the reference frame.", 0, true);
 
-    // track buttons (panel + viewer bar)
-    _k->trackBw = makeButton(fx, page, "solvTrackBw", "track backward", "Track the selected shapes backward until stopped (or the start of the comp).", NATRON_IMAGES_PATH "trackBackwardOff.png", false);
+    // track row
+    makeRowLabel(fx, page, "solvTrackRowTrack", "track");
+    _k->trackBw = makeButton(fx, page, "solvTrackBw", "track backward", "Track the selected shapes backward until stopped (or the start of the plate).", NATRON_IMAGES_PATH "trackBackwardOff.png", false);
     _k->trackPrev = makeButton(fx, page, "solvTrackPrev", "track previous", "Track one frame backward.", NATRON_IMAGES_PATH "trackPrev.png", false);
     _k->stop = makeButton(fx, page, "solvTrackStop", "stop", "Stop tracking (Esc).", NATRON_IMAGES_PATH "pauseDisabled.png", false);
     _k->trackNext = makeButton(fx, page, "solvTrackNext", "track next", "Track one frame forward.", NATRON_IMAGES_PATH "trackNext.png", false);
-    _k->trackFw = makeButton(fx, page, "solvTrackFw", "track forward", "Track the selected shapes forward until stopped (or the end of the comp).", NATRON_IMAGES_PATH "trackForwardOff.png", true);
+    _k->trackFw = makeButton(fx, page, "solvTrackFw", "track forward", "Track the selected shapes forward until stopped (or the end of the plate).", NATRON_IMAGES_PATH "trackForwardOff.png", true);
+    makeDivider(fx, page, "solvTrackDiv1");
 
     // surface
     KnobBoolPtr showSurface = AppManager::createKnob<KnobBool>( fx, std::string("surface") );
@@ -200,23 +229,27 @@ SolvRotoTrack::createKnobs()
     gridSize->disableSlider();
     gridSize->setAnimationEnabled(false);
     gridSize->setEvaluateOnChange(false);
-    gridSize->setAddNewLine(false);
     page->addKnob(gridSize);
     _k->gridSize = gridSize;
 
-    _k->alignSurface = makeButton(fx, page, "solvTrackAlignSurface", "align to shapes", "Put the surface corners on the bounding box of the tracked shapes (at the reference frame).", 0, true);
+    _k->alignSurface = makeButton(fx, page, "solvTrackAlignSurface", "align to shapes", "Put the surface corners on the bounding box of the tracked shapes (at the frame the track started).", 0, true);
+    makeDivider(fx, page, "solvTrackDiv2");
 
     // result
-    _k->bake = makeButton(fx, page, "solvTrackBake", "bake to selected shapes", "Bake the track into the selected shapes (they move with the surface). The tracked shapes get it while tracking.", 0, false);
-    _k->clearAll = makeButton(fx, page, "solvTrackClear", "clear track", "Remove the track and its motion from the tracked shapes.", 0, false);
-    _k->clearBw = makeButton(fx, page, "solvTrackClearBw", "clear backward", "Remove the track before the current frame.", 0, false);
-    _k->clearFw = makeButton(fx, page, "solvTrackClearFw", "clear forward", "Remove the track after the current frame.", 0, true);
+    makeRowLabel(fx, page, "solvTrackRowResult", "result");
+    _k->bake = makeButton(fx, page, "solvTrackBake", "bake to selected", "Bake the track into the selected shapes (they move with the surface). The tracked shapes get it while tracking.", 0, true);
+    makeRowLabel(fx, page, "solvTrackRowClear", "clear");
+    _k->clearAll = makeButton(fx, page, "solvTrackClear", "all", "Remove the track and its motion from the tracked shapes.", 0, false);
+    _k->clearBw = makeButton(fx, page, "solvTrackClearBw", "backward", "Remove the track before the current frame.", 0, false);
+    _k->clearFw = makeButton(fx, page, "solvTrackClearFw", "forward", "Remove the track after the current frame.", 0, true);
+    makeDivider(fx, page, "solvTrackDiv3");
 
     // export
     KnobChoicePtr exportMenu = AppManager::createKnob<KnobChoice>( fx, std::string("Export") );
     exportMenu->setName("solvTrackExport");
-    exportMenu->setHintToolTip( std::string("Node to create from the surface: linked (follows this track) or baked (keyframes). "
-                                            "'use current frame' makes the current frame the identity frame, otherwise the reference frame is used. 1-pt = translation only.") );
+    exportMenu->setHintToolTip( std::string("Node to create from the track: linked (follows this track) or baked (keyframes). "
+                                            "'use current frame' makes the current frame the identity frame, otherwise the reference frame is used. 1-pt = translation only. "
+                                            "Roto (baked): a Roto node with a copy of the tracked shapes and the track baked in.") );
     {
         std::vector<ChoiceOption> o;
         const std::vector<std::string> opts = exportOptions();
@@ -232,6 +265,15 @@ SolvRotoTrack::createKnobs()
     page->addKnob(exportMenu);
     _k->exportMenu = exportMenu;
     _k->exportCreate = makeButton(fx, page, "solvTrackExportCreate", "create", "Create the node selected in the Export menu.", 0, true);
+
+    KnobIntPtr origin = AppManager::createKnob<KnobInt>( fx, std::string("trackOrigin") );
+    origin->setName("solvTrackOrigin");
+    origin->setSecretByDefault(true);
+    origin->setAnimationEnabled(false);
+    origin->setEvaluateOnChange(false);
+    origin->setDefaultValue(1);
+    page->addKnob(origin);
+    _k->origin = origin;
 
     // hidden data
     KnobDoublePtr corners = AppManager::createKnob<KnobDouble>( fx, std::string("trackCorners"), 8 );
@@ -346,7 +388,7 @@ SolvRotoTrack::getQuadAtTime(double time,
 bool
 SolvRotoTrack::getRefQuad(Quad* q) const
 {
-    return getQuadAtTime(_k->refFrame.lock()->getValue(), q);
+    return getQuadAtTime(_k->origin.lock()->getValue(), q);
 }
 
 void
@@ -700,6 +742,7 @@ SolvRotoTrack::startTracking(int direction,
         qStart.x[1] = bb.x2; qStart.y[1] = bb.y2;
         qStart.x[2] = bb.x2; qStart.y[2] = bb.y1;
         qStart.x[3] = bb.x1; qStart.y[3] = bb.y1;
+        _k->origin.lock()->setValue(start);
         _k->refFrame.lock()->setValue(start);
         corners->beginChanges();
         for (int i = 0; i < 4; ++i) {
@@ -944,8 +987,7 @@ void
 SolvRotoTrack::refreshDerivedAt(double frame)
 {
     const Quad s = surfaceAtTime(frame);
-    Quad sr;
-    getSurfaceRef(&sr);
+    const Quad sr = surfaceAtTime( _k->refFrame.lock()->getValue() ); // transform relative to the reference frame
     for (int i = 0; i < 4; ++i) {
         KnobDoublePtr k = _k->surface[i].lock();
         k->setValueAtTime(frame, s.x[i], ViewSpec::all(), 0);
@@ -1084,6 +1126,11 @@ SolvRotoTrack::exportNode(int option)
     std::vector<double> frames;
     getTrackedFrames(&frames);
 
+    if (option == nOpts + 1) {
+        exportRoto();
+
+        return;
+    }
     std::string pluginID;
     if (option == nOpts) {
         pluginID = PLUGINID_NATRON_TRACKER;
@@ -1204,6 +1251,49 @@ SolvRotoTrack::exportNode(int option)
     }
 } // exportNode
 
+// Roto node with a copy of the tracked shapes (their extra matrix keys = the baked track)
+void
+SolvRotoTrack::exportRoto()
+{
+    std::list<RotoDrawableItemPtr> shapes = trackedShapes();
+    if ( shapes.empty() ) {
+        Dialogs::errorDialog("SolvRoto", "Track some shapes first.");
+
+        return;
+    }
+    NodePtr thisNode = _effect->getNode();
+    AppInstancePtr app = thisNode->getApp();
+    CreateNodeArgs args( PLUGINID_NATRON_ROTO, thisNode->getGroup() );
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    NodePtr created = app->createNode(args);
+    if (!created) {
+        return;
+    }
+    double pos[2], size[2];
+    thisNode->getPosition(&pos[0], &pos[1]);
+    thisNode->getSize(&size[0], &size[1]);
+    created->setPosition(pos[0] + size[0] * 2., pos[1] + size[1] * 2.);
+    RotoContextPtr dst = created->getRotoContext();
+    if (!dst) {
+        return;
+    }
+    RotoLayerPtr layer = dst->getOrCreateBaseLayer();
+    int index = 0;
+    for (std::list<RotoDrawableItemPtr>::iterator it = shapes.begin(); it != shapes.end(); ++it) {
+        BezierPtr src = std::dynamic_pointer_cast<Bezier>(*it);
+        if (!src) {
+            continue;
+        }
+        BezierPtr b = std::make_shared<Bezier>( dst, dst->generateUniqueName( src->getScriptName() ), RotoLayerPtr(), src->isOpenBezier() );
+        b->createNodes();
+        b->clone( src.get() );
+        b->setParentLayer( RotoLayerPtr() ); // clone copies the source layer: re-parent in the new Roto
+        dst->addItem(layer, index++, b, RotoItem::eSelectionReasonOther);
+    }
+    dst->evaluateChange();
+}
+
 // --------------------------------------------------------------------------------------------
 // knobs / overlay
 
@@ -1229,6 +1319,10 @@ SolvRotoTrack::knobChanged(KnobI* k)
         startTracking(-1, true);
     } else if ( k == _k->stop.lock().get() ) {
         stopTracking();
+    } else if ( k == _k->setRef.lock().get() ) {
+        _k->refFrame.lock()->setValue( (int)_effect->getNode()->getApp()->getTimeLine()->currentFrame() );
+    } else if ( k == _k->refFrame.lock().get() ) {
+        refreshDerived();
     } else if ( k == _k->alignSurface.lock().get() ) {
         Quad qr;
         if ( getRefQuad(&qr) ) {

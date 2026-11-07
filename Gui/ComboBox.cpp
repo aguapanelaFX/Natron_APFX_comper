@@ -319,7 +319,7 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         p.setPen(pen);
         p.setBrush(fillColor);
         QRectF roundedRect = bRect.adjusted(0.5, 0.5, -0.5, -0.5);
-        const double roundPixels = TO_DPIX(6);
+        const double roundPixels = TO_DPIX(1); // SOLVFX: corners option C (fields 1 px)
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
         p.drawPath(path);

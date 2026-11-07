@@ -159,7 +159,7 @@ public:
         if (selected || hovered) {
             p->setPen(Qt::NoPen);
             p->setBrush( selected ? QColor(0x55, 0x55, 0x55) : QColor(0x3a, 0x3a, 0x3a) );
-            p->drawRoundedRect(r, 4, 4);
+            p->drawRoundedRect(r, 2, 2);
         }
         // category line
         p->setPen(Qt::NoPen);

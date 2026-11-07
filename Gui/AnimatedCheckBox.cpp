@@ -187,7 +187,7 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
     pen.setWidthF( hasTint ? 1.5 : 1. );
     p.setPen(pen);
     p.setBrush(fill);
-    p.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 3., 3.);
+    p.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 1., 1.);
 
     if (checked) {
         QPen check( QColor(0x14, 0x14, 0x14) );
@@ -208,7 +208,7 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
         focus.setWidthF(1.);
         p.setPen(focus);
         p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(box.adjusted(-1., -1., 1., 1.), 4., 4.);
+        p.drawRoundedRect(box.adjusted(-1., -1., 1., 1.), 2., 2.);
     }
 } // AnimatedCheckBox::paintEvent
 

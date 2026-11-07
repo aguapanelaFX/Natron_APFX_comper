@@ -50,6 +50,9 @@ public:
     // true for the Shuffle knobs the panel replaces (always hidden in the GUI)
     static bool isHiddenShuffleKnob(const KnobIPtr& knob);
 
+    // edits go through this knob gui's undo stack (Ctrl+Z / Ctrl+Shift+Z)
+    void setUndoHost(KnobGui* gui) { _undoHost = gui; }
+
 protected:
     virtual void paintEvent(QPaintEvent* e) OVERRIDE FINAL;
     virtual void mousePressEvent(QMouseEvent* e) OVERRIDE FINAL;
@@ -59,6 +62,8 @@ protected:
     virtual void resizeEvent(QResizeEvent* e) OVERRIDE FINAL;
 
 private:
+    KnobGui* _undoHost = 0;
+
     struct Channel
     {
         QString name;   // channel letter as in the menu ("R", "Z", ...)

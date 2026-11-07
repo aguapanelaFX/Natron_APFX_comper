@@ -146,7 +146,8 @@ KnobGuiButton::createWidget(QHBoxLayout* layout)
 
     bool checkable = knob->getIsCheckable();
     // SOLVFX: viewer toolbars (Tracker, ...) use one gray like Nuke, a bit larger
-    const bool inViewer = getContainer() && getContainer()->isInViewerUIKnob();
+    // icon buttons are one gray everywhere (viewer bars and panels), 22 px
+    const bool inViewer = true;
     QIcon icon;
     QPixmap pixChecked, pixUnchecked;
     if ( !offIconFilePath.isEmpty() ) {

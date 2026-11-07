@@ -397,9 +397,9 @@ NodeGraph::paintEvent(QPaintEvent* e)
             p.setBrush( QColor(243, 137, 0) );
             p.setOpacity(1.);
             p.setPen(Qt::NoPen);
-            p.drawRoundedRect(selRect, 5, 5);
+            p.drawRoundedRect(selRect, 2, 2);
             p.setBrush( QColor(100, 100, 100) );
-            p.drawRoundedRect(pixRect, 5, 5);
+            p.drawRoundedRect(pixRect, 2, 2);
             p.drawPixmap(pixPos.x(), pixPos.y(), pixW, pixH, _imp->unlockIcon, 0, 0, pixW, pixH);
         }
     }

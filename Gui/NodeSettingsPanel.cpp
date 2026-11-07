@@ -118,7 +118,7 @@ NodeSettingsPanel::paintEvent(QPaintEvent* e)
     pen.setWidthF(2.);
     p.setPen(pen);
     p.setBrush(Qt::NoBrush);
-    const double r = TO_DPIX(10);
+    const double r = TO_DPIX(2); // SOLVFX: corners option C
     p.drawRoundedRect( QRectF( rect() ).adjusted(1., 1., -1., -1.), r, r );
 }
 

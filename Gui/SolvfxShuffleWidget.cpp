@@ -11,6 +11,9 @@
 #include <Python.h>
 
 #include "SolvfxShuffleWidget.h"
+#include "Gui/KnobGui.h"
+#include <QPointer>
+#include <QUndoCommand>
 
 #include <algorithm>
 #include <cmath>
@@ -27,6 +30,37 @@
 #include "Gui/ComboBox.h"
 
 NATRON_NAMESPACE_ENTER
+
+// SOLVFX: one Shuffle wire change (an output channel menu), undoable
+class SolvfxShuffleUndo
+    : public QUndoCommand
+{
+public:
+    SolvfxShuffleUndo(const KnobChoicePtr& k, int oldEntry, int newEntry, QWidget* w)
+        : QUndoCommand( QObject::tr("Shuffle") )
+        , _k(k), _old(oldEntry), _new(newEntry), _w(w)
+    {
+    }
+
+    virtual void undo() OVERRIDE FINAL { apply(_old); }
+    virtual void redo() OVERRIDE FINAL { apply(_new); }
+
+private:
+    void apply(int v)
+    {
+        KnobChoicePtr k = _k.lock();
+        if (k) {
+            k->setValue(v, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0);
+        }
+        if (_w) {
+            _w->update();
+        }
+    }
+
+    KnobChoiceWPtr _k;
+    int _old, _new;
+    QPointer<QWidget> _w;
+};
 
 // layout (pixels before DPI scaling)
 static const int kMargin = 4;
@@ -405,7 +439,15 @@ SolvfxShuffleWidget::setEntry(int knob,
     if ( !k || (entry < 0) ) {
         return;
     }
-    k->setValue(entry, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0);
+    const int old = k->getValue();
+    if (old == entry) {
+        return;
+    }
+    if (_undoHost) {
+        _undoHost->pushUndoCommand( new SolvfxShuffleUndo(k, old, entry, this) ); // redo() applies it
+    } else {
+        k->setValue(entry, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0);
+    }
     update();
 }
 
@@ -571,7 +613,7 @@ SolvfxShuffleWidget::paintEvent(QPaintEvent* /*e*/)
         const QRectF& r = _blockRect[b];
         p.setPen( QPen(border, 1) );
         p.setBrush(blockBg);
-        p.drawRoundedRect(r, D(5), D(5));
+        p.drawRoundedRect(r, D(2), D(2));
         p.setPen( QPen(sep, 1) );
         p.drawLine( QPointF(r.left() + 1, r.top() + hh), QPointF(r.right() - 1, r.top() + hh) );
         if (b < 2) {

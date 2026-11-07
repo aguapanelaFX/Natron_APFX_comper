@@ -80,7 +80,7 @@ ChannelsComboBox::paintEvent(QPaintEvent* event)
 
         QRectF bRect = rect();
         QRectF roundedRect = bRect.adjusted(1., 1., -2., -2.);
-        double roundPixels = 3;
+        double roundPixels = 1; // SOLVFX: corners option C
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
         p.drawPath(path);

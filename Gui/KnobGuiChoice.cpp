@@ -308,6 +308,7 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     // SOLVFX: Shuffle gets the Nuke-like noodle panel; its output layer menu lives inside it
     if ( SolvfxShuffleWidget::isShuffleLayerKnob(knob) ) {
         SolvfxShuffleWidget* noodles = new SolvfxShuffleWidget( knob, _comboBox, layout->parentWidget() );
+        noodles->setUndoHost(this);
         layout->addWidget(noodles, 1);
 
         return;

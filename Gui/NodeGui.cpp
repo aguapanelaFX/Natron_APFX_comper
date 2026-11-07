@@ -622,7 +622,7 @@ NodeGui::createGui()
     // SOLVFX: rounded nodes (10px), backdrops 8px, Viewer as a pill; gradient body
     const bool isBackdropNode = dynamic_cast<BackdropGui*>(this) != 0;
     const bool isViewerNode = dynamic_cast<ViewerInstance*>( node->getEffectInstance().get() ) != 0;
-    int cornerRadiusPx = isBackdropNode ? TO_DPIX(8) : TO_DPIX(10);
+    int cornerRadiusPx = isBackdropNode ? TO_DPIX(3) : TO_DPIX(3); // SOLVFX: corners option C (was 8 / 10)
     _boundingBox = new NodeGraphRectItem(this, cornerRadiusPx);
     _boundingBox->setZValue(depth);
     _boundingBox->setSolvfxLook(!isBackdropNode, isViewerNode);

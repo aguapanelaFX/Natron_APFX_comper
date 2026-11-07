@@ -1771,6 +1771,16 @@ OfxEffectInstance::getFrameRange(double *first,
 
             int inputsCount = getNInputs();
 
+            // SOLVFX: Nuke-like, the B input rules the frame range on A/B nodes (Merge, ...)
+            for (int i = 0; i < inputsCount; ++i) {
+                EffectInstancePtr b = getInput(i);
+                if ( b && (getNode()->getInputLabel(i) == "B") ) {
+                    b->getFrameRange_public(b->getRenderHash(), first, last);
+
+                    return;
+                }
+            }
+
             ///Uncommented the isOptional() introduces a bugs with Genarts Monster plug-ins when 2 generators
             ///are connected in the pipeline. They must rely on the time domain to maintain an internal state and apparently
             ///not taking optional inputs into accounts messes it up.
