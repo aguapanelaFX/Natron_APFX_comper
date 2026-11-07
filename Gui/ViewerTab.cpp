@@ -1297,11 +1297,12 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->addWidget(_imp->playBackInputButton);
         l->addWidget(_imp->firstFrame_Button);
         l->addWidget(_imp->previousKeyFrame_Button);
-        l->addWidget(_imp->play_Backward_Button);
+        // SOLVFX: Nuke order, play buttons next to the frame, step buttons outside
         l->addWidget(_imp->previousFrame_Button);
+        l->addWidget(_imp->play_Backward_Button);
         l->addWidget(_imp->currentFrameBox);
-        l->addWidget(_imp->nextFrame_Button);
         l->addWidget(_imp->play_Forward_Button);
+        l->addWidget(_imp->nextFrame_Button);
         l->addWidget(_imp->nextKeyFrame_Button);
         l->addWidget(_imp->lastFrame_Button);
         l->addWidget(_imp->playBackOutputButton);
