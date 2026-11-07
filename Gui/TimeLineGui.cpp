@@ -286,7 +286,7 @@ TimeLineGui::getTimeline() const
 QSize
 TimeLineGui::sizeHint() const
 {
-    return QSize( TO_DPIX(1000), TO_DPIY(40) ); // SOLVFX: room for the frame number above the playhead
+    return QSize( TO_DPIX(1000), TO_DPIY(48) ); // SOLVFX: room for the frame number above the playhead
 }
 
 void

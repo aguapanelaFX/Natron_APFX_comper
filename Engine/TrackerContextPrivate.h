@@ -494,6 +494,12 @@ public:
 
     SolveRequest lastSolveRequest;
 
+    // SOLVFX: Nuke-like Export menu: option waiting for the solver, last node created
+    int solvfxPendingExport = -1;
+    int solvfxSavedMotionType = 0;
+    int solvfxSavedTransformType = 0;
+    NodeWPtr solvfxLastExported;
+
 
     TrackerContextPrivate(TrackerContext* publicInterface,
                           const NodePtr &node);

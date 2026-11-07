@@ -837,6 +837,7 @@ TrackerContext::exportTrackDataFromExportOptions()
     if (!createdNode) {
         return;
     }
+    _imp->solvfxLastExported = createdNode;
 
     // Move the new node
     double thisNodePos[2];
@@ -983,6 +984,115 @@ TrackerContext::exportTrackDataFromExportOptions()
         }
     }
 } // TrackerContext::exportTrackDataFromExportOptions
+
+// SOLVFX: Nuke-like Export menu
+std::vector<std::string>
+TrackerContext::solvfxExportOptions()
+{
+    std::vector<std::string> o;
+    o.push_back("CornerPin2D (use current frame)");
+    o.push_back("CornerPin2D (use transform ref frame)");
+    o.push_back("CornerPin2D (use current frame, baked)");
+    o.push_back("CornerPin2D (use transform ref frame, baked)");
+    o.push_back("Transform (stabilize)");
+    o.push_back("Transform (stabilize 1-pt)");
+    o.push_back("Transform (match-move)");
+    o.push_back("Transform (match-move 1-pt)");
+    o.push_back("Transform (stabilize, baked)");
+    o.push_back("Transform (stabilize 1-pt, baked)");
+    o.push_back("Transform (match-move, baked)");
+    o.push_back("Transform (match-move 1-pt, baked)");
+
+    return o;
+}
+
+static void
+solvfxSetBlocked(const KnobIPtr& k, int v)
+{
+    if (!k) {
+        return;
+    }
+    k->blockValueChanges();
+    if ( KnobIntBase* ki = dynamic_cast<KnobIntBase*>( k.get() ) ) {
+        ki->setValue(v);
+    } else if ( KnobBoolBase* kb = dynamic_cast<KnobBoolBase*>( k.get() ) ) {
+        kb->setValue(v != 0);
+    }
+    k->unblockValueChanges();
+}
+
+void
+TrackerContext::solvfxExport(int option)
+{
+    if ( (option < 0) || (option >= (int)solvfxExportOptions().size()) ) {
+        return;
+    }
+    std::vector<TrackMarkerPtr> markers;
+    getAllMarkers(&markers);
+    if ( markers.empty() ) {
+        Dialogs::errorDialog( tr("Tracker Export").toStdString(), tr("There are no tracks to export.").toStdString() );
+
+        return;
+    }
+    if (_imp->lastSolveRequest.cpWatcher || _imp->lastSolveRequest.tWatcher || _imp->solvfxPendingExport >= 0) {
+        Dialogs::errorDialog( tr("Tracker Export").toStdString(), tr("The transform is still being computed, try again in a moment.").toStdString() );
+
+        return;
+    }
+    const bool cornerPin = option < 4;
+    const bool linked = (option <= 1) || (option >= 4 && option <= 7);
+    const bool useCurrentFrame = (option == 0) || (option == 2);
+    const bool stabilize = (option == 4) || (option == 5) || (option == 8) || (option == 9);
+
+    _imp->solvfxSavedMotionType = _imp->motionType.lock()->getValue();
+    _imp->solvfxSavedTransformType = _imp->transformType.lock()->getValue();
+    if (useCurrentFrame) {
+        // Nuke: the CornerPin is identity at the current frame
+        solvfxSetBlocked( _imp->referenceFrame.lock(), getNode()->getApp()->getTimeLine()->currentFrame() );
+    }
+    solvfxSetBlocked( _imp->exportLink.lock(), linked ? 1 : 0 );
+    solvfxSetBlocked( _imp->transformType.lock(), cornerPin ? (int)eTrackerTransformNodeCornerPin : (int)eTrackerTransformNodeTransform );
+    solvfxSetBlocked( _imp->motionType.lock(), stabilize ? (int)eTrackerMotionTypeStabilize : (int)eTrackerMotionTypeMatchMove );
+    _imp->refreshVisibilityFromTransformType();
+    _imp->solvfxPendingExport = option;
+    solveTransformParams(); // the export runs when the solver ends (TrackerContextPrivate::endSolve)
+}
+
+void
+TrackerContext::solvfxFinishExport(int option)
+{
+    _imp->solvfxLastExported.reset();
+    exportTrackDataFromExportOptions();
+    NodePtr created = _imp->solvfxLastExported.lock();
+    const bool onePoint = (option == 5) || (option == 7) || (option == 9) || (option == 11);
+    if (created && onePoint) {
+        // 1-pt: translation only
+        KnobIPtr rot = created->getKnobByName(kTransformParamRotate);
+        KnobIPtr sc = created->getKnobByName(kTransformParamScale);
+        KnobDouble* r = dynamic_cast<KnobDouble*>( rot.get() );
+        KnobDouble* s = dynamic_cast<KnobDouble*>( sc.get() );
+        if (r) {
+            r->unSlave(0, false);
+            r->removeAnimation(ViewSpec::all(), 0);
+            r->setValue(0.);
+        }
+        if (s) {
+            for (int d = 0; d < 2; ++d) {
+                s->unSlave(d, false);
+                s->removeAnimation(ViewSpec::all(), d);
+                s->setValue(1., ViewSpec::all(), d);
+            }
+        }
+    }
+    // the Tracker keeps its own transform setting (export does not change its output)
+    KnobChoicePtr mt = _imp->motionType.lock();
+    KnobChoicePtr tt = _imp->transformType.lock();
+    if ( (mt->getValue() != _imp->solvfxSavedMotionType) || (tt->getValue() != _imp->solvfxSavedTransformType) ) {
+        solvfxSetBlocked(mt, _imp->solvfxSavedMotionType);
+        solvfxSetBlocked(tt, _imp->solvfxSavedTransformType);
+        _imp->refreshVisibilityFromTransformType();
+    }
+}
 
 void
 TrackerContext::onMarkerEnabledChanged(int reason)

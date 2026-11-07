@@ -37,6 +37,7 @@
 #include <QCheckBox>
 #include <QItemSelection>
 #include <QDebug>
+#include <QFrame>
 
 
 #include "Engine/Settings.h"
@@ -516,6 +517,48 @@ TrackerPanel::TrackerPanel(const NodeGuiPtr& n,
     _imp->buttonsLayout->addStretch();
 
     _imp->mainLayout->addWidget(_imp->buttonsContainer);
+
+    // SOLVFX: Nuke-like Export (Tracker tab): [menu] [create], linked or baked
+    {
+        QWidget* exportContainer = new QWidget(this);
+        QHBoxLayout* el = new QHBoxLayout(exportContainer);
+        el->setContentsMargins( 0, TO_DPIY(6), 0, 0 );
+        el->setSpacing( TO_DPIX(6) );
+        Label* exportLabel = new Label(tr("Export"), exportContainer);
+        el->addWidget(exportLabel);
+        QFrame* line = new QFrame(exportContainer);
+        line->setFixedHeight(1);
+        line->setStyleSheet( QString::fromUtf8("background-color: #4d4d4d;") );
+        line->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        el->addWidget(line, 1, Qt::AlignVCenter);
+        _imp->mainLayout->addWidget(exportContainer);
+
+        QWidget* row = new QWidget(this);
+        QHBoxLayout* rl = new QHBoxLayout(row);
+        rl->setContentsMargins( 0, TO_DPIY(2), 0, TO_DPIY(2) );
+        rl->setSpacing( TO_DPIX(6) );
+        ComboBox* exportMenu = new ComboBox(row);
+        const std::vector<std::string> opts = TrackerContext::solvfxExportOptions();
+        for (std::size_t i = 0; i < opts.size(); ++i) {
+            exportMenu->addItem( QString::fromUtf8( opts[i].c_str() ) );
+        }
+        exportMenu->setCurrentIndex_no_emit(1);
+        exportMenu->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Node to create from the tracks. Linked nodes follow the tracker (expressions), baked ones get keyframes. "
+                                                                         "CornerPin2D uses 4 tracks; \"use current frame\" makes the current frame the reference (identity) frame, "
+                                                                         "\"use transform ref frame\" uses the reference frame of the Transform tab. 1-pt = translation only."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        rl->addWidget(exportMenu);
+        Button* createButton = new Button(tr("create"), row);
+        createButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Create the node selected in the Export menu."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        rl->addWidget(createButton);
+        rl->addStretch();
+        QObject::connect( createButton, &QPushButton::clicked, this, [this, exportMenu]() {
+            TrackerContextPtr ctx = getContext();
+            if (ctx) {
+                ctx->solvfxExport( exportMenu->activeIndex() );
+            }
+        } );
+        _imp->mainLayout->addWidget(row);
+    }
 
     ///Restore the table if needed
     std::vector<TrackMarkerPtr> existingMarkers;

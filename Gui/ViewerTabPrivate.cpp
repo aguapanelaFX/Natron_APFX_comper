@@ -403,10 +403,10 @@ std::list<ViewerTabPrivate::PluginViewerContext>::iterator
 ViewerTabPrivate::findActiveNodeContextForPlugin(const std::string& pluginID)
 {
     // Roto and RotoPaint are 2 different plug-ins but we don't want them at the same time in the viewer
-    bool isRotoOrRotoPaint = pluginID == PLUGINID_NATRON_ROTO || pluginID == PLUGINID_NATRON_ROTOPAINT;
+    bool isRotoOrRotoPaint = pluginID == PLUGINID_NATRON_ROTO || pluginID == PLUGINID_NATRON_ROTOPAINT || pluginID == "com.aguapanelafx.solvfx.SolvRoto";
     for (std::list<PluginViewerContext>::iterator it = currentNodeContext.begin(); it != currentNodeContext.end(); ++it) {
         if (isRotoOrRotoPaint) {
-            if (it->pluginID == PLUGINID_NATRON_ROTO || it->pluginID == PLUGINID_NATRON_ROTOPAINT) {
+            if (it->pluginID == PLUGINID_NATRON_ROTO || it->pluginID == PLUGINID_NATRON_ROTOPAINT || it->pluginID == "com.aguapanelafx.solvfx.SolvRoto") {
                 return it;
             }
         } else {

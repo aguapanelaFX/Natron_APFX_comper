@@ -77,9 +77,30 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/TabGroup.h"
 
 #include <ofxNatron.h>
+#include <QImage>
+#include <algorithm>
 
 NATRON_NAMESPACE_ENTER
 using std::make_pair;
+
+
+// SOLVFX: one-gray icon (shape from the alpha and luminance), brighter when checked
+static QPixmap
+solvfxGrayIcon(const QPixmap& src, bool on)
+{
+    QImage im = src.toImage().convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < im.height(); ++y) {
+        QRgb* line = (QRgb*)im.scanLine(y);
+        for (int x = 0; x < im.width(); ++x) {
+            const int a = qAlpha(line[x]);
+            const int lum = qGray(line[x]);
+            const int g = on ? 235 : std::min(215, 150 + lum / 4);
+            line[x] = qRgba(g, g, g, a);
+        }
+    }
+
+    return QPixmap::fromImage(im);
+}
 
 //=============================BUTTON_KNOB_GUI===================================
 
@@ -124,23 +145,36 @@ KnobGuiButton::createWidget(QHBoxLayout* layout)
     }
 
     bool checkable = knob->getIsCheckable();
+    // SOLVFX: viewer toolbars (Tracker, ...) use one gray like Nuke, a bit larger
+    const bool inViewer = getContainer() && getContainer()->isInViewerUIKnob();
     QIcon icon;
     QPixmap pixChecked, pixUnchecked;
     if ( !offIconFilePath.isEmpty() ) {
         if ( pixUnchecked.load(offIconFilePath) ) {
+            if (inViewer) {
+                pixUnchecked = solvfxGrayIcon(pixUnchecked, false);
+            }
             icon.addPixmap(pixUnchecked, QIcon::Normal, QIcon::Off);
         }
     }
     if ( !onIconFilePath.isEmpty() ) {
         if ( pixChecked.load(onIconFilePath) ) {
+            if (inViewer) {
+                pixChecked = solvfxGrayIcon(pixChecked, true);
+            }
             icon.addPixmap(pixChecked, QIcon::Normal, QIcon::On);
         }
     }
 
     if ( !icon.isNull() ) {
         _button = new Button( icon, QString(), layout->parentWidget() );
-        _button->setFixedSize(NATRON_MEDIUM_BUTTON_SIZE, NATRON_MEDIUM_BUTTON_SIZE);
-        _button->setIconSize( QSize(NATRON_MEDIUM_BUTTON_ICON_SIZE, NATRON_MEDIUM_BUTTON_ICON_SIZE) );
+        if (inViewer) {
+            _button->setFixedSize( TO_DPIX(22), TO_DPIY(22) );
+            _button->setIconSize( QSize( TO_DPIX(18), TO_DPIY(18) ) );
+        } else {
+            _button->setFixedSize(NATRON_MEDIUM_BUTTON_SIZE, NATRON_MEDIUM_BUTTON_SIZE);
+            _button->setIconSize( QSize(NATRON_MEDIUM_BUTTON_ICON_SIZE, NATRON_MEDIUM_BUTTON_ICON_SIZE) );
+        }
     } else {
         _button = new Button( label, layout->parentWidget() );
         // SOLVFX: compact "normalize" button, sitting at the end of the checkbox row

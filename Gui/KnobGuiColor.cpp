@@ -32,6 +32,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QImage>
+#include <cstdio>
 #include <QPushButton>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -630,6 +631,7 @@ KnobGuiColor::onDimensionsExpanded()
             label->hide(); // SOLVFX: colour underline instead of r/g/b/a letters
         }
     }
+    std::fprintf( stderr, "[SOLVFX] colour underlines on %s (%d fields)\n", knob->getName().c_str(), nDims );
     Q_EMIT dimensionSwitchToggled(true);
 }
 

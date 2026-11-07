@@ -45,6 +45,7 @@
 #include "Engine/RotoPoint.h"
 #include "Engine/RotoUndoCommand.h"
 #include "Engine/RotoPaintInteract.h"
+#include "Engine/SolvRotoTrack.h"
 #include "Engine/TimeLine.h"
 #include "Engine/Transform.h"
 #include "Engine/ViewIdx.h"
@@ -113,6 +114,26 @@ std::string
 RotoNode::getPluginDescription() const
 {
     return "Create masks and shapes";
+}
+
+std::string
+SolvRotoNode::getPluginID() const
+{
+    return PLUGINID_SOLVFX_SOLVROTO;
+}
+
+std::string
+SolvRotoNode::getPluginLabel() const
+{
+    return "SolvRoto";
+}
+
+std::string
+SolvRotoNode::getPluginDescription() const
+{
+    return "Roto with planar tracking (Mocha / Silhouette basics): select shapes, track them forward / backward on the plate "
+           "connected to Bg; the shapes follow the surface (baked keyframes). Shapes in a layer named \"exclude\" mask out occluders. "
+           "The blue surface shows where a corner pin / trackers will land. Export: CornerPin2D, Transform (linked or baked), Tracker.";
 }
 
 bool
@@ -604,6 +625,12 @@ RotoPaint::initializeKnobs()
     addKnobToViewerUI(sourceType);
     addKnobToViewerUI(resetCloneOffset);
 
+
+    // SOLVFX: SolvRoto planar tracking (Track page + viewer buttons)
+    if ( isSolvRoto() ) {
+        _imp->solv = std::make_shared<SolvRotoTrack>(this);
+        _imp->solv->createKnobs();
+    }
 
     KnobPagePtr toolbar = AppManager::createKnob<KnobPage>( this, std::string(kRotoUIParamToolbar) );
     toolbar->setAsToolBar(true);
@@ -1194,6 +1221,9 @@ RotoPaint::knobChanged(KnobI* k,
 
     if (!ctx) {
         return false;
+    }
+    if ( _imp->solv && _imp->solv->knobChanged(k) ) {
+        return true;
     }
     bool ret = true;
     KnobIPtr kShared = k->shared_from_this();
@@ -2118,6 +2148,9 @@ RotoPaint::drawOverlay(double time,
         _imp->ui->drawSelectedCpsBBOX();
     }
     glCheckError();
+    if (_imp->solv) {
+        _imp->solv->drawOverlay(time, pixelScale.first, pixelScale.second);
+    }
 } // drawOverlay
 
 void
@@ -2264,6 +2297,9 @@ RotoPaint::onOverlayPenDown(double time,
     std::pair<double, double> pixelScale;
     getCurrentViewportForOverlays()->getPixelScale(pixelScale.first, pixelScale.second);
 
+    if ( _imp->solv && _imp->solv->penDown( time, pos.x(), pos.y(), pixelScale.first ) ) {
+        return true; // SOLVFX: dragging a SolvRoto surface corner
+    }
     bool didSomething = false;
     double tangentSelectionTol = kTangentHandleSelectionTolerance * pixelScale.first;
     double cpSelectionTolerance = kControlPointSelectionTolerance * pixelScale.first;
@@ -2698,6 +2734,9 @@ RotoPaint::onOverlayPenMotion(double time,
                               double pressure,
                               double timestamp)
 {
+    if ( _imp->solv && _imp->solv->penMotion( time, pos.x(), pos.y() ) ) {
+        return true;
+    }
     std::pair<double, double> pixelScale;
 
     getCurrentViewportForOverlays()->getPixelScale(pixelScale.first, pixelScale.second);
@@ -3125,6 +3164,9 @@ RotoPaint::onOverlayPenUp(double /*time*/,
                           double /*pressure*/,
                           double /*timestamp*/)
 {
+    if ( _imp->solv && _imp->solv->penUp() ) {
+        return true;
+    }
     RotoContextPtr context = getNode()->getRotoContext();
 
     assert(context);
@@ -3217,6 +3259,12 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
 {
     bool didSomething = false;
 
+    if ( _imp->solv && (key == Key_Escape) ) {
+        KnobIPtr stop = getKnobByName("solvTrackStop");
+        if (stop) {
+            _imp->solv->knobChanged( stop.get() ); // SOLVFX: Esc stops the SolvRoto track
+        }
+    }
     if ( (key == Key_Shift_L) || (key == Key_Shift_R) ) {
         ++_imp->ui->shiftDown;
     } else if ( (key == Key_Control_L) || (key == Key_Control_R) ) {

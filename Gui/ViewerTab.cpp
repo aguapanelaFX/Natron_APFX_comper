@@ -1197,8 +1197,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( _imp->timeFormat, SIGNAL(currentIndexChanged(int)), _imp->timeLineGui, SLOT(onTimeFormatChanged(int)) );
     _imp->timeLineGui->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     // SOLVFX 3.3: room above the playhead so the current frame number isn't clipped
-    _imp->timeLineGui->setMinimumHeight( TO_DPIY(40) ); // SOLVFX: compact (was 58)
-    _imp->timeLineGui->setMaximumHeight( TO_DPIY(44) );
+    _imp->timeLineGui->setMinimumHeight( TO_DPIY(48) ); // SOLVFX: compact (was 58), room for the frame number
+    _imp->timeLineGui->setMaximumHeight( TO_DPIY(50) );
 
     // SOLVFX: Nuke-style layout. Transport row on top, then the timeline row:
     // range dropdown | in point | timeline | out point

@@ -84,6 +84,7 @@ SOURCES += \
     DiskCacheNode.cpp \
     Dot.cpp \
     SolvfxViewerOcio.cpp \
+    SolvRotoTrack.cpp \
     EffectInstance.cpp \
     EffectInstancePrivate.cpp \
     EffectInstanceRenderRoI.cpp \
@@ -242,6 +243,7 @@ HEADERS += \
     Dot.h \
     SolvfxStamp.h \
     SolvfxViewerOcio.h \
+    SolvRotoTrack.h \
     SolvfxPerf.h \
     EffectInstance.h \
     EffectInstancePrivate.h \

@@ -273,6 +273,11 @@ public:
 
     void exportTrackDataFromExportOptions();
 
+    // SOLVFX: Nuke-like Export menu (Tracker tab): see solvfxExportOptions()
+    static std::vector<std::string> solvfxExportOptions();
+    void solvfxExport(int option);
+    void solvfxFinishExport(int option);
+
 
     void onKnobsLoaded();
 

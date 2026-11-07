@@ -59,6 +59,47 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 
 NATRON_NAMESPACE_ENTER
 
+// SOLVFX: 2 px colour bar along the bottom of a field (r/g/b/a of split colour knobs)
+class SolvfxLineBar
+    : public QWidget
+{
+public:
+    QColor color;
+
+    explicit SolvfxLineBar(QWidget* field)
+        : QWidget(field)
+    {
+        setObjectName( QString::fromUtf8("solvfxLineBar") );
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        field->installEventFilter(this);
+    }
+
+    void place()
+    {
+        QWidget* f = parentWidget();
+        if (f) {
+            setGeometry( 2, f->height() - 3, std::max(0, f->width() - 4), 2 );
+        }
+    }
+
+protected:
+    virtual void paintEvent(QPaintEvent*) OVERRIDE
+    {
+        QPainter p(this);
+        p.fillRect( rect(), color );
+    }
+
+    virtual bool eventFilter(QObject* o, QEvent* e) OVERRIDE
+    {
+        if ( (o == parentWidget()) && (e->type() == QEvent::Resize || e->type() == QEvent::Show) ) {
+            place();
+            raise();
+        }
+
+        return false;
+    }
+};
+
 
 struct SpinBoxPrivate
 {
@@ -967,12 +1008,6 @@ SpinBox::paintEvent(QPaintEvent* e)
 {
     LineEdit::paintEvent(e);
 
-    if (_imp->useLineColor) {
-        // SOLVFX: 2 px channel colour bar along the bottom (inside the rounded corners)
-        QPainter p(this);
-        const int h = height();
-        p.fillRect( QRect(2, h - 2, width() - 4, 2), _imp->lineColor );
-    }
 }
 
 void
@@ -981,6 +1016,21 @@ SpinBox::setUseLineColor(bool use,
 {
     _imp->useLineColor = use;
     _imp->lineColor = color;
+    // SOLVFX: the channel colour bar is a child widget so it is always drawn over the field
+    // (painting it in paintEvent was hidden by the style sheet frame)
+    SolvfxLineBar* bar = findChild<SolvfxLineBar*>( QString::fromUtf8("solvfxLineBar") );
+    if (use) {
+        if (!bar) {
+            bar = new SolvfxLineBar(this);
+        }
+        bar->color = color;
+        bar->place();
+        bar->show();
+        bar->raise();
+        bar->update();
+    } else if (bar) {
+        bar->hide();
+    }
     update();
 }
 

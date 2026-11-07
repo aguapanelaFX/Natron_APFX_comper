@@ -56,6 +56,9 @@ public:
 
     bool isDefaultBehaviourPaintContext() const;
 
+    // SOLVFX: true for SolvRoto (Roto + planar tracking)
+    virtual bool isSolvRoto() const { return false; }
+
     virtual bool isRotoPaintNode() const OVERRIDE FINAL WARN_UNUSED_RETURN  { return true; }
 
     virtual int getMajorVersion() const OVERRIDE FINAL WARN_UNUSED_RETURN
@@ -207,6 +210,30 @@ public:
     virtual std::string getPluginLabel() const OVERRIDE WARN_UNUSED_RETURN;
     virtual std::string getPluginDescription() const OVERRIDE WARN_UNUSED_RETURN;
     virtual bool isHostChannelSelectorSupported(bool* defaultR, bool* defaultG, bool* defaultB, bool* defaultA) const OVERRIDE WARN_UNUSED_RETURN;
+};
+
+/**
+ * @brief SOLVFX SolvRoto: the Roto node plus planar tracking (Mocha / Silhouette basics), see SolvRotoTrack
+ **/
+#define PLUGINID_SOLVFX_SOLVROTO "com.aguapanelafx.solvfx.SolvRoto"
+class SolvRotoNode
+    : public RotoNode
+{
+public:
+
+    static EffectInstance* BuildEffect(NodePtr n)
+    {
+        return new SolvRotoNode(n);
+    }
+
+    SolvRotoNode(NodePtr node)
+        : RotoNode(node) {}
+
+    virtual bool isSolvRoto() const OVERRIDE { return true; }
+
+    virtual std::string getPluginID() const OVERRIDE WARN_UNUSED_RETURN;
+    virtual std::string getPluginLabel() const OVERRIDE WARN_UNUSED_RETURN;
+    virtual std::string getPluginDescription() const OVERRIDE WARN_UNUSED_RETURN;
 };
 
 NATRON_NAMESPACE_EXIT

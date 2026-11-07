@@ -392,6 +392,7 @@ NATRON_NAMESPACE_ENTER
 #define kShortcutDescActionRotoLockCurve "Lock Shape"
 
 class RotoPaintInteract;
+class SolvRotoTrack;
 struct RotoPaintPrivate
 {
     RotoPaint* publicInterface;
@@ -399,6 +400,7 @@ struct RotoPaintPrivate
     KnobBoolWPtr premultKnob;
     KnobBoolWPtr enabledKnobs[4];
     RotoPaintInteractPtr ui;
+    std::shared_ptr<SolvRotoTrack> solv; // SOLVFX: SolvRoto planar tracking (null for Roto / RotoPaint)
 
     RotoPaintPrivate(RotoPaint* publicInterface,
                      bool isPaintByDefault);

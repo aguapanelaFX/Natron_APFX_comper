@@ -1070,7 +1070,8 @@ isEntitledForInspector(Plugin* plugin,
 {
     if ( ( plugin->getPluginID() == QString::fromUtf8(PLUGINID_NATRON_VIEWER) ) ||
          ( plugin->getPluginID() == QString::fromUtf8(PLUGINID_NATRON_ROTOPAINT) ) ||
-         ( plugin->getPluginID() == QString::fromUtf8(PLUGINID_NATRON_ROTO) ) ) {
+         ( plugin->getPluginID() == QString::fromUtf8(PLUGINID_NATRON_ROTO) ) ||
+         ( plugin->getPluginID() == QString::fromUtf8("com.aguapanelafx.solvfx.SolvRoto") ) ) {
         return true;
     }
 

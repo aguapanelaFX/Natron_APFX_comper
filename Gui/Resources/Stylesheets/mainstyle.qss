@@ -1161,3 +1161,12 @@ QPushButton#SolvfxDimButton {
 }
 QPushButton#SolvfxDimButton:hover { background-color: #565656; }
 QPushButton#SolvfxDimButton:checked { background-color: #e0743a; color: #141414; }
+
+/* SOLVFX: dialog buttons keep room for their text (Save / Discard / Cancel...) */
+QDialogButtonBox QPushButton,
+Natron--DialogButtonBox QPushButton,
+QMessageBox QPushButton {
+    min-width: 72px;
+    min-height: 18px;
+    padding: 2px 12px;
+}

@@ -383,30 +383,30 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     settingsPage->addKnob(motionModelKnob);
 
 
-    KnobSeparatorPtr  transformGenerationSeparatorKnob = AppManager::createKnob<KnobSeparator>(effect.get(), tr("Transform Generation"), 3);
+    KnobSeparatorPtr  transformGenerationSeparatorKnob = AppManager::createKnob<KnobSeparator>(effect.get(), std::string(), 3);
     transformPage->addKnob(transformGenerationSeparatorKnob);
     transformGenerationSeparator = transformGenerationSeparatorKnob;
 
-    KnobChoicePtr motionTypeKnob = AppManager::createKnob<KnobChoice>(effect.get(), tr(kTrackerParamMotionTypeLabel), 1);
+    KnobChoicePtr motionTypeKnob = AppManager::createKnob<KnobChoice>(effect.get(), tr("transform"), 1);
     motionTypeKnob->setName(kTrackerParamMotionType);
     motionTypeKnob->setHintToolTip( tr(kTrackerParamMotionTypeHint) );
     {
         std::vector<ChoiceOption> choices;
-        choices.push_back(ChoiceOption(kTrackerParamMotionTypeNone, "", tr(kTrackerParamMotionTypeNoneHelp).toStdString()));
-        choices.push_back(ChoiceOption(kTrackerParamMotionTypeStabilize, "", tr(kTrackerParamMotionTypeStabilizeHelp).toStdString()));
-        choices.push_back(ChoiceOption(kTrackerParamMotionTypeMatchMove, "", tr(kTrackerParamMotionTypeMatchMoveHelp).toStdString()));
-        choices.push_back(ChoiceOption(kTrackerParamMotionTypeRemoveJitter, "", tr(kTrackerParamMotionTypeRemoveJitterHelp).toStdString()));
-        choices.push_back(ChoiceOption(kTrackerParamMotionTypeAddJitter, "", tr(kTrackerParamMotionTypeAddJitterHelp).toStdString()));
+        choices.push_back(ChoiceOption(kTrackerParamMotionTypeNone, "none", tr(kTrackerParamMotionTypeNoneHelp).toStdString()));
+        choices.push_back(ChoiceOption(kTrackerParamMotionTypeStabilize, "stabilize", tr(kTrackerParamMotionTypeStabilizeHelp).toStdString()));
+        choices.push_back(ChoiceOption(kTrackerParamMotionTypeMatchMove, "match-move", tr(kTrackerParamMotionTypeMatchMoveHelp).toStdString()));
+        choices.push_back(ChoiceOption(kTrackerParamMotionTypeRemoveJitter, "remove jitter", tr(kTrackerParamMotionTypeRemoveJitterHelp).toStdString()));
+        choices.push_back(ChoiceOption(kTrackerParamMotionTypeAddJitter, "add jitter", tr(kTrackerParamMotionTypeAddJitterHelp).toStdString()));
 
         motionTypeKnob->populateChoices(choices);
 
 
     }
-    motionTypeKnob->setAddNewLine(false);
+    motionTypeKnob->setAddNewLine(false); // "transform [stabilize] type [CornerPin]"
     motionType = motionTypeKnob;
     transformPage->addKnob(motionTypeKnob);
 
-    KnobChoicePtr transformTypeKnob = AppManager::createKnob<KnobChoice>(effect.get(), tr(kTrackerParamTransformTypeLabel), 1);
+    KnobChoicePtr transformTypeKnob = AppManager::createKnob<KnobChoice>(effect.get(), tr("type"), 1);
     transformTypeKnob->setName(kTrackerParamTransformType);
     transformTypeKnob->setHintToolTip( tr(kTrackerParamTransformTypeHint) );
     {
@@ -419,7 +419,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformType = transformTypeKnob;
     transformPage->addKnob(transformTypeKnob);
 
-    KnobIntPtr referenceFrameKnob = AppManager::createKnob<KnobInt>(effect.get(), tr(kTrackerParamReferenceFrameLabel), 1);
+    KnobIntPtr referenceFrameKnob = AppManager::createKnob<KnobInt>(effect.get(), tr("reference frame"), 1);
     referenceFrameKnob->setName(kTrackerParamReferenceFrame);
     referenceFrameKnob->setHintToolTip( tr(kTrackerParamReferenceFrameHint) );
     referenceFrameKnob->setAnimationEnabled(false);
@@ -429,13 +429,13 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(referenceFrameKnob);
     referenceFrame = referenceFrameKnob;
 
-    KnobButtonPtr setCurrentFrameKnob = AppManager::createKnob<KnobButton>(effect.get(), tr(kTrackerParamSetReferenceFrameLabel), 1);
+    KnobButtonPtr setCurrentFrameKnob = AppManager::createKnob<KnobButton>(effect.get(), tr("set to current frame"), 1);
     setCurrentFrameKnob->setName(kTrackerParamSetReferenceFrame);
     setCurrentFrameKnob->setHintToolTip( tr(kTrackerParamSetReferenceFrameHint) );
     transformPage->addKnob(setCurrentFrameKnob);
     setCurrentFrameButton = setCurrentFrameKnob;
 
-    KnobIntPtr  jitterPeriodKnob = AppManager::createKnob<KnobInt>(effect.get(), tr(kTrackerParamJitterPeriodLabel), 1);
+    KnobIntPtr  jitterPeriodKnob = AppManager::createKnob<KnobInt>(effect.get(), tr("jitter period"), 1);
     jitterPeriodKnob->setName(kTrackerParamJitterPeriod);
     jitterPeriodKnob->setHintToolTip( tr(kTrackerParamJitterPeriodHint) );
     jitterPeriodKnob->setAnimationEnabled(false);
@@ -445,7 +445,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(jitterPeriodKnob);
     jitterPeriod = jitterPeriodKnob;
 
-    KnobIntPtr  smoothTransformKnob = AppManager::createKnob<KnobInt>(effect.get(), tr(kTrackerParamSmoothLabel), 3);
+    KnobIntPtr  smoothTransformKnob = AppManager::createKnob<KnobInt>(effect.get(), tr("smooth"), 3);
     smoothTransformKnob->setName(kTrackerParamSmooth);
     smoothTransformKnob->setHintToolTip( tr(kTrackerParamSmoothHint) );
     smoothTransformKnob->setAnimationEnabled(false);
@@ -460,7 +460,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(smoothTransformKnob);
     smoothTransform = smoothTransformKnob;
 
-    KnobIntPtr  smoothCornerPinKnob = AppManager::createKnob<KnobInt>(effect.get(), tr(kTrackerParamSmoothCornerPinLabel), 1);
+    KnobIntPtr  smoothCornerPinKnob = AppManager::createKnob<KnobInt>(effect.get(), tr("smooth"), 1);
     smoothCornerPinKnob->setName(kTrackerParamSmoothCornerPin);
     smoothCornerPinKnob->setHintToolTip( tr(kTrackerParamSmoothCornerPinHint) );
     smoothCornerPinKnob->setAnimationEnabled(false);
@@ -471,7 +471,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(smoothCornerPinKnob);
     smoothCornerPin = smoothCornerPinKnob;
 
-    KnobBoolPtr  autoGenerateTransformKnob = AppManager::createKnob<KnobBool>(effect.get(), tr(kTrackerParamAutoGenerateTransformLabel), 1);
+    KnobBoolPtr  autoGenerateTransformKnob = AppManager::createKnob<KnobBool>(effect.get(), tr("live-link transform"), 1);
     autoGenerateTransformKnob->setName(kTrackerParamAutoGenerateTransform);
     autoGenerateTransformKnob->setHintToolTip( tr(kTrackerParamAutoGenerateTransformHint) );
     autoGenerateTransformKnob->setAnimationEnabled(false);
@@ -482,7 +482,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     autoGenerateTransform = autoGenerateTransformKnob;
 
 
-    KnobButtonPtr computeTransformKnob = AppManager::createKnob<KnobButton>(effect.get(), tr(kTrackerParamGenerateTransformLabel), 1);
+    KnobButtonPtr computeTransformKnob = AppManager::createKnob<KnobButton>(effect.get(), tr("compute"), 1);
     computeTransformKnob->setName(kTrackerParamGenerateTransform);
     computeTransformKnob->setHintToolTip( tr(kTrackerParamGenerateTransformHint) );
     computeTransformKnob->setEvaluateOnChange(false);
@@ -490,7 +490,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(computeTransformKnob);
     generateTransformButton = computeTransformKnob;
 
-    KnobBoolPtr  robustModelKnob = AppManager::createKnob<KnobBool>(effect.get(), tr(kTrackerParamRobustModelLabel), 1);
+    KnobBoolPtr  robustModelKnob = AppManager::createKnob<KnobBool>(effect.get(), tr("robust model"), 1);
     robustModelKnob->setName(kTrackerParamRobustModel);
     robustModelKnob->setHintToolTip( tr(kTrackerParamRobustModelHint) );
     robustModelKnob->setAnimationEnabled(false);
@@ -513,7 +513,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     fittingErrorWarning = fittingErrorWarningKnob;
 
 
-    KnobDoublePtr  fittingErrorKnob = AppManager::createKnob<KnobDouble>(effect.get(), tr(kTrackerParamFittingErrorLabel), 1);
+    KnobDoublePtr  fittingErrorKnob = AppManager::createKnob<KnobDouble>(effect.get(), tr("fitting error (px)"), 1);
     fittingErrorKnob->setName(kTrackerParamFittingError);
     fittingErrorKnob->setHintToolTip( tr(kTrackerParamFittingErrorHint) );
     fittingErrorKnob->setEvaluateOnChange(false);
@@ -522,7 +522,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     transformPage->addKnob(fittingErrorKnob);
     fittingError = fittingErrorKnob;
 
-    KnobDoublePtr  fittingErrorWarnAboveKnob = AppManager::createKnob<KnobDouble>(effect.get(), tr(kTrackerParamFittingErrorWarnValueLabel), 1);
+    KnobDoublePtr  fittingErrorWarnAboveKnob = AppManager::createKnob<KnobDouble>(effect.get(), tr("warn if error above"), 1);
     fittingErrorWarnAboveKnob->setName(kTrackerParamFittingErrorWarnValue);
     fittingErrorWarnAboveKnob->setHintToolTip( tr(kTrackerParamFittingErrorWarnValueHint) );
     fittingErrorWarnAboveKnob->setAnimationEnabled(false);
@@ -671,6 +671,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
 
     KnobSeparatorPtr exportDataSepKnob = AppManager::createKnob<KnobSeparator>(effect.get(), tr(kTrackerParamExportDataSeparatorLabel), 1, false);
     exportDataSepKnob->setName(kTrackerParamExportDataSeparator);
+    exportDataSepKnob->setSecretByDefault(true); // SOLVFX: export lives on the Tracker tab (Nuke-like menu)
     transformPage->addKnob(exportDataSepKnob);
     exportDataSep = exportDataSepKnob;
 
@@ -680,6 +681,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     exporLinkKnob->setAnimationEnabled(false);
     exporLinkKnob->setAddNewLine(false);
     exporLinkKnob->setDefaultValue(true);
+    exporLinkKnob->setSecretByDefault(true);
     transformPage->addKnob(exporLinkKnob);
     exportLink = exporLinkKnob;
 
@@ -697,6 +699,7 @@ TrackerContextPrivate::TrackerContextPrivate(TrackerContext* publicInterface,
     exportButtonKnob->setName(kTrackerParamExportButton);
     exportButtonKnob->setHintToolTip( tr(kTrackerParamExportButtonHint) );
     exportButtonKnob->setAllDimensionsEnabled(false);
+    exportButtonKnob->setSecretByDefault(true);
     transformPage->addKnob(exportButtonKnob);
     exportButton = exportButtonKnob;
 }
@@ -1417,8 +1420,9 @@ TrackerContextPrivate::refreshVisibilityFromTransformTypeInternal(TrackerTransfo
     transformNode.lock()->setNodeDisabled(disableNodes || transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
     cornerPinNode.lock()->setNodeDisabled(disableNodes || transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
 
-    transformControlsSeparator.lock()->setSecret(motionType == eTrackerMotionTypeNone);
-    disableTransformKnob->setSecret(motionType == eTrackerMotionTypeNone);
+    // SOLVFX: Nuke-like, the transform controls are always shown (only the Transform / CornerPin type hides the other set)
+    transformControlsSeparator.lock()->setSecret(false);
+    disableTransformKnob->setSecret(false);
     if (transformType == eTrackerTransformNodeTransform) {
         transformControlsSeparator.lock()->setLabel( tr("Transform Controls") );
         disableTransformKnob->setLabel( tr("Disable Transform") );
@@ -1428,35 +1432,35 @@ TrackerContextPrivate::refreshVisibilityFromTransformTypeInternal(TrackerTransfo
     }
 
 
-    smoothTransform.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    smoothCornerPin.lock()->setSecret(transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
+    smoothTransform.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    smoothCornerPin.lock()->setSecret(transformType == eTrackerTransformNodeTransform);
 
-    toGroup.lock()->setSecret(transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
-    fromGroup.lock()->setSecret(transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
-    cornerPinOverlayPoints.lock()->setSecret(transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
+    toGroup.lock()->setSecret(transformType == eTrackerTransformNodeTransform);
+    fromGroup.lock()->setSecret(transformType == eTrackerTransformNodeTransform);
+    cornerPinOverlayPoints.lock()->setSecret(transformType == eTrackerTransformNodeTransform);
     KnobDoublePtr matrix = cornerPinMatrix.lock();
     if (matrix) {
-        matrix->setSecret(transformType == eTrackerTransformNodeTransform || motionType == eTrackerMotionTypeNone);
+        matrix->setSecret(transformType == eTrackerTransformNodeTransform);
     }
 
 
-    translate.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    scale.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    scaleUniform.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    rotate.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    center.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    skewX.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    skewY.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    skewOrder.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    filter.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    clamp.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
-    blackOutside.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin || motionType == eTrackerMotionTypeNone);
+    translate.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    scale.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    scaleUniform.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    rotate.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    center.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    skewX.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    skewY.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    skewOrder.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    filter.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    clamp.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
+    blackOutside.lock()->setSecret(transformType == eTrackerTransformNodeCornerPin);
 
-    invertTransform.lock()->setSecret(motionType == eTrackerMotionTypeNone);
-    motionBlur.lock()->setSecret(motionType == eTrackerMotionTypeNone);
-    shutter.lock()->setSecret(motionType == eTrackerMotionTypeNone);
-    shutterOffset.lock()->setSecret(motionType == eTrackerMotionTypeNone);
-    customShutterOffset.lock()->setSecret(motionType == eTrackerMotionTypeNone);
+    invertTransform.lock()->setSecret(false);
+    motionBlur.lock()->setSecret(false);
+    shutter.lock()->setSecret(false);
+    shutterOffset.lock()->setSecret(false);
+    customShutterOffset.lock()->setSecret(false);
 
     exportLink.lock()->setAllDimensionsEnabled(motionType != eTrackerMotionTypeNone);
     exportButton.lock()->setAllDimensionsEnabled(motionType != eTrackerMotionTypeNone);
@@ -2687,6 +2691,11 @@ TrackerContextPrivate::endSolve()
     NodePtr n = node.lock();
     n->getApp()->progressEnd(n);
     n->getEffectInstance()->endChanges();
+    if (solvfxPendingExport >= 0) {
+        const int opt = solvfxPendingExport;
+        solvfxPendingExport = -1;
+        _publicInterface->solvfxFinishExport(opt);
+    }
 }
 
 bool

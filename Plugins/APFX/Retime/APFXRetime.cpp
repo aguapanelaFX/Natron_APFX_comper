@@ -425,7 +425,7 @@ lockParam(ImageEffectDescriptor& desc, PageParamDescriptor* page, const char* na
     p->setHint(hint);
     p->setDefault(false);
     p->setAnimates(false);
-    p->setLayoutHint(eLayoutHintNoNewLine, 1);
+    p->setLayoutHint(eLayoutHintNoNewLine, 4); // lock box close to its field
     page->addChild(*p);
 }
 
@@ -485,22 +485,14 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
 
     // input range  [x] first  [x] last
     lockParam(desc, page, "inputFirstLock", "input range", "Lock input.first (otherwise it follows the input clip).");
-    frameParam(desc, page, "inputFirst", "", "First input frame used. Typing a value locks it.", 1)->setLayoutHint(eLayoutHintNoNewLine, 1);
+    frameParam(desc, page, "inputFirst", "", "First input frame used. Typing a value locks it.", 1)->setLayoutHint(eLayoutHintNoNewLine, 16);
     lockParam(desc, page, "inputLastLock", "", "Lock input.last (otherwise it follows the input clip).");
     frameParam(desc, page, "inputLast", "", "Last input frame used. Typing a value locks it.", 100);
-    {
-        BooleanParamDescriptor* p = desc.defineBooleanParam("reverse");
-        p->setLabel("reverse");
-        p->setHint("Play the input range backwards.");
-        p->setDefault(false);
-        p->setAnimates(false);
-        page->addChild(*p);
-    }
     // output range [x] first  [x] last
     lockParam(desc, page, "outputFirstLock", "output range", "Lock output.first (otherwise it equals input.first).");
-    frameParam(desc, page, "outputFirst", "", "First output frame. Typing a value locks it; the last frame follows the speed unless locked.", 1)->setLayoutHint(eLayoutHintNoNewLine, 1);
+    frameParam(desc, page, "outputFirst", "", "First output frame. Typing a value locks it; the last frame follows the speed unless locked.", 1)->setLayoutHint(eLayoutHintNoNewLine, 16);
     lockParam(desc, page, "outputLastLock", "", "Lock output.last (both ends locked: the speed is computed so the ranges match).");
-    frameParam(desc, page, "outputLast", "", "Last output frame. Typing a value locks it.", 100);
+    frameParam(desc, page, "outputLast", "", "Last output frame. Typing a value locks it.", 100)->setLayoutHint(eLayoutHintDivider);
     {
         DoubleParamDescriptor* p = desc.defineDoubleParam("speed");
         p->setLabel("speed");
@@ -509,10 +501,18 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         p->setRange(0.0001, 1000.);
         p->setDisplayRange(0.1, 4.);
         p->setAnimates(false);
+        page->addChild(*p);
+    }
+    {
+        BooleanParamDescriptor* p = desc.defineBooleanParam("reverse");
+        p->setLabel("reverse");
+        p->setHint("Play the input range backwards.");
+        p->setDefault(false);
+        p->setAnimates(false);
         p->setLayoutHint(eLayoutHintDivider);
         page->addChild(*p);
     }
-    beforeAfter(desc, page, "before", "before", "What to output before output.first.");
+    beforeAfter(desc, page, "before", "before", "What to output before output.first.")->setLayoutHint(eLayoutHintNoNewLine, 16);
     beforeAfter(desc, page, "after", "after", "What to output after output.last.")->setLayoutHint(eLayoutHintDivider);
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("filter");
@@ -521,8 +521,9 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         p->appendOption("none");
         p->appendOption("nearest");
         p->appendOption("box");
-        p->setDefault(eFilterBox);
+        p->setDefault(eFilterNone);
         p->setAnimates(false);
+        p->setLayoutHint(eLayoutHintNoNewLine, 16);
         page->addChild(*p);
     }
     {
