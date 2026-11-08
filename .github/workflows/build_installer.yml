@@ -177,6 +177,7 @@ jobs:
         with:
           name:  ${{ steps.build.outputs.INSTALLER_NAME }}
           path:  ${{ steps.build.outputs.INSTALLER_DIR }}
+          retention-days: 3
 
       - name: Upload test results
         if: ${{ !inputs.test_build }}
@@ -184,6 +185,7 @@ jobs:
         with:
           name:  ${{ steps.build.outputs.TEST_RESULTS_NAME }}
           path:  ${{ steps.build.outputs.TEST_RESULTS_FILE }}
+          retention-days: 3
 
       - name: Upload test failures
         if: ${{ !inputs.test_build }}
@@ -191,6 +193,7 @@ jobs:
         with:
           name:  ${{ steps.build.outputs.TEST_FAILURES_NAME }}
           path:  ${{ steps.build.outputs.TEST_FAILURES_DIR }}
+          retention-days: 3
 
       - name: Verify plugin loading
         run: |
@@ -293,18 +296,6 @@ jobs:
       - name: Uninstall Natron dependencies
         run: |
           pacman -Rs --noconfirm ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5
-
-      - name: Upload installer
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name:  ${{ steps.build.outputs.INSTALLER_NAME }}
-          path:  ${{ steps.build.outputs.INSTALLER_DIR }}
-
-      - name: Upload symbols
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name:  ${{ steps.build.outputs.SYMBOLS_NAME }}
-          path:  ${{ steps.build.outputs.SYMBOLS_DIR }}
 
       - name: Verify plugin loading
         run: |
