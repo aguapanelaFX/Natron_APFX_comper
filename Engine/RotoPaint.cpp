@@ -2079,7 +2079,70 @@ RotoPaint::drawOverlay(double time,
                             }
                         }
 
-                        if (drawFeather) {
+                        // SOLVFX: like Nuke, a point's feather handle only shows when the point is selected
+                        // (or its feather bar is hovered / dragged): dashed link + hollow handle
+                        bool solvfxCpSelected = false;
+                        for (SelectedCPs::const_iterator cpIt = _imp->ui->selectedCps.begin(); cpIt != _imp->ui->selectedCps.end(); ++cpIt) {
+                            if ( (cpIt->first == *it2) || (cpIt->second == *it2) || (cpIt->first == *itF) || (cpIt->second == *itF) ) {
+                                solvfxCpSelected = true;
+                                break;
+                            }
+                        }
+                        const bool solvfxFeatherActive = isHovered ||
+                                                         ( (_imp->ui->state == eEventStateDraggingFeatherBar) &&
+                                                           ( ( *itF == _imp->ui->featherBarBeingDragged.first) || ( *itF == _imp->ui->featherBarBeingDragged.second) ) );
+                        if ( drawFeather && (solvfxCpSelected || solvfxFeatherActive) ) {
+                            glColor3f( solvfxFeatherActive ? 1. : 0.91, solvfxFeatherActive ? 0.82 : 0.91, solvfxFeatherActive ? 0.34 : 0.91 );
+                            glLineWidth(1.2 * screenPixelRatio);
+                            glLineStipple(2, 0xAAAA);
+                            glEnable(GL_LINE_STIPPLE);
+                            glBegin(GL_LINES);
+                            glVertex2f(x, y);
+                            glVertex2f(xF, yF);
+                            glEnd();
+                            glDisable(GL_LINE_STIPPLE);
+                            // hollow round handle
+                            const double rx = 4.5 * pixelScale.first * screenPixelRatio, ry = 4.5 * pixelScale.second * screenPixelRatio;
+                            glLineWidth(1.5 * screenPixelRatio);
+                            glBegin(GL_LINE_LOOP);
+                            for (int k = 0; k < 16; ++k) {
+                                const double a = k * 2. * M_PI / 16.;
+                                glVertex2f( xF + rx * std::cos(a), yF + ry * std::sin(a) );
+                            }
+                            glEnd();
+                            glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
+                        } else if (drawFeather) {
+                            // unselected point: the dashed feather curve is enough
+                        } else if ( featherVisible && solvfxCpSelected ) {
+                            // feather point on the control point: short dashed hint the user can drag
+                            if ( !isBezier->isOpenBezier() && ( (_imp->ui->selectedTool == eRotoToolSelectAll) || (_imp->ui->selectedTool == eRotoToolSelectFeatherPoints) || (_imp->ui->selectedTool == eRotoToolSelectPoints) ) ) {
+                                int cpCount = (*it2)->getBezier()->getControlPointsCount();
+                                if (cpCount > 1) {
+                                    Point controlPoint;
+                                    controlPoint.x = x;
+                                    controlPoint.y = y;
+                                    Point featherPoint;
+                                    featherPoint.x = xF;
+                                    featherPoint.y = yF;
+                                    Bezier::expandToFeatherDistance(true, controlPoint, &featherPoint, distFeatherX, time, clockWise, transform, prevCp, it2, nextCp);
+                                    if (isHovered) {
+                                        glColor3f(1., 0.82, 0.34);
+                                    } else {
+                                        glColor3f(0.75, 0.75, 0.75);
+                                    }
+                                    glLineWidth(1.2 * screenPixelRatio);
+                                    glLineStipple(2, 0xAAAA);
+                                    glEnable(GL_LINE_STIPPLE);
+                                    glBegin(GL_LINES);
+                                    glVertex2f(x, y);
+                                    glVertex2f(featherPoint.x, featherPoint.y);
+                                    glEnd();
+                                    glDisable(GL_LINE_STIPPLE);
+                                    glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
+                                }
+                            }
+                        }
+                        if (false) {
                             glEnable(GL_POINT_SMOOTH);
                             glPointSize(cpWidth * screenPixelRatio);
                             glBegin(GL_POINTS);
@@ -2114,7 +2177,7 @@ RotoPaint::drawOverlay(double time,
                             glEnd();
 
                             glColor3f(0.91, 0.91, 0.91); // SOLVFX white points
-                        } else if (featherVisible) {
+                        } else if (false) { // SOLVFX: replaced by the dashed hint above
                             ///if the feather point is identical to the control point
                             ///draw a small hint line that the user can drag to move the feather point
                             if ( !isBezier->isOpenBezier() && ( (_imp->ui->selectedTool == eRotoToolSelectAll) || (_imp->ui->selectedTool == eRotoToolSelectFeatherPoints) ) ) {
@@ -2507,7 +2570,8 @@ RotoPaint::onOverlayPenDown(double time,
             break;
         }
         std::pair<BezierCPPtr, BezierCPPtr> featherBarSel;
-        if ( ( ( _imp->ui->selectedTool == eRotoToolSelectAll) || ( _imp->ui->selectedTool == eRotoToolSelectFeatherPoints) ) ) {
+        if ( ( ( _imp->ui->selectedTool == eRotoToolSelectAll) || ( _imp->ui->selectedTool == eRotoToolSelectFeatherPoints) ||
+               ( _imp->ui->selectedTool == eRotoToolSelectPoints) ) ) { // SOLVFX: feather handles with the default tool too
             featherBarSel = _imp->ui->isNearbyFeatherBar(time, pixelScale, pos);
             if (featherBarSel.first && !featherVisible) {
                 featherBarSel.first.reset();
@@ -2519,6 +2583,22 @@ RotoPaint::onOverlayPenDown(double time,
         if (nearbyBezier) {
             ///check if the user clicked nearby the cross hair of the selection rectangle in which case
             ///we drag all the control points selected
+            // SOLVFX (Nuke): Ctrl + drag a point, or drag its feather handle, = drag that point's feather
+            if ( nearbyCP.first && featherVisible && (pen == ePenTypeLMB) &&
+                 ( ( _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown ) ||
+                   ( (_imp->ui->selectedTool == eRotoToolSelectPoints) && nearbyCP.first->isFeatherPoint() ) ) ) {
+                const BezierCPPtr cp = nearbyCP.first->isFeatherPoint() ? nearbyCP.second : nearbyCP.first;
+                const BezierCPPtr fp = nearbyCP.first->isFeatherPoint() ? nearbyCP.first : nearbyCP.second;
+                if (cp && fp) {
+                    _imp->ui->clearCPSSelection();
+                    _imp->ui->featherBarBeingDragged = std::make_pair(cp, fp);
+                    _imp->ui->handleControlPointSelection(_imp->ui->featherBarBeingDragged);
+                    _imp->ui->handleBezierSelection(nearbyBezier);
+                    _imp->ui->state = eEventStateDraggingFeatherBar;
+                    didSomething = true;
+                    break;
+                }
+            }
             if (nearbyCP.first) {
                 _imp->ui->handleControlPointSelection(nearbyCP);
                 _imp->ui->handleBezierSelection(nearbyBezier);

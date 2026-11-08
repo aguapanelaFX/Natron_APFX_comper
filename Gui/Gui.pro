@@ -87,6 +87,7 @@ SOURCES += \
     SolvfxConsole.cpp \
     SolvfxStatusBar.cpp \
     SolvfxShuffleWidget.cpp \
+    SolvfxKeyerRange.cpp \
     SolvfxOcioViewer.cpp \
     ComboBox.cpp \
     CurveEditor.cpp \
@@ -244,6 +245,7 @@ HEADERS += \
     SolvfxConsole.h \
     SolvfxStatusBar.h \
     SolvfxShuffleWidget.h \
+    SolvfxKeyerRange.h \
     SolvfxCursor.h \
     SolvfxOcioViewer.h \
     ComboBox.h \

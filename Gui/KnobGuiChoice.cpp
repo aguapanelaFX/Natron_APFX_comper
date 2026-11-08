@@ -80,6 +80,8 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/SpinBox.h"
 #include "Gui/TabGroup.h"
 #include "Gui/SolvfxShuffleWidget.h"
+#include "Gui/SolvfxKeyerRange.h"
+#include <QVBoxLayout>
 
 #include <ofxNatron.h>
 
@@ -310,6 +312,20 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
         SolvfxShuffleWidget* noodles = new SolvfxShuffleWidget( knob, _comboBox, layout->parentWidget() );
         noodles->setUndoHost(this);
         layout->addWidget(noodles, 1);
+
+        return;
+    }
+
+    // SOLVFX: the APFX Keyer gets Nuke's range graph under its operation menu
+    if ( SolvfxKeyerRange::isKeyerOperationKnob(knob) ) {
+        QWidget* box = new QWidget( layout->parentWidget() );
+        QVBoxLayout* v = new QVBoxLayout(box);
+        v->setContentsMargins(0, 0, 0, 0);
+        v->setSpacing( TO_DPIY(4) );
+        _comboBox->setParent(box);
+        v->addWidget(_comboBox, 0, Qt::AlignLeft);
+        v->addWidget( new SolvfxKeyerRange(knob, box) );
+        layout->addWidget(box, 1);
 
         return;
     }
