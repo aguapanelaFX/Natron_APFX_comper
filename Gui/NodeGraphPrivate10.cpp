@@ -134,6 +134,8 @@ NodeGraphPrivate::pasteNodesInternal(const NodeClipBoard & clipboard,
 
             ///Now that all nodes have been duplicated, try to restore nodes connections
             restoreConnections(internalNodesClipBoard, *newNodes, oldNewScriptNamesMapping);
+            // SOLVFX: pasted / duplicated stamps stay connected to their anchor
+            _publicInterface->solvfxReconnectStamps(newNodesList);
 
             NodesList allNodes;
             _publicInterface->getGui()->getApp()->getProject()->getActiveNodesExpandGroups(&allNodes);

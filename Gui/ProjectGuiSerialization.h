@@ -70,7 +70,8 @@ GCC_DIAG_ON(unused-parameter)
 #define VIEWER_DATA_INTRODUCES_PAUSE_VIEWER 12
 #define VIEWER_DATA_INTRODUCES_LAYER 13
 #define VIEWER_DATA_INTRODUCES_FULL_FRAME_PROC 14
-#define VIEWER_DATA_SERIALIZATION_VERSION VIEWER_DATA_INTRODUCES_FULL_FRAME_PROC
+#define VIEWER_DATA_INTRODUCES_SOLVFX_RANGE_MODE 15
+#define VIEWER_DATA_SERIALIZATION_VERSION VIEWER_DATA_INTRODUCES_SOLVFX_RANGE_MODE
 
 #define PROJECT_GUI_INTRODUCES_BACKDROPS 2
 #define PROJECT_GUI_REMOVES_ALL_NODE_PREVIEW_TOGGLED 3
@@ -109,6 +110,7 @@ struct ViewerData
     RectD userRoI; // in canonical coordinates
     bool isClippedToProject;
     bool isFullFrameProcessEnabled;
+    int solvfxRangeMode = 0; // SOLVFX: timeline range mode (Global / Input / In-Out / Visible)
     bool autoContrastEnabled;
     double gain;
     double gamma;
@@ -237,6 +239,11 @@ struct ViewerData
             ar & ::boost::serialization::make_nvp("fullFrame", isFullFrameProcessEnabled);
         } else {
             isFullFrameProcessEnabled = false;
+        }
+        if (version >= VIEWER_DATA_INTRODUCES_SOLVFX_RANGE_MODE) {
+            ar & ::boost::serialization::make_nvp("solvfxRangeMode", solvfxRangeMode);
+        } else {
+            solvfxRangeMode = 0;
         }
     } // serialize
 };

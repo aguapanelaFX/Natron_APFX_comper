@@ -2825,7 +2825,9 @@ Node::initializeKnobs(bool loadingSerialization)
             page->insertKnob(idx, setBtn);
             setBtn->setAddNewLine( first->isNewLineActivated() );
             first->setAddNewLine(false);
-            if (!loadingSerialization) {
+            // only for a node the user creates (never when loading / pasting: the saved value must stay)
+            if ( !loadingSerialization && !getApp()->isCreatingNodeTree() &&
+                 !( getApp()->getProject() && getApp()->getProject()->isLoadingProject() ) ) {
                 first->setValue( (int)getApp()->getTimeLine()->currentFrame() );
             }
         }
@@ -6129,9 +6131,8 @@ Node::canOthersConnectToThisNode() const
         return false;
     } else if ( dynamic_cast<GroupOutput*>( _imp->effect.get() ) ) {
         return false;
-    } else if ( _imp->effect->isWriter() && (_imp->effect->getSequentialPreference() == eSequentialPreferenceOnlySequential) ) {
-        return false;
     }
+    // SOLVFX: writers can be viewed / piped like Nuke: when not rendered by their Render button they pass their input through
     ///In debug mode only allow connections to Writer nodes
 # ifdef DEBUG
 

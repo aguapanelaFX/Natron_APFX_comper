@@ -355,6 +355,23 @@ SolvfxShuffleWidget::onInputLayerChosen(int clip,
         return;
     }
     _shownPlane[clip] = _planes[clip][index].label;
+    // SOLVFX: like Nuke, picking a layer wires it straight to the output (r->r, g->g, b->b, a->a);
+    // a layer with fewer channels than the output disconnects them all
+    {
+        const Plane& pl = _planes[clip][index];
+        std::vector<std::pair<QString, int> > rows;
+        outputRows(&rows);
+        const int n = (int)rows.size();
+        const bool enough = (int)pl.channels.size() >= n;
+        for (int i = 0; i < n && i < 4; ++i) {
+            const int knob = rows[i].second;
+            if (enough) {
+                setEntry(knob, pl.channels[i].entry);
+            } else if (_const0 >= 0) {
+                setEntry(knob, _const0);
+            }
+        }
+    }
     relayout();
     update();
 }

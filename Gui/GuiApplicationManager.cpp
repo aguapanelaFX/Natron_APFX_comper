@@ -1046,6 +1046,8 @@ GuiApplicationManager::onPluginLoaded(Plugin* plugin)
         symbol = Qt::Key_B;
     } else if ( pluginID == QString::fromUtf8(PLUGINID_NATRON_DOT) ) {
         symbol = Qt::Key_Period;
+    } else if ( pluginID == QString::fromUtf8("com.aguapanelafx.APFX.Copy") ) {
+        symbol = Qt::Key_K; // SOLVFX: Nuke Copy shortcut
     }
 #ifdef NATRON_ENABLE_IO_META_NODES
     else if ( pluginID == QString::fromUtf8(PLUGINID_NATRON_READ) ) {

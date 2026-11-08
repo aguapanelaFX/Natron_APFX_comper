@@ -78,6 +78,24 @@ CLANG_DIAG_ON(uninitialized)
 
 #include <ofxNatron.h>
 #include <QImage>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QFileInfo>
+#include <QFormLayout>
+#include <QComboBox>
+#include <QRegExp>
+#include <climits>
+
+#include "Engine/AppInstance.h"
+#include "Engine/KnobFile.h"
+#include "Engine/OutputEffectInstance.h"
+#include "Engine/OutputSchedulerThread.h"
+#include "Engine/WriteNode.h"
+#include "Gui/GuiAppInstance.h"
+#include "Gui/TimeLineGui.h"
+#include "Gui/ViewerTab.h"
 #include <algorithm>
 
 NATRON_NAMESPACE_ENTER
@@ -178,6 +196,9 @@ KnobGuiButton::createWidget(QHBoxLayout* layout)
         }
     } else {
         _button = new Button( label, layout->parentWidget() );
+        // SOLVFX: text buttons never clip their label
+        _button->setMinimumHeight( TO_DPIY(20) );
+        _button->setStyleSheet( QString::fromUtf8("padding: 1px 6px;") );
         // SOLVFX: compact "normalize" button, sitting at the end of the checkbox row
         if (knob->getName() == "normalize") {
             QFont f = _button->font();
@@ -218,12 +239,203 @@ KnobGuiButton::removeSpecificGui()
     _button->deleteLater();
 }
 
+// SOLVFX: Nuke-like render dialog: frame range presets + editable frame list, overwrite confirmation,
+// timeline cursor following the rendered frame
+static int g_solvfxRenderPreset = 1; // 0 global, 1 input, 2 in-out / visible, 3 custom
+
+static bool
+solvfxParseFrames(const QString& text,
+                  std::list<AppInstance::RenderWork>* works,
+                  OutputEffectInstance* writer,
+                  bool stats)
+{
+    const QStringList parts = text.split(QRegExp(QString::fromUtf8("[,\\s]+")), QString::SkipEmptyParts);
+    QRegExp re( QString::fromUtf8("^(-?\\d+)(?:-(-?\\d+))?(?:[xX](\\d+))?$") );
+    for (int i = 0; i < parts.size(); ++i) {
+        if ( re.indexIn(parts[i]) < 0 ) {
+            return false;
+        }
+        const int a = re.cap(1).toInt();
+        const int b = re.cap(2).isEmpty() ? a : re.cap(2).toInt();
+        const int step = re.cap(3).isEmpty() ? 1 : std::max(1, re.cap(3).toInt());
+        works->push_back( AppInstance::RenderWork( writer, std::min(a, b), std::max(a, b), step, stats ) );
+    }
+
+    return !works->empty();
+}
+
+static void
+solvfxRenderDialog(Gui* gui,
+                   EffectInstance* effect)
+{
+    OutputEffectInstance* writer = dynamic_cast<OutputEffectInstance*>(effect);
+    if (!gui || !writer) {
+        return;
+    }
+    // ranges
+    int ranges[3][2];
+    {
+        double f = 1, l = 1;
+        gui->getApp()->getFrameRange(&f, &l);
+        ranges[0][0] = (int)f; ranges[0][1] = (int)l;
+        double fi = f, li = l;
+        EffectInstancePtr in = effect->getInput(0);
+        if (in) {
+            in->getFrameRange_public(in->getHash(), &fi, &li);
+        }
+        ranges[1][0] = (int)fi; ranges[1][1] = (int)li;
+        int vl = (int)f, vr = (int)l;
+        ViewerTab* v = gui->getActiveViewer();
+        if (v) {
+            v->getTimelineBounds(&vl, &vr);
+        }
+        ranges[2][0] = vl; ranges[2][1] = vr;
+    }
+    QDialog dlg(gui);
+    dlg.setWindowTitle( QString::fromUtf8("Render %1").arg( QString::fromUtf8( effect->getNode()->getLabel().c_str() ) ) );
+    QFormLayout* form = new QFormLayout(&dlg);
+    QComboBox* preset = new QComboBox(&dlg);
+    preset->addItem( QString::fromUtf8("global") );
+    preset->addItem( QString::fromUtf8("input") );
+    preset->addItem( QString::fromUtf8("in-out / visible") );
+    preset->addItem( QString::fromUtf8("custom") );
+    QLineEdit* frames = new QLineEdit(&dlg);
+    frames->setToolTip( QString::fromUtf8("Frames to render, e.g. 1-100, 120, 200-300x2") );
+    form->addRow(QString::fromUtf8("Frame range"), preset);
+    form->addRow(QString::fromUtf8("Frames"), frames);
+    QDialogButtonBox* bb = new QDialogButtonBox(&dlg);
+    bb->addButton(QString::fromUtf8("Render"), QDialogButtonBox::AcceptRole);
+    bb->addButton(QDialogButtonBox::Cancel);
+    form->addRow(bb);
+    QObject::connect( bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept );
+    QObject::connect( bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject );
+    bool filling = false;
+    auto fill = [&](int i) {
+        if ( (i >= 0) && (i < 3) ) {
+            filling = true;
+            frames->setText( QString::fromUtf8("%1-%2").arg(ranges[i][0]).arg(ranges[i][1]) );
+            filling = false;
+        }
+    };
+    QObject::connect( preset, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), fill );
+    QObject::connect( frames, &QLineEdit::textEdited, [&](const QString&) {
+        if (!filling) {
+            preset->blockSignals(true);
+            preset->setCurrentIndex(3);
+            preset->blockSignals(false);
+        }
+    } );
+    static QString lastCustom = QString::fromUtf8("1-100");
+    preset->setCurrentIndex(g_solvfxRenderPreset);
+    if (g_solvfxRenderPreset == 3) {
+        frames->setText(lastCustom);
+    } else {
+        fill(g_solvfxRenderPreset);
+    }
+    frames->setFocus();
+    frames->selectAll();
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    g_solvfxRenderPreset = preset->currentIndex();
+    if (g_solvfxRenderPreset == 3) {
+        lastCustom = frames->text();
+    }
+    std::list<AppInstance::RenderWork> works;
+    if ( !solvfxParseFrames( frames->text(), &works, writer, gui->getApp()->isRenderStatsActionChecked() ) ) {
+        QMessageBox::warning( gui, QString::fromUtf8("Render"), QString::fromUtf8("Invalid frame range: %1").arg( frames->text() ) );
+
+        return;
+    }
+
+    // overwrite check
+    KnobBoolPtr overwrite;
+    KnobOutputFilePtr file;
+    {
+        WriteNode* wn = dynamic_cast<WriteNode*>(effect);
+        NodePtr embedded = wn ? wn->getEmbeddedWriter() : NodePtr();
+        EffectInstance* holders[2] = { effect, embedded ? embedded->getEffectInstance().get() : 0 };
+        for (int h = 0; h < 2; ++h) {
+            if (!holders[h]) {
+                continue;
+            }
+            if (!overwrite) {
+                overwrite = std::dynamic_pointer_cast<KnobBool>( holders[h]->getKnobByName("overwrite") );
+            }
+            if (!file) {
+                file = std::dynamic_pointer_cast<KnobOutputFile>( holders[h]->getKnobByName(kOfxImageEffectFileParamName) );
+            }
+        }
+    }
+    bool turnedOverwriteOn = false;
+    if ( file && overwrite && !overwrite->getValue() ) {
+        int existing = 0;
+        QString firstExisting;
+        std::set<QString> checked;
+        for (std::list<AppInstance::RenderWork>::iterator it = works.begin(); it != works.end(); ++it) {
+            for (int t = it->firstFrame; t <= it->lastFrame; t += std::max(1, it->frameStep)) {
+                std::string fs = file->generateFileNameAtTime( t, ViewSpec(0) ).toStdString();
+                gui->getApp()->getProject()->canonicalizePath(fs); // variables ($OUT, [Project] ...)
+                const QString fn = QString::fromUtf8( fs.c_str() );
+                if ( checked.insert(fn).second && QFileInfo(fn).exists() ) {
+                    if (existing == 0) {
+                        firstExisting = fn;
+                    }
+                    ++existing;
+                }
+            }
+        }
+        if (existing > 0) {
+            QMessageBox box(gui);
+            box.setIcon(QMessageBox::Warning);
+            box.setWindowTitle( QString::fromUtf8("Overwrite") );
+            box.setText( QString::fromUtf8("%1 file(s) already exist and will be overwritten:\n%2").arg(existing).arg(firstExisting) );
+            QPushButton* ow = box.addButton(QString::fromUtf8("Overwrite"), QMessageBox::AcceptRole);
+            box.addButton(QMessageBox::Cancel);
+            box.exec();
+            if (box.clickedButton() != ow) {
+                return;
+            }
+            overwrite->setValue(true);
+            turnedOverwriteOn = true;
+        }
+    }
+
+    gui->getApp()->startWritersRendering(false, works);
+
+    // timeline cursor follows the rendered frame; overwrite back off when done
+    RenderEnginePtr engine = writer->getRenderEngine();
+    if (engine) {
+        QObject* ctx = new QObject(gui);
+        QObject::connect( engine.get(), &RenderEngine::frameRendered, ctx, [](int time, double) {
+            TimeLineGui::solvfxSetRenderFrame(time);
+        } );
+        QObject::connect( engine.get(), &RenderEngine::renderFinished, ctx, [ctx, overwrite, turnedOverwriteOn](int) {
+            TimeLineGui::solvfxSetRenderFrame(INT_MIN);
+            if (turnedOverwriteOn && overwrite) {
+                overwrite->setValue(false);
+            }
+            ctx->deleteLater();
+        } );
+    } else if (turnedOverwriteOn && overwrite) {
+        // no engine to watch: leave it on for this render
+    }
+} // solvfxRenderDialog
+
 void
 KnobGuiButton::emitValueChanged(bool clicked)
 {
     KnobButtonPtr k = _knob.lock();
 
     assert(k);
+    if ( !k->getIsCheckable() && k->isRenderButton() ) {
+        EffectInstance* fx = dynamic_cast<EffectInstance*>( k->getHolder() );
+        if ( fx && fx->isWriter() ) {
+            solvfxRenderDialog(getGui(), fx);
+
+            return;
+        }
+    }
 
     if ( k->getIsCheckable() ) {
         _button->setDown(clicked);

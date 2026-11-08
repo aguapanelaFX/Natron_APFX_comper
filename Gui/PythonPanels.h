@@ -109,6 +109,15 @@ public:
 
     virtual QSize sizeHint() const OVERRIDE FINAL;
 
+protected:
+    // SOLVFX: ready to type (first text field focused), Enter confirms
+    virtual void showEvent(QShowEvent* e) OVERRIDE;
+
+private:
+    bool _solvfxWired = false;
+
+public:
+
     DialogParamHolder* getKnobsHolder() const;
 
 private:

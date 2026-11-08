@@ -2700,10 +2700,9 @@ RotoPaint::onOverlayPenDown(double time,
                         _imp->ui->selectedCps.clear();
                         _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
 
-                        // continue editing the tangent
-
-                        //->ui->tangentBeingDragged = *it;
-                        //_imp->ui->state = eEventStateDraggingRightTangent;
+                        // SOLVFX: like Nuke, keep dragging to pull the tangents of the closing point
+                        _imp->ui->tangentBeingDragged = *it;
+                        _imp->ui->state = eEventStateDraggingRightTangent;
                     } else {
                         BezierCPPtr fp = _imp->ui->builtBezier->getFeatherPointAtIndex(i);
                         assert(fp);
@@ -3359,6 +3358,31 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
 {
     bool didSomething = false;
 
+    if ( ( (key == Key_E) || (key == Key_e) ) && (_imp->ui->shiftDown) && !(_imp->ui->ctrlDown) && !(_imp->ui->altDown) ) {
+        // SOLVFX: Shift+E resets the feather of the selected points / shapes (Nuke)
+        const double t = getApp()->getTimeLine()->currentFrame();
+        std::list<std::pair<BezierCPPtr, BezierCPPtr> > pts = solvfxCollectFeatherPoints(t);
+        for (std::list<std::pair<BezierCPPtr, BezierCPPtr> >::iterator it = pts.begin(); it != pts.end(); ++it) {
+            BezierPtr b = it->first->getBezier();
+            if (!b) {
+                continue;
+            }
+            const int idx = b->getControlPointIndex(it->first);
+            if (idx < 0) {
+                continue;
+            }
+            double cx, cy, fx, fy;
+            it->first->getPositionAtTime(true, t, ViewIdx(0), &cx, &cy);
+            it->second->getPositionAtTime(true, t, ViewIdx(0), &fx, &fy);
+            b->moveFeatherByIndex(idx, t, cx - fx, cy - fy);
+        }
+        if ( !pts.empty() ) {
+            getNode()->getRotoContext()->evaluateChange();
+            redrawOverlayInteract();
+        }
+
+        return true;
+    }
     if ( ( (key == Key_E) || (key == Key_e) ) && !(_imp->ui->ctrlDown) && !(_imp->ui->shiftDown) && !(_imp->ui->altDown) ) {
         _imp->ui->solvfxFeatherKey = true; // SOLVFX: hold E + drag = feather of the selected points / shapes (Nuke)
         return true;

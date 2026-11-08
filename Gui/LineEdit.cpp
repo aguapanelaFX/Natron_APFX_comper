@@ -58,7 +58,7 @@ LineEdit::LineEdit(QWidget* parent)
     , altered(false)
 {
     setAttribute(Qt::WA_MacShowFocusRect, 0);
-    setFixedHeight( TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
+    setFixedHeight( TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE + 3) ); // SOLVFX: +3 so underscores / descenders are not clipped
 }
 
 LineEdit::~LineEdit()

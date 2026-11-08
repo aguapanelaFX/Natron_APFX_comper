@@ -75,6 +75,7 @@ public:
         _after = fetchChoiceParam("after");
         _filter = fetchChoiceParam("filter");
         _shutter = fetchDoubleParam("shutter");
+        _sublabel = paramExists(kNatronOfxParamStringSublabelName) ? fetchStringParam(kNatronOfxParamStringSublabelName) : NULL;
         _shutter->setEnabled(_filter->getValue() == eFilterBox);
     }
 
@@ -138,6 +139,16 @@ private:
         }
         if ( _outFLock->getValue() && _outLLock->getValue() && (std::fabs(_speed->getValue() - r.speed) > 1e-9) ) {
             _speed->setValue(r.speed);
+        }
+        // SOLVFX: node label shows the ranges, following the fields
+        if (_sublabel) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%d-%d > %d-%d", (int)r.inF, (int)r.inL, oF, oL);
+            std::string cur;
+            _sublabel->getValue(cur);
+            if (cur != buf) {
+                _sublabel->setValue(buf);
+            }
         }
         _speed->setEnabled( !( _outFLock->getValue() && _outLLock->getValue() ) );
         _shutter->setEnabled(_filter->getValue() == eFilterBox);
@@ -388,6 +399,7 @@ private:
     ChoiceParam* _after;
     ChoiceParam* _filter;
     DoubleParam* _shutter;
+    StringParam* _sublabel;
 };
 
 mDeclarePluginFactory(APFXRetimeFactory, {}, {});
@@ -482,6 +494,16 @@ APFXRetimeFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         c->setSupportsTiles(true);
     }
     PageParamDescriptor* page = desc.definePageParam("Retime");
+#ifdef OFX_EXTENSIONS_NATRON
+    {
+        // SOLVFX: node label "in-range > out-range"
+        StringParamDescriptor* p = desc.defineStringParam(kNatronOfxParamStringSublabelName);
+        p->setIsSecretAndDisabled(true);
+        p->setEvaluateOnChange(false);
+        p->setAnimates(false);
+        page->addChild(*p);
+    }
+#endif
 
     // input range  [x] first  [x] last
     lockParam(desc, page, "inputFirstLock", "input range", "Lock input.first (otherwise it follows the input clip).");

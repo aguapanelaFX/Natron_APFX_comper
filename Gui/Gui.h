@@ -576,6 +576,7 @@ public Q_SLOTS:
     bool saveProjectAs();
     void exportProjectAsGroup();
     void saveAndIncrVersion();
+    void solvfxPathVariablesDialog();
 
     void autoSave();
 

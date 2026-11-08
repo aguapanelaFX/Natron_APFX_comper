@@ -344,8 +344,14 @@ Edge::computeVisibility(bool hovered) const
              * Hide the inputs if it is NOT hovered and NOT selected and auto-hide is enabled and if the node is either
              * a Reader OR the input is optional and it doesn't have an input node
              */
+            // SOLVFX: A / B inputs (Merge, Shuffle, ...) are always shown, like Nuke
+            bool isAB = false;
+            if ( dst && dst->getNode() && (_imp->inputNb >= 0) ) {
+                const std::string l = dst->getNode()->getInputLabel(_imp->inputNb);
+                isAB = (l == "A") || (l == "B");
+            }
             if ( !hovered && !isSelected && autoHide  && !isViewer &&
-                 ( (_imp->optional && !src) || isReader ) ) {
+                 ( (_imp->optional && !src && !isAB) || isReader ) ) {
                 return false;
             } else {
                 return true;
@@ -365,8 +371,9 @@ Edge::refreshState(bool hovered)
         _imp->isRotoMask = effect->isInputRotoBrush(_imp->inputNb);
         _imp->isMask = effect->isInputMask(_imp->inputNb);
         _imp->optional = _imp->isMask || effect->isInputOptional(_imp->inputNb);
-        if (_imp->isMask) {
-            _imp->paintWithDash = true;
+        // SOLVFX: only mask inputs are dashed (an edge object can be reused for another input)
+        if ( !dynamic_cast<ViewerInstance*>( effect.get() ) ) {
+            _imp->paintWithDash = _imp->isMask;
         }
         bool visible = computeVisibility(hovered);
         if (isVisible() != visible) {
@@ -812,7 +819,8 @@ Edge::paint(QPainter *painter,
         color = arrowColor = _imp->renderingColor;
     } else {
         color = arrowColor = _imp->defaultColor;
-        if (_imp->optional && !_imp->paintWithDash) {
+        // SOLVFX: a connected optional input (e.g. Merge A) is drawn like any pipe
+        if ( _imp->optional && !_imp->paintWithDash && !_imp->source.lock() ) {
             color.setAlphaF(0.4);
         }
     }

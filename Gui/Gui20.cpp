@@ -36,6 +36,17 @@
 #include <QTextStream>
 #include <QSettings>
 #include <QFile>
+#include <QRegExp>
+#include <QDir>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QHeaderView>
+#include <QTableWidget>
+#include <QDialogButtonBox>
+#include <QDialog>
 #include <QFileInfo>
 
 #include <QAction>
@@ -48,6 +59,7 @@
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h" // NodeGroup, NodeCollection, NodesList
 #include "Engine/Project.h"
+#include "Engine/SolvfxPathVars.h"
 #include "Engine/Settings.h"
 #include "Engine/ViewerInstance.h"
 
@@ -1194,71 +1206,154 @@ Gui::saveProjectAs()
 void
 Gui::saveAndIncrVersion()
 {
+    // SOLVFX: like Nuke "Save New Comp Version": bump the last v### of the name (keeping its padding),
+    // nothing else is renamed; no version yet -> _v01 is added
     ProjectPtr project = getApp()->getProject();
     QString path = project->getProjectPath();
     QString name = project->getProjectFilename();
-    int currentVersion = 0;
-    int positionToInsertVersion;
-    bool mustAppendFileExtension = false;
-
-    // extension is everything after the last '.'
-    int lastDotPos = name.lastIndexOf( QLatin1Char('.') );
-
+    QString ext;
+    const int lastDotPos = name.lastIndexOf( QLatin1Char('.') );
+    QString base = name;
     if (lastDotPos == -1) {
-        positionToInsertVersion = name.size();
-        mustAppendFileExtension = true;
+        ext = QString::fromUtf8("." NATRON_PROJECT_FILE_EXT);
     } else {
-        //Extract the current version number if any
-        QString versionStr;
-        int i = lastDotPos - 1;
-        while ( i >= 0 && name.at(i).isDigit() ) {
-            versionStr.prepend( name.at(i) );
-            --i;
-        }
-
-        ++i; //move back the head to the first digit
-
-        if ( !versionStr.isEmpty() ) {
-            name.remove( i, versionStr.size() );
-            --i; //move 1 char backward, if the char is a '_' remove it
-            if ( (i >= 0) && ( name.at(i) == QLatin1Char('_') ) ) {
-                name.remove(i, 1);
-            }
-            currentVersion = versionStr.toInt();
-        }
-
-        positionToInsertVersion = i;
+        base = name.left(lastDotPos);
+        ext = name.mid(lastDotPos);
     }
-
-    //Incr version
-    ++currentVersion;
-
-    QString newVersionStr = QString::number(currentVersion);
-
-    //Add enough 0s in the beginning of the version number to have at least 3 digits
-    int nb0s = 3 - newVersionStr.size();
-    nb0s = std::max(0, nb0s);
-
-    QString toInsert( QLatin1Char('_') );
-    for (int c = 0; c < nb0s; ++c) {
-        toInsert.append( QLatin1Char('0') );
+    QRegExp re( QString::fromUtf8("[vV](\\d+)") );
+    int pos = -1, found = -1;
+    while ( ( pos = re.indexIn(base, pos + 1) ) != -1 ) {
+        found = pos;
     }
-    toInsert.append(newVersionStr);
-    if (mustAppendFileExtension) {
-        toInsert.append( QString::fromUtf8("." NATRON_PROJECT_FILE_EXT) );
-    }
-
-    if ( positionToInsertVersion >= name.size() ) {
-        name.append(toInsert);
+    QString prefix, suffix, vchar = QString::fromUtf8("v");
+    int version = 0, padding = 2;
+    if (found >= 0) {
+        re.indexIn(base, found);
+        vchar = base.mid(found, 1);
+        const QString digits = re.cap(1);
+        padding = digits.size();
+        version = digits.toInt();
+        prefix = base.left(found);
+        suffix = base.mid( found + 1 + digits.size() );
     } else {
-        name.insert(positionToInsertVersion, toInsert);
+        prefix = base + QString::fromUtf8("_");
     }
+    QString newName;
+    do {
+        ++version;
+        newName = prefix + vchar + QString::fromUtf8("%1").arg( version, padding, 10, QLatin1Char('0') ) + suffix + ext;
+    } while ( QFile::exists( path + QLatin1Char('/') + newName ) && (version < 100000) );
 
-    project->saveProject(path, name, 0);
+    project->saveProject(path, newName, 0);
 
-    QString filename = path + QLatin1Char('/') + name;
+    QString filename = path + QLatin1Char('/') + newName;
     updateRecentFiles(filename);
 } // Gui::saveAndIncrVersion
+
+void
+Gui::solvfxPathVariablesDialog()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle( tr("Path Variables") );
+    QVBoxLayout* lay = new QVBoxLayout(&dlg);
+    QLabel* info = new QLabel( tr("Folders used in file paths as $NAME (e.g. $PRJ/plates/sh010.####.exr). "
+                                  "They belong to this machine, not to the comp: set them here to open a comp anywhere. "
+                                  "$SCN is always the folder of the current comp."), &dlg );
+    info->setWordWrap(true);
+    lay->addWidget(info);
+    QTableWidget* table = new QTableWidget(0, 3, &dlg);
+    table->setHorizontalHeaderLabels( QStringList() << tr("Variable") << tr("Folder") << QString() );
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->verticalHeader()->hide();
+    lay->addWidget(table);
+
+    std::map<std::string, std::string> vars = SolvfxPathVars::userVars();
+    const char* fixedNames[3] = { "PRJ", "OUT", "AST" };
+    bool scnAdded = false;
+    auto addRow = [&](const QString& name, const QString& path, bool fixedName) {
+        const int r = scnAdded ? table->rowCount() - 1 : table->rowCount();
+        table->insertRow(r);
+        QTableWidgetItem* n = new QTableWidgetItem(name);
+        if (fixedName) {
+            n->setFlags(n->flags() & ~Qt::ItemIsEditable);
+        }
+        table->setItem(r, 0, n);
+        table->setItem( r, 1, new QTableWidgetItem(path) );
+        QPushButton* browse = new QPushButton( tr("..."), table );
+        browse->setFixedWidth( TO_DPIX(28) );
+        QObject::connect( browse, &QPushButton::clicked, table, [table, browse]() {
+            for (int i = 0; i < table->rowCount(); ++i) {
+                if (table->cellWidget(i, 2) == browse) {
+                    const QString cur = table->item(i, 1) ? table->item(i, 1)->text() : QString();
+                    const QString d = QFileDialog::getExistingDirectory(table, QString(), cur);
+                    if ( !d.isEmpty() ) {
+                        table->setItem( i, 1, new QTableWidgetItem( QDir::fromNativeSeparators(d) ) );
+                    }
+                }
+            }
+        } );
+        table->setCellWidget(r, 2, browse);
+    };
+    for (int i = 0; i < 3; ++i) {
+        std::map<std::string, std::string>::iterator it = vars.find(fixedNames[i]);
+        addRow( QString::fromUtf8(fixedNames[i]), it != vars.end() ? QString::fromUtf8( it->second.c_str() ) : QString(), true );
+        if ( it != vars.end() ) {
+            vars.erase(it);
+        }
+    }
+    for (std::map<std::string, std::string>::iterator it = vars.begin(); it != vars.end(); ++it) {
+        addRow( QString::fromUtf8( it->first.c_str() ), QString::fromUtf8( it->second.c_str() ), false );
+    }
+    {
+        // read-only $SCN
+        const int r = table->rowCount();
+        table->insertRow(r);
+        QTableWidgetItem* n = new QTableWidgetItem( QString::fromUtf8("SCN") );
+        n->setFlags(Qt::ItemIsEnabled);
+        QTableWidgetItem* v = new QTableWidgetItem( getApp()->getProject()->getProjectPath() );
+        v->setFlags(Qt::ItemIsEnabled);
+        table->setItem(r, 0, n);
+        table->setItem(r, 1, v);
+        scnAdded = true;
+    }
+    QHBoxLayout* btns = new QHBoxLayout();
+    QPushButton* addB = new QPushButton( tr("Add"), &dlg );
+    QPushButton* remB = new QPushButton( tr("Remove"), &dlg );
+    btns->addWidget(addB);
+    btns->addWidget(remB);
+    btns->addStretch();
+    QDialogButtonBox* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    btns->addWidget(bb);
+    lay->addLayout(btns);
+    QObject::connect( addB, &QPushButton::clicked, &dlg, [&]() {
+        addRow(QString::fromUtf8("NEW"), QString(), false);
+    } );
+    QObject::connect( remB, &QPushButton::clicked, &dlg, [&]() {
+        const int r = table->currentRow();
+        if ( (r >= 3) && ( r < table->rowCount() - 1 ) ) {
+            table->removeRow(r);
+        }
+    } );
+    QObject::connect( bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept );
+    QObject::connect( bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject );
+    dlg.resize( TO_DPIX(620), TO_DPIY(320) );
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    std::map<std::string, std::string> out;
+    for (int r = 0; r < table->rowCount() - 1; ++r) {
+        QTableWidgetItem* n = table->item(r, 0);
+        QTableWidgetItem* v = table->item(r, 1);
+        QString name = n ? n->text().trimmed().toUpper() : QString();
+        name.remove( QLatin1Char('$') );
+        const QString val = v ? v->text().trimmed() : QString();
+        if ( !name.isEmpty() && !val.isEmpty() ) {
+            out[name.toStdString()] = val.toStdString();
+        }
+    }
+    SolvfxPathVars::setUserVars(out);
+}
+
 
 void
 Gui::createNewViewer()

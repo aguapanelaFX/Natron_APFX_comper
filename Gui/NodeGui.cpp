@@ -608,6 +608,11 @@ NodeGui::getInitialSize(int *w,
         *w = TO_DPIX(NODE_WIDTH);
     }
     *h = TO_DPIY(NODE_HEIGHT);
+    // SOLVFX: Read / Write show the file name on a second line: a bit taller so it is not clipped
+    EffectInstancePtr fx = internalNode->getEffectInstance();
+    if ( fx && ( fx->isReader() || fx->isWriter() ) ) {
+        *h += TO_DPIY(12);
+    }
 }
 
 void

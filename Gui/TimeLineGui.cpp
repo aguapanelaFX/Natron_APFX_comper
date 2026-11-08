@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <set>
+#include <climits>
 #include <stdexcept>
 
 #include <QElapsedTimer>
@@ -239,6 +240,19 @@ struct TimelineGuiPrivate
     }
 };
 
+// SOLVFX: frame currently rendered by a Write (INT_MIN = none)
+static int g_solvfxRenderFrame = INT_MIN;
+static std::set<TimeLineGui*> g_solvfxTimelines;
+
+void
+TimeLineGui::solvfxSetRenderFrame(int frame)
+{
+    g_solvfxRenderFrame = frame;
+    for (std::set<TimeLineGui*>::iterator it = g_solvfxTimelines.begin(); it != g_solvfxTimelines.end(); ++it) {
+        (*it)->update();
+    }
+}
+
 TimeLineGui::TimeLineGui(ViewerInstance* viewer,
                          TimeLinePtr timeline,
                          Gui* gui,
@@ -246,6 +260,7 @@ TimeLineGui::TimeLineGui(ViewerInstance* viewer,
     : QOpenGLWidget(viewerTab)
     , _imp( new TimelineGuiPrivate(this, viewer, gui, viewerTab) )
 {
+    g_solvfxTimelines.insert(this);
     setTimeline(timeline);
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     setMouseTracking(true);
@@ -256,6 +271,7 @@ TimeLineGui::TimeLineGui(ViewerInstance* viewer,
 
 TimeLineGui::~TimeLineGui()
 {
+    g_solvfxTimelines.erase(this);
 }
 
 void
@@ -379,7 +395,8 @@ TimeLineGui::paintGL()
         leftBound = _imp->leftBoundary;
         rightBound = _imp->rightBoundary;
     }
-    const SequenceTime currentTime = _imp->timeline->currentFrame();
+    // SOLVFX: while a Write renders, the cursor shows the frame being rendered (the viewer is not touched)
+    const SequenceTime currentTime = (g_solvfxRenderFrame != INT_MIN) ? g_solvfxRenderFrame : _imp->timeline->currentFrame();
 
     if (_imp->firstPaint) {
         _imp->firstPaint = false;
@@ -971,6 +988,16 @@ TimeLineGui::seek(SequenceTime time)
         _imp->timeline->onFrameChanged(time);
         _imp->seekingTimeline = false;
         update();
+    }
+}
+
+void
+TimeLineGui::solvfxGetRangeEnds(int* first,
+                                int* last) const
+{
+    if (_imp->solvfxRangeLast >= _imp->solvfxRangeFirst) {
+        *first = _imp->solvfxRangeFirst;
+        *last = _imp->solvfxRangeLast;
     }
 }
 

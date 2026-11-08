@@ -66,6 +66,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QStylePainter>
 #include <QStyleOptionViewItem>
 #include <QStandardPaths>
+#include <set>
 #include <QDebug>
 #include <QEvent>
 #include <QMimeData>
@@ -86,6 +87,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/MemoryInfo.h" // printAsRAM
 #include "Engine/Node.h"
 #include "Engine/Project.h"
+#include "Engine/SolvfxPathVars.h"
 #include "Engine/PyParameter.h" // StringParam
 #include "Engine/Settings.h"
 #include "Engine/Utils.h" // convertFromPlainText
@@ -255,7 +257,8 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
         for (int y = 0; y < im.height(); ++y) {
             QRgb* line = (QRgb*)im.scanLine(y);
             for (int x = 0; x < im.width(); ++x) {
-                const int g = std::min(215, 150 + qGray(line[x]) / 4);
+                // SOLVFX: dark circle, white arrow (contrast)
+                const int g = (qGray(line[x]) > 200) ? 240 : 70;
                 line[x] = qRgba( g, g, g, qAlpha(line[x]) );
             }
         }
@@ -504,7 +507,24 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
     initialBookmarks.push_back( QUrl::fromLocalFile( QLatin1String("") ) );
 #endif
 
-    // SOLVFX: standard places + every drive in the sidebar
+    // SOLVFX: path variable folders first ($PRJ, $SCN, $OUT, $AST, ...), then standard places + every drive
+    {
+        const std::map<std::string, std::string> pv = SolvfxPathVars::all( _gui->getApp()->getProject().get() );
+        const char* order[4] = { "PRJ", "SCN", "OUT", "AST" };
+        std::set<std::string> done;
+        for (int i = 0; i < 4; ++i) {
+            std::map<std::string, std::string>::const_iterator it = pv.find(order[i]);
+            if ( ( it != pv.end() ) && QDir( QString::fromUtf8( it->second.c_str() ) ).exists() ) {
+                initialBookmarks.insert( initialBookmarks.begin() + done.size(), QUrl::fromLocalFile( QString::fromUtf8( it->second.c_str() ) ) );
+                done.insert(it->first);
+            }
+        }
+        for (std::map<std::string, std::string>::const_iterator it = pv.begin(); it != pv.end(); ++it) {
+            if ( !done.count(it->first) && QDir( QString::fromUtf8( it->second.c_str() ) ).exists() ) {
+                initialBookmarks.push_back( QUrl::fromLocalFile( QString::fromUtf8( it->second.c_str() ) ) );
+            }
+        }
+    }
     {
         const QStandardPaths::StandardLocation locs[] = {
             QStandardPaths::DesktopLocation, QStandardPaths::DocumentsLocation, QStandardPaths::DownloadLocation,
@@ -801,6 +821,10 @@ SequenceFileDialog::showContextMenu(const QPoint & position)
 {
     Menu menu(_view);
 
+    // SOLVFX: Refresh the listing
+    QAction* refresh = menu.addAction( tr("Refresh") );
+    QObject::connect( refresh, &QAction::triggered, this, [this]() { _model->setFilter( _model->filter() ); } );
+    menu.addSeparator();
     menu.addAction(_showHiddenAction);
     if ( _createDirButton->isVisible() ) {
         _newFolderAction->setEnabled( _createDirButton->isEnabled() );
@@ -2201,6 +2225,9 @@ UrlModel::mapPathToDisplayName(const QString& originalName)
         QString var = QString::fromUtf8( stdVar.c_str() );
         removeTrailingSlash(var);
         if (var == str) {
+            if ( !it->first.empty() && (it->first[0] == '$') ) {
+                return QString::fromUtf8( it->first.c_str() ); // SOLVFX: $PRJ ...
+            }
             str.clear();
             str.append( QLatin1Char('[') );
             str.append( QString::fromUtf8( it->first.c_str() ) );
@@ -2283,6 +2310,13 @@ FavoriteView::setModelAndUrls(QFileSystemModel *model,
 
     std::map<std::string, std::string> envVars;
     _gui->getApp()->getProject()->getEnvironmentVariables(envVars);
+    // SOLVFX: path variables shown as $NAME in the sidebar
+    {
+        const std::map<std::string, std::string> pv = SolvfxPathVars::all( _gui->getApp()->getProject().get() );
+        for (std::map<std::string, std::string>::const_iterator it = pv.begin(); it != pv.end(); ++it) {
+            envVars["$" + it->first] = it->second;
+        }
+    }
 
     urlModel = new UrlModel(envVars, this);
     urlModel->setFileSystemModel(model);

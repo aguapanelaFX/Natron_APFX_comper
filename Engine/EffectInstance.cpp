@@ -3749,6 +3749,20 @@ EffectInstance::isIdentity_public(bool useIdentityCache, // only set to true whe
                                   ViewIdx* inputView,
                                   int* inputNb)
 {
+    // SOLVFX: a writer only writes files when the Render button renders it (it is then the root of the
+    // render tree). Viewed or pulled by anything else, it is a pass-through of its input (like Nuke).
+    if ( isWriter() ) {
+        ParallelRenderArgsPtr solvfxTls = getParallelRenderArgsTLS();
+        if ( solvfxTls && solvfxTls->treeRoot && (solvfxTls->treeRoot != getNode()) && solvfxTls->treeRoot->getEffectInstance() &&
+             !solvfxTls->treeRoot->getEffectInstance()->isWriter() && (getNInputs() > 0) ) {
+            *inputNb = 0;
+            *inputTime = time;
+            *inputView = view;
+
+            return true;
+        }
+        useIdentityCache = false; // the result depends on who renders
+    }
     if (useIdentityCache) {
         double timeF = 0.;
         bool foundInCache = _imp->actionsCache->getIdentityResult(hash, time, view, inputNb, inputView, &timeF);

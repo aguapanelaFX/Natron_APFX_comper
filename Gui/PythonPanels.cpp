@@ -25,6 +25,10 @@
 
 #include "PythonPanels.h"
 
+#include <QLineEdit>
+#include <QTimer>
+#include <QShowEvent>
+
 #include <stdexcept>
 #include <sstream> // stringstream
 
@@ -290,6 +294,27 @@ PyModalDialog::PyModalDialog(Gui* gui,
         QObject::connect( _imp->buttons, SIGNAL(accepted()), this, SLOT(accept()) );
         QObject::connect( _imp->buttons, SIGNAL(rejected()), this, SLOT(reject()) );
         _imp->mainLayout->addWidget(_imp->buttons);
+    }
+}
+
+void
+PyModalDialog::showEvent(QShowEvent* e)
+{
+    QDialog::showEvent(e);
+    QList<QLineEdit*> edits = findChildren<QLineEdit*>();
+    if ( !edits.isEmpty() && !_solvfxWired ) {
+        _solvfxWired = true;
+        QLineEdit* first = edits.front();
+        QTimer::singleShot( 0, first, [first]() {
+            first->setFocus(Qt::OtherFocusReason);
+            first->selectAll();
+        } );
+        for (int i = 0; i < edits.size(); ++i) {
+            QObject::connect( edits[i], &QLineEdit::returnPressed, this, [this]() {
+                // let the field commit its value first
+                QTimer::singleShot( 0, this, [this]() { accept(); } );
+            } );
+        }
     }
 }
 

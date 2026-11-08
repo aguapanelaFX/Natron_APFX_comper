@@ -137,6 +137,10 @@ NodeGraph::mouseReleaseEvent(QMouseEvent* e)
 {
     EventStateEnum state = _imp->_evtState;
 
+    // SOLVFX: releasing the middle button while still dragging nodes with the left one: keep dragging
+    if ( (state == eEventStateDraggingNode) && (e->button() == Qt::MiddleButton) && (e->buttons() & Qt::LeftButton) ) {
+        return;
+    }
     _imp->_evtState = eEventStateNone;
 
     _imp->autoScrollTimer.stop();

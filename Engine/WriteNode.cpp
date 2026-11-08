@@ -63,6 +63,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/OutputSchedulerThread.h"
 #include "Engine/Plugin.h"
 #include "Engine/Project.h"
+#include "Engine/SolvfxPathVars.h"
 #include "Engine/ReadNode.h"
 #include "Engine/Settings.h"
 
@@ -1010,10 +1011,67 @@ WriteNode::getPluginGrouping(std::list<std::string>* grouping) const
     grouping->push_back(PLUGIN_GROUP_IMAGE);
 }
 
+
+// SOLVFX: path variables on a file knob: picked inside a variable folder -> stored as "$VAR/...";
+// the full path is kept in the hidden "solvfxAbsPath" knob as a fallback. Returns true if the value was rewritten
+// (the knob change will come back with the new value).
+static bool
+solvfxFileKnobChanged(EffectInstance* fx,
+                      KnobI* fileKnob,
+                      ValueChangedReasonEnum reason)
+{
+    KnobStringBase* f = dynamic_cast<KnobStringBase*>(fileKnob);
+    KnobStringPtr abs = std::dynamic_pointer_cast<KnobString>( fx->getKnobByName("solvfxAbsPath") );
+    ProjectPtr project = fx->getApp() ? fx->getApp()->getProject() : ProjectPtr();
+    if (!f || !project) {
+        return false;
+    }
+    std::string v = f->getValue();
+    if (reason == eValueChangedReasonUserEdited) {
+        std::string conv = v;
+        if ( SolvfxPathVars::toVariable( conv, project.get() ) && (conv != v) ) {
+            f->setValue(conv);
+
+            return true;
+        }
+    }
+    if (abs) {
+        if ( !v.empty() && (v[0] == '$') ) {
+            if ( SolvfxPathVars::hasUnresolved( v, project.get() ) ) {
+                // the fallback may define the variable for this session
+                SolvfxPathVars::deriveFromFallback( v, abs->getValue(), project.get() );
+            }
+            std::string full = v;
+            if ( SolvfxPathVars::expand( full, project.get() ) && (abs->getValue() != full) ) {
+                abs->setValue(full);
+            }
+        } else if ( abs->getValue() != v ) {
+            abs->setValue(v);
+        }
+    }
+
+    return false;
+}
+
+static void
+solvfxCreateAbsPathKnob(EffectInstance* fx, const KnobPagePtr& page)
+{
+    KnobStringPtr abs = AppManager::createKnob<KnobString>( fx, std::string("solvfxAbsPath") );
+    abs->setName("solvfxAbsPath");
+    abs->setHintToolTip( std::string("SOLVFX: full path of the file, used when its path variable is not defined on this machine.") );
+    abs->setSecretByDefault(true);
+    abs->setEvaluateOnChange(false);
+    abs->setAnimationEnabled(false);
+    if (page) {
+        page->addKnob(abs);
+    }
+}
+
 void
 WriteNode::initializeKnobs()
 {
     KnobPagePtr controlpage = AppManager::createKnob<KnobPage>( this, tr("Controls") );
+    solvfxCreateAbsPathKnob(this, controlpage);
 
 
     ///Find a  "lastFrame" parameter and add it after it
@@ -1166,7 +1224,20 @@ WriteNode::knobChanged(KnobI* k,
     bool ret = true;
     NodePtr writer = _imp->embeddedPlugin.lock();
 
+    if ( (k->getName() == "solvfxAbsPath") && (reason != eValueChangedReasonTimeChanged) ) {
+        KnobOutputFilePtr f = _imp->outputFileKnob.lock();
+        ProjectPtr project = getApp() ? getApp()->getProject() : ProjectPtr();
+        KnobString* abs = dynamic_cast<KnobString*>(k);
+        if (f && project && abs) {
+            SolvfxPathVars::deriveFromFallback( f->getValue(), abs->getValue(), project.get() );
+        }
+
+        return true;
+    }
     if ( ( k == _imp->outputFileKnob.lock().get() ) && (reason != eValueChangedReasonTimeChanged) ) {
+        if ( !_imp->creatingWriteNode && solvfxFileKnobChanged(this, k, reason) ) {
+            return true;
+        }
         if (_imp->creatingWriteNode) {
             if (writer) {
                 writer->getEffectInstance()->knobChanged(k, reason, view, time, originatedFromMainThread);

@@ -285,6 +285,13 @@ ViewerTab::startPause(bool b)
             QMutexLocker k(&_imp->currentViewMutex);
             viewsToRender.push_back(_imp->currentViewIndex);
         }
+        // SOLVFX: starting outside the playback range would play one frame and stop: jump into the range first
+        {
+            const int cur = _imp->timeLineGui->currentFrame();
+            if ( (cur < _imp->timeLineGui->leftBound()) || (cur > _imp->timeLineGui->rightBound()) ) {
+                seek( _imp->timeLineGui->leftBound() );
+            }
+        }
         _imp->viewerNode->getRenderEngine()->renderFromCurrentFrame(app->isRenderStatsActionChecked(), viewsToRender, eRenderDirectionForward);
     }
 }
@@ -523,6 +530,13 @@ ViewerTab::startBackward(bool b)
             QMutexLocker k(&_imp->currentViewMutex);
             viewsToRender.push_back(_imp->currentViewIndex);
         }
+        // SOLVFX: starting outside the playback range would play one frame and stop: jump into the range first
+        {
+            const int cur = _imp->timeLineGui->currentFrame();
+            if ( (cur < _imp->timeLineGui->leftBound()) || (cur > _imp->timeLineGui->rightBound()) ) {
+                seek( _imp->timeLineGui->rightBound() );
+            }
+        }
         _imp->viewerNode->getRenderEngine()->renderFromCurrentFrame(app->isRenderStatsActionChecked(), viewsToRender, eRenderDirectionBackward);
     }
 }
@@ -599,13 +613,18 @@ ViewerTab::nextIncrement()
 void
 ViewerTab::firstFrame()
 {
-    seek( _imp->timeLineGui->leftBound() );
+    // SOLVFX: first frame of the range the timeline shows (Input / In-Out / Visible), not the global one
+    int f = _imp->timeLineGui->leftBound(), l = _imp->timeLineGui->rightBound();
+    _imp->timeLineGui->solvfxGetRangeEnds(&f, &l);
+    seek( std::max( f, (int)_imp->timeLineGui->leftBound() ) );
 }
 
 void
 ViewerTab::lastFrame()
 {
-    seek( _imp->timeLineGui->rightBound() );
+    int f = _imp->timeLineGui->leftBound(), l = _imp->timeLineGui->rightBound();
+    _imp->timeLineGui->solvfxGetRangeEnds(&f, &l);
+    seek( std::min( l, (int)_imp->timeLineGui->rightBound() ) );
 }
 
 void

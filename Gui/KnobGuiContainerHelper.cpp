@@ -48,7 +48,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/TabGroup.h"
 
 #define NATRON_FORM_LAYOUT_LINES_SPACING 0
-#define NATRON_SETTINGS_VERTICAL_SPACING_PIXELS 2 // SOLVFX: compact rows (was 3)
+#define NATRON_SETTINGS_VERTICAL_SPACING_PIXELS 4 // SOLVFX: a bit more air between rows (was 3, compact 2 was too tight)
 
 
 NATRON_NAMESPACE_ENTER

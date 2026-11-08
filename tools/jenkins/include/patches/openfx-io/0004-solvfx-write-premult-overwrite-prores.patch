@@ -1,0 +1,115 @@
+diff --git a/FFmpeg/WriteFFmpeg.cpp b/FFmpeg/WriteFFmpeg.cpp
+index 7ded1ed..d69b1b3 100644
+--- a/FFmpeg/WriteFFmpeg.cpp
++++ b/FFmpeg/WriteFFmpeg.cpp
+@@ -4769,6 +4769,20 @@ WriteFFmpegPlugin::changedParam(const InstanceChangedArgs& args,
+         const vector<string>& codecsShortNames = FFmpegSingleton::Instance().getCodecsShortNames();
+         assert(codec < (int)codecsShortNames.size());
+         _codecShortName->setValue(codecsShortNames[codec]);
++        // SOLVFX: ProRes presets pick their native bit depth / pixel coding
++        if (args.reason == eChangeUserEdit) {
++            string sn = codecsShortNames[codec];
++            if ( sn.compare(0, strlen(kProresCodec), kProresCodec) == 0 ) {
++                sn = sn.substr( strlen(kProresCodec) );
++            }
++            if ( (sn == "ap4h") || (sn == "ap4x") ) {
++                _prefPixelCoding->setValue( (int)ePrefPixelCodingYUV444 );
++                _prefBitDepth->setValue( (int)ePrefBitDepth12 );
++            } else if ( (sn == "apch") || (sn == "apcn") || (sn == "apcs") || (sn == "apco") ) {
++                _prefPixelCoding->setValue( (int)ePrefPixelCodingYUV422 );
++                _prefBitDepth->setValue( (int)ePrefBitDepth10 );
++            }
++        }
+         updateVisibility();
+         int format = _format->getValue();
+         if (format > 0) {
+diff --git a/IOSupport/GenericWriter.cpp b/IOSupport/GenericWriter.cpp
+index fdd8c13..216c26d 100644
+--- a/IOSupport/GenericWriter.cpp
++++ b/IOSupport/GenericWriter.cpp
+@@ -185,6 +185,7 @@ GenericWriterPlugin::GenericWriterPlugin(OfxImageEffectHandle handle,
+     , _outputFormatSize(NULL)
+     , _outputFormatPar(NULL)
+     , _premult(NULL)
++    , _solvfxUnpremult(NULL)
+     , _clipToRoD(NULL)
+     , _sublabel(NULL)
+     , _processChannels()
+@@ -216,6 +217,7 @@ GenericWriterPlugin::GenericWriterPlugin(OfxImageEffectHandle handle,
+     _outputFormatPar = fetchDoubleParam(kParamFormatPar);
+ 
+     _premult = fetchChoiceParam(kParamInputPremult);
++    _solvfxUnpremult = paramExists("solvfxUnpremultColor") ? fetchBooleanParam("solvfxUnpremultColor") : NULL;
+ 
+     /// Param does not necessarily exist for all IO plugins
+     if (paramExists(kParamClipToRoD)) {
+@@ -605,6 +607,7 @@ GenericWriterPlugin::fetchPlaneConvertAndCopy(const string& plane,
+             // Note the last line: it says that when saving to a format that doesn't handle alpha (eg jpg),
+             // users prefer just considering the image as opaque and dropping alpha before color conversion.
+ 
++            const bool solvfxUnpremult = _solvfxUnpremult ? _solvfxUnpremult->getValueAtTime(time) : false;
+             // OCIO expects unpremultiplied input
+             if (noPremult || (userPremult == eImageUnPreMultiplied)) {
+                 if ((userPremult == eImageOpaque) && ((srcMappedComponents == ePixelComponentRGBA) || (srcMappedComponents == ePixelComponentAlpha))) {
+@@ -621,7 +624,9 @@ GenericWriterPlugin::fetchPlaneConvertAndCopy(const string& plane,
+             } else {
+                 assert(userPremult == eImagePreMultiplied);
+                 // see https://github.com/NatronGitHub/Natron/issues/582#issuecomment-792465844
+-                if (alphaOK || pluginExpectedPremult == eImageUnPreMultiplied) {
++                // SOLVFX: like Nuke, the colour conversion is applied to the premultiplied values unless
++                // 'premultiplied' (unpremult for colour) is checked
++                if ( solvfxUnpremult && (alphaOK || pluginExpectedPremult == eImageUnPreMultiplied) ) {
+                     // unpremult before colorspace conversion, only if the plugin expects unpremult data (eg WritePNG)
+                     unPremultPixelData(renderWindowClipped, renderScale, srcPixelData, *bounds, srcMappedComponents, srcMappedComponentsCount, bitDepth, srcRowBytes, tmpPixelData, renderWindow, srcMappedComponents, srcMappedComponentsCount, bitDepth, tmpRowBytes);
+                 } else {
+@@ -640,7 +645,8 @@ GenericWriterPlugin::fetchPlaneConvertAndCopy(const string& plane,
+             // If needed, re-premult the image for the plugin to work correctly
+             // ... but only if output format supports alpha (alphaOK)
+             // see https://github.com/NatronGitHub/Natron/issues/582#issuecomment-792465844
+-            if (alphaOK && (pluginExpectedPremult == eImagePreMultiplied) && (srcMappedComponents == ePixelComponentRGBA)) {
++            if ( alphaOK && (pluginExpectedPremult == eImagePreMultiplied) && (srcMappedComponents == ePixelComponentRGBA) &&
++                 ( (userPremult == eImageUnPreMultiplied) || solvfxUnpremult ) ) {
+                 premultPixelData(renderWindowClipped, renderScale, tmpPixelData, renderWindow, srcMappedComponents, srcMappedComponentsCount, bitDepth, tmpRowBytes, tmpPixelData, renderWindow, srcMappedComponents, srcMappedComponentsCount, bitDepth, tmpRowBytes);
+             }
+         } // if (isOCIOIdentity) {
+@@ -2562,7 +2568,7 @@ GenericWriterDescribeInContextBegin(ImageEffectDescriptor& desc,
+     {
+         BooleanParamDescriptor* param = desc.defineBooleanParam(kParamOverwrite);
+         param->setLabelAndHint(kParamOverwriteLabelAndHint);
+-        param->setDefault(true);
++        param->setDefault(false); // SOLVFX: off, SOLVFX asks before overwriting
+         param->setAnimates(false);
+         if (page) {
+             page->addChild(*param);
+@@ -2721,6 +2727,19 @@ GenericWriterDescribeInContextBegin(ImageEffectDescriptor& desc,
+             page->addChild(*param);
+         }
+     }
++    {
++        // SOLVFX: Nuke Write 'premultiplied': unpremult before the colour conversion and premult after
++        BooleanParamDescriptor* param = desc.defineBooleanParam("solvfxUnpremultColor");
++        param->setLabel("premultiplied");
++        param->setHint("Like Nuke: when checked, the image is unpremultiplied before the colour conversion and premultiplied after. "
++                       "Off (default): the conversion is applied directly to the premultiplied values, so partial alpha never shifts the colours.");
++        param->setDefault(false);
++        param->setAnimates(false);
++        param->setLayoutHint(eLayoutHintNoNewLine, 1);
++        if (page) {
++            page->addChild(*param);
++        }
++    }
+ 
+     {
+         PushButtonParamDescriptor* param = desc.definePushButtonParam(kParamClipInfo);
+diff --git a/IOSupport/GenericWriter.h b/IOSupport/GenericWriter.h
+index 3ebfebf..3e2935c 100644
+--- a/IOSupport/GenericWriter.h
++++ b/IOSupport/GenericWriter.h
+@@ -257,6 +257,7 @@ namespace IO {
+         OFX::Int2DParam* _outputFormatSize;
+         OFX::DoubleParam* _outputFormatPar;
+         OFX::ChoiceParam* _premult;
++        OFX::BooleanParam* _solvfxUnpremult; // SOLVFX: Nuke 'premultiplied' checkbox
+         OFX::BooleanParam* _clipToRoD;
+ 
+         OFX::StringParam* _sublabel;

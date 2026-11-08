@@ -54,6 +54,8 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/Menu.h"
 #include "Gui/NodeGui.h"
+#include "Gui/NodeGraphUndoRedo.h"
+#include "Gui/Edge.h"
 #include <algorithm>
 #include <map>
 #include "Engine/SolvfxStamp.h"
@@ -821,6 +823,26 @@ NodeGraph::solvfxStampsAction()
             }
         }
     } else {
+        // SOLVFX: stamps in the selection that lost their anchor (copy / paste, duplicate, mixed selection):
+        // reconnect them by name; other nodes in the selection are ignored
+        {
+            NodesGuiList stamps;
+            bool anyDisconnected = false;
+            for (NodesGuiList::iterator it = _imp->_selection.begin(); it != _imp->_selection.end(); ++it) {
+                NodePtr n = (*it)->getNode();
+                if ( n && solvfxIsStampID( n->getPluginID() ) ) {
+                    stamps.push_back(*it);
+                    if ( !solvfxAnchorOfStamp(*it) ) {
+                        anyDisconnected = true;
+                    }
+                }
+            }
+            if ( !stamps.empty() && ( anyDisconnected || (_imp->_selection.size() > 1) ) ) {
+                solvfxReconnectStamps(stamps);
+
+                return;
+            }
+        }
         NodeGuiPtr sel = _imp->_selection.front();
         NodePtr selNode = sel->getNode();
         if (!selNode) {
@@ -862,5 +884,92 @@ NodeGraph::solvfxStampsAction()
     clearSelection();
     selectNode(created.back(), false);
 } // NodeGraph::solvfxStampsAction
+
+// SOLVFX: Nuke Y: the first selected node (child) gets the next selected nodes on its inputs:
+// 1st -> B (main), 2nd -> A (secondary), then the other non-mask inputs; never a mask
+void
+NodeGraph::solvfxConnectSelection()
+{
+    if (_imp->_selection.size() < 2) {
+        return;
+    }
+    NodeGuiPtr child = _imp->_selection.front();
+    NodePtr c = child ? child->getNode() : NodePtr();
+    if ( !c || (c->getNInputs() == 0) ) {
+        return;
+    }
+    EffectInstancePtr fx = c->getEffectInstance();
+    std::vector<int> order;
+    const int n = c->getNInputs();
+    int b = -1, a = -1;
+    for (int i = 0; i < n; ++i) {
+        const std::string l = c->getInputLabel(i);
+        if (l == "B") {
+            b = i;
+        } else if (l == "A") {
+            a = i;
+        }
+    }
+    if (b >= 0) {
+        order.push_back(b);
+    }
+    if (a >= 0) {
+        order.push_back(a);
+    }
+    for (int i = 0; i < n; ++i) {
+        if ( (i == a) || (i == b) || ( fx && ( fx->isInputMask(i) || fx->isInputRotoBrush(i) ) ) ) {
+            continue;
+        }
+        order.push_back(i);
+    }
+    NodesGuiList::iterator it = _imp->_selection.begin();
+    ++it;
+    std::size_t k = 0;
+    for (; ( it != _imp->_selection.end() ) && ( k < order.size() ); ++it, ++k) {
+        if (*it == child) {
+            continue;
+        }
+        Edge* e = child->getInputArrow(order[k]);
+        if (e) {
+            pushUndoCommand( new ConnectCommand( this, e, e->getSource(), *it ) );
+        }
+    }
+}
+
+void
+NodeGraph::solvfxReconnectStamps(const NodesGuiList& nodes)
+{
+    // anchors by name
+    std::map<std::string, NodeGuiPtr> anchors;
+    const NodesGuiList& all = getAllActiveNodes();
+    for (NodesGuiList::const_iterator it = all.begin(); it != all.end(); ++it) {
+        NodePtr n = (*it)->getNode();
+        if ( n && solvfxIsAnchorID( n->getPluginID() ) ) {
+            anchors[n->getLabel()] = *it;
+        }
+    }
+    for (NodesGuiList::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+        NodePtr n = (*it)->getNode();
+        if ( !n || !solvfxIsStampID( n->getPluginID() ) || solvfxAnchorOfStamp(*it) ) {
+            continue;
+        }
+        // the label of a stamp is its anchor's name (a duplicate may have gained a number suffix)
+        std::string label = n->getLabel();
+        std::map<std::string, NodeGuiPtr>::iterator found = anchors.find(label);
+        if ( found == anchors.end() ) {
+            std::size_t us = label.find_last_not_of("0123456789");
+            if ( (us != std::string::npos) && (us + 1 < label.size()) ) {
+                std::string base = label.substr(0, us + 1);
+                if ( !base.empty() && (base[base.size() - 1] == '_') ) {
+                    base.erase(base.size() - 1);
+                }
+                found = anchors.find(base);
+            }
+        }
+        if ( found != anchors.end() ) {
+            solvfxReconnectStamp(*it, found->second);
+        }
+    }
+}
 
 NATRON_NAMESPACE_EXIT

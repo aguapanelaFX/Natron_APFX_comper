@@ -114,6 +114,7 @@ ProjectGuiSerialization::initialize(const ProjectGui* projectGui)
                         viewerData.timelineVisible = tab->isTimelineVisible();
                         viewerData.checkerboardEnabled = tab->isCheckerboardEnabled();
                         viewerData.isFullFrameProcessEnabled = tab->isFullFrameProcessingEnabled();
+                        viewerData.solvfxRangeMode = tab->solvfxGetTimelineRangeMode();
                         viewerData.fps = tab->getDesiredFps();
                         viewerData.fpsLocked = tab->isFPSLocked();
                         viewerData.isPauseEnabled[0] = tab->isViewerPaused(0);

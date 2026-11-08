@@ -1357,12 +1357,30 @@ ViewerTab::applyTimelineRangeMode()
     }
 }
 
+int
+ViewerTab::solvfxGetTimelineRangeMode() const
+{
+    return _imp->timelineRangeMode;
+}
+
+void
+ViewerTab::solvfxSetTimelineRangeMode(int mode)
+{
+    if ( _imp->timelineRangeCombo && (mode >= 0) && (mode < _imp->timelineRangeCombo->count()) ) {
+        _imp->timelineRangeCombo->setCurrentIndex(mode); // triggers onTimelineRangeModeChanged
+    }
+}
+
 void
 ViewerTab::solvfxPollModeRange()
 {
     // SOLVFX: re-apply the Input range when what is upstream changes it
     const int mode = (_imp->timelineRangeMode == 3) ? _imp->solvfxPrevRangeMode : _imp->timelineRangeMode;
     if ( (mode != 1) || (_imp->timelineRangeMode == 3) || !_imp->timeLineGui || !isVisible() ) {
+        return;
+    }
+    // never touch the range while playing (re-applying it could stop playback)
+    if ( _imp->viewerNode && _imp->viewerNode->getRenderEngine() && _imp->viewerNode->getRenderEngine()->isDoingSequentialRender() ) {
         return;
     }
     double f, l;

@@ -60,6 +60,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/KnobTypes.h"
 #include "Engine/KnobFile.h"
 #include "Engine/Project.h"
+#include "Engine/SolvfxPathVars.h"
 #include "Engine/NodeSerialization.h"
 #include "Engine/KnobSerialization.h" // createDefaultValueForParam
 #include "Engine/Plugin.h"
@@ -1100,6 +1101,62 @@ ReadNode::onMetadataRefreshed(const NodeMetadata& metadata)
     }
 }
 
+
+// SOLVFX: path variables on a file knob: picked inside a variable folder -> stored as "$VAR/...";
+// the full path is kept in the hidden "solvfxAbsPath" knob as a fallback. Returns true if the value was rewritten
+// (the knob change will come back with the new value).
+static bool
+solvfxFileKnobChanged(EffectInstance* fx,
+                      KnobI* fileKnob,
+                      ValueChangedReasonEnum reason)
+{
+    KnobStringBase* f = dynamic_cast<KnobStringBase*>(fileKnob);
+    KnobStringPtr abs = std::dynamic_pointer_cast<KnobString>( fx->getKnobByName("solvfxAbsPath") );
+    ProjectPtr project = fx->getApp() ? fx->getApp()->getProject() : ProjectPtr();
+    if (!f || !project) {
+        return false;
+    }
+    std::string v = f->getValue();
+    if (reason == eValueChangedReasonUserEdited) {
+        std::string conv = v;
+        if ( SolvfxPathVars::toVariable( conv, project.get() ) && (conv != v) ) {
+            f->setValue(conv);
+
+            return true;
+        }
+    }
+    if (abs) {
+        if ( !v.empty() && (v[0] == '$') ) {
+            if ( SolvfxPathVars::hasUnresolved( v, project.get() ) ) {
+                // the fallback may define the variable for this session
+                SolvfxPathVars::deriveFromFallback( v, abs->getValue(), project.get() );
+            }
+            std::string full = v;
+            if ( SolvfxPathVars::expand( full, project.get() ) && (abs->getValue() != full) ) {
+                abs->setValue(full);
+            }
+        } else if ( abs->getValue() != v ) {
+            abs->setValue(v);
+        }
+    }
+
+    return false;
+}
+
+static void
+solvfxCreateAbsPathKnob(EffectInstance* fx, const KnobPagePtr& page)
+{
+    KnobStringPtr abs = AppManager::createKnob<KnobString>( fx, std::string("solvfxAbsPath") );
+    abs->setName("solvfxAbsPath");
+    abs->setHintToolTip( std::string("SOLVFX: full path of the file, used when its path variable is not defined on this machine.") );
+    abs->setSecretByDefault(true);
+    abs->setEvaluateOnChange(false);
+    abs->setAnimationEnabled(false);
+    if (page) {
+        page->addKnob(abs);
+    }
+}
+
 void
 ReadNode::initializeKnobs()
 {
@@ -1111,6 +1168,17 @@ ReadNode::initializeKnobs()
     controlpage->addKnob(fileInfos);
     _imp->fileInfosKnob = fileInfos;
     _imp->readNodeKnobs.push_back(fileInfos);
+    {
+        // SOLVFX: Nuke-like Reload button
+        fileInfos->setAddNewLine(false);
+        KnobButtonPtr reload = AppManager::createKnob<KnobButton>( this, tr("Reload") );
+        reload->setName("solvfxReload");
+        reload->setHintToolTip( tr("Reload the file(s) from disk.") );
+        reload->setEvaluateOnChange(false);
+        controlpage->addKnob(reload);
+        _imp->readNodeKnobs.push_back(reload);
+    }
+    solvfxCreateAbsPathKnob(this, controlpage);
 
     KnobChoicePtr pluginSelector = AppManager::createKnob<KnobChoice>( this, tr("Decoder") );
     pluginSelector->setAnimationEnabled(false);
@@ -1211,7 +1279,21 @@ ReadNode::knobChanged(KnobI* k,
 {
     bool ret =  true;
 
+    if ( (k->getName() == "solvfxAbsPath") && (reason != eValueChangedReasonTimeChanged) ) {
+        // restored from a comp: it may define a missing path variable, then reload the file
+        KnobFilePtr f = _imp->inputFileKnob.lock();
+        ProjectPtr project = getApp() ? getApp()->getProject() : ProjectPtr();
+        KnobString* abs = dynamic_cast<KnobString*>(k);
+        if ( f && project && abs && SolvfxPathVars::deriveFromFallback( f->getValue(), abs->getValue(), project.get() ) ) {
+            f->reloadFile();
+        }
+
+        return true;
+    }
     if ( ( k == _imp->inputFileKnob.lock().get() ) && (reason != eValueChangedReasonTimeChanged) ) {
+        if ( solvfxFileKnobChanged(this, k, reason) ) {
+            return true;
+        }
 
         NodePtr hasMaster = getNode()->getMasterNode();
         if (hasMaster) {
@@ -1272,6 +1354,11 @@ ReadNode::knobChanged(KnobI* k,
         
 
         _imp->refreshFileInfoVisibility(entry);
+    } else if ( k->getName() == "solvfxReload" ) {
+        KnobFilePtr f = _imp->inputFileKnob.lock();
+        if (f) {
+            f->reloadFile();
+        }
     } else if ( k == _imp->fileInfosKnob.lock().get() ) {
         NodePtr p = getEmbeddedReader();
         if (!p) {

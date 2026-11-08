@@ -203,6 +203,12 @@ public:
                           int w,
                           int h,
                           QUndoCommand *parent = 0);
+    // SOLVFX: resize from any corner (moves the top-left too)
+    ResizeBackdropCommand(const NodeGuiPtr& bd,
+                          int w,
+                          int h,
+                          const QPointF& topLeft,
+                          QUndoCommand *parent = 0);
     virtual ~ResizeBackdropCommand();
 
     virtual void undo();
@@ -219,6 +225,8 @@ private:
     NodeGuiPtr _bd;
     int _w, _h;
     int _oldW, _oldH;
+    bool _move = false;
+    QPointF _pos, _oldPos;
 };
 
 

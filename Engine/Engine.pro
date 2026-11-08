@@ -85,6 +85,7 @@ SOURCES += \
     Dot.cpp \
     SolvfxViewerOcio.cpp \
     SolvRotoTrack.cpp \
+    SolvfxPathVars.cpp \
     EffectInstance.cpp \
     EffectInstancePrivate.cpp \
     EffectInstanceRenderRoI.cpp \
@@ -244,6 +245,7 @@ HEADERS += \
     SolvfxStamp.h \
     SolvfxViewerOcio.h \
     SolvRotoTrack.h \
+    SolvfxPathVars.h \
     SolvfxPerf.h \
     EffectInstance.h \
     EffectInstancePrivate.h \

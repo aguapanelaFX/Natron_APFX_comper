@@ -329,13 +329,36 @@ NodeGraph::moveSelectedNodesBy(bool shiftdown,
         }
     }
 
-    if (!ignoreMagnet && nodesToMove.size() > 1) {
-        ignoreMagnet = true;
-    }
-
     //The delta
     double dxScene = newPos.x() - lastMousePosScene.x();
     double dyScene = newPos.y() - lastMousePosScene.y();
+
+    // SOLVFX: with several nodes selected, snap the node being dragged and move the others by the same amount
+    if ( !ignoreMagnet && (nodesToMove.size() > 1) ) {
+        NodeGuiPtr leader = _imp->_magnifiedNode;
+        if ( leader && ( nodesToMove.find(leader) != nodesToMove.end() ) ) {
+            const QPointF pos = leader->getPos_mt_safe();
+            leader->refreshPosition(pos.x() + dxScene, pos.y() + dyScene, false, newPos);
+            const QPointF snapped = leader->getPos_mt_safe();
+            const double ddx = snapped.x() - pos.x(), ddy = snapped.y() - pos.y();
+            for (std::set<NodeGuiPtr>::iterator it = nodesToMove.begin(); it != nodesToMove.end(); ++it) {
+                if (*it == leader) {
+                    continue;
+                }
+                const QPointF p = (*it)->getPos_mt_safe();
+                (*it)->refreshPosition(p.x() + ddx, p.y() + ddy, true, newPos);
+            }
+            _imp->_deltaSinceMousePress.rx() += ddx;
+            _imp->_deltaSinceMousePress.ry() += ddy;
+            if (!userEdit) {
+                return;
+            }
+            checkAndStartAutoScrollTimer(newPos);
+
+            return;
+        }
+        ignoreMagnet = true;
+    }
 
 
     //Move all nodes
@@ -455,6 +478,12 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         mustUpdateNavigator = true;
         bool controlDown = modifierHasControl(e);
         bool shiftdown = modifierHasShift(e);
+        if (e->buttons() & Qt::MiddleButton) {
+            // SOLVFX: pan with the middle button while dragging: the dragged nodes stay under the cursor
+            // (the whole graph moves with the mouse, so the dragged nodes stay under the cursor)
+            moveRootInternal(dx, dy);
+            break;
+        }
         moveSelectedNodesBy(shiftdown, controlDown, lastMousePosScene, newPos, sceneR, true);
         _imp->cursorSet = true;
         setCursor( SolvfxCursor::arrow() ); // SOLVFX: always the arrow
@@ -471,14 +500,26 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
     case eEventStateResizingBackdrop: {
         mustUpdateNavigator = true;
         assert(_imp->_backdropResized);
-        QPointF p = _imp->_backdropResized->scenePos();
-        int w = newPos.x() - p.x();
-        int h = newPos.y() - p.y();
+        // SOLVFX: any corner; the opposite one stays fixed
+        const QPointF fixed = _imp->solvfxBdFixed;
+        const double minS = TO_DPIX(60);
+        double x1 = std::min( fixed.x(), newPos.x() ), x2 = std::max( fixed.x(), newPos.x() );
+        double y1 = std::min( fixed.y(), newPos.y() ), y2 = std::max( fixed.y(), newPos.y() );
+        if (x2 - x1 < minS) {
+            if (newPos.x() < fixed.x()) { x1 = fixed.x() - minS; } else { x2 = fixed.x() + minS; }
+        }
+        if (y2 - y1 < minS) {
+            if (newPos.y() < fixed.y()) { y1 = fixed.y() - minS; } else { y2 = fixed.y() + minS; }
+        }
+        QPointF topLeft(x1, y1);
+        if ( _imp->_backdropResized->parentItem() ) {
+            topLeft = _imp->_backdropResized->parentItem()->mapFromScene(topLeft);
+        }
         checkAndStartAutoScrollTimer(newPos);
         mustUpdate = true;
-        pushUndoCommand( new ResizeBackdropCommand(_imp->_backdropResized, w, h) );
+        pushUndoCommand( new ResizeBackdropCommand(_imp->_backdropResized, (int)(x2 - x1), (int)(y2 - y1), topLeft) );
         _imp->cursorSet = true;
-        setCursor( QCursor(Qt::SizeFDiagCursor) );
+        setCursor( QCursor( ( (_imp->solvfxBdCorner == 0) || (_imp->solvfxBdCorner == 3) ) ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor ) );
         break;
     }
     case eEventStateSelectionRect: {

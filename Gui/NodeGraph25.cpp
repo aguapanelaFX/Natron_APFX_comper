@@ -286,6 +286,8 @@ NodeGraph::keyPressEvent(QKeyEvent* e)
         decloneSelectedNodes();
     } else if ( isKeybind(kShortcutGroupNodegraph, kShortcutIDActionGraphFrameNodes, modifiers, key) ) {
         centerOnAllNodes();
+    } else if ( (key == Qt::Key_Y) && (modifiers == Qt::NoModifier) && (_imp->_selection.size() >= 2) ) {
+        solvfxConnectSelection(); // SOLVFX: Nuke Y
     } else if ( isKeybind(kShortcutGroupNodegraph, kShortcutIDActionGraphSolvfxStamps, modifiers, key) ) {
         solvfxStampsAction();
     } else if ( isKeybind(kShortcutGroupNodegraph, kShortcutIDActionGraphSwitchInputs, modifiers, key) ) {

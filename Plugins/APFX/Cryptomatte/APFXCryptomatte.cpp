@@ -411,6 +411,25 @@ public:
         refreshLayerMenu();
     }
 
+    // SOLVFX: one undo step per pick (Ctrl+Z / Ctrl+Shift+Z in the viewer)
+    bool undoPick(bool redo)
+    {
+        std::vector<std::string>& from = redo ? _redo : _undo;
+        std::vector<std::string>& to = redo ? _undo : _redo;
+        if ( from.empty() ) {
+            return false;
+        }
+        std::string cur;
+        _list->getValue(cur);
+        to.push_back(cur);
+        _restoring = true;
+        _list->setValue( from.back() );
+        _restoring = false;
+        from.pop_back();
+
+        return true;
+    }
+
     // called by the interact (Ctrl+click / Ctrl+Shift+click)
     void requestPick(double time, const OfxPointD& pos, bool remove)
     {
@@ -584,6 +603,15 @@ private:
         }
         if (_pickMode->getValue() != 2) {
             kept.push_back(item);
+        }
+        {
+            std::string before;
+            _list->getValue(before);
+            _undo.push_back(before);
+            if (_undo.size() > 200) {
+                _undo.erase( _undo.begin() );
+            }
+            _redo.clear();
         }
         setListItems(kept);
     }
@@ -789,6 +817,8 @@ private:
     DoubleParam* _pickTime;
     IntParam* _pickMode;
     IntParam* _pickCount;
+    std::vector<std::string> _undo, _redo;
+    bool _restoring = false;
 
     std::mutex _manifestMutex;
     std::string _manifestLoadedFile, _manifestLoadedLayer, _manifestStatus;
@@ -817,6 +847,12 @@ CryptoInteract::penDown(const PenArgs& args)
 bool
 CryptoInteract::keyDown(const KeyArgs& args)
 {
+    if ( _ctrl && ( (args.keySymbol == kOfxKey_z) || (args.keySymbol == kOfxKey_Z) ) ) {
+        APFXCryptomattePlugin* fx = dynamic_cast<APFXCryptomattePlugin*>(_effect);
+        if ( fx && fx->undoPick(_shift) ) {
+            return true;
+        }
+    }
     if ( (args.keySymbol == kOfxKey_Control_L) || (args.keySymbol == kOfxKey_Control_R) ) {
         _ctrl = true;
     } else if ( (args.keySymbol == kOfxKey_Shift_L) || (args.keySymbol == kOfxKey_Shift_R) ) {

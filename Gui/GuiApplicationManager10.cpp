@@ -772,7 +772,8 @@ GuiApplicationManager::populateShortcuts()
     registerStandardKeybind(kShortcutGroupGlobal, kShortcutIDActionPreferences, kShortcutDescActionPreferences, QKeySequence::Preferences, Qt::ShiftModifier, Qt::Key_S);
     registerStandardKeybind(kShortcutGroupGlobal, kShortcutIDActionQuit, kShortcutDescActionQuit, QKeySequence::Quit, Qt::ControlModifier, Qt::Key_Q);
 
-    registerKeybind(kShortcutGroupGlobal, kShortcutIDActionSaveAndIncrVersion, kShortcutDescActionSaveAndIncrVersion, Qt::ControlModifier | Qt::ShiftModifier |
+    // SOLVFX: Nuke shortcut (Alt+Shift+S)
+    registerKeybind(kShortcutGroupGlobal, kShortcutIDActionSaveAndIncrVersion, kShortcutDescActionSaveAndIncrVersion, Qt::ShiftModifier |
                     Qt::AltModifier, Qt::Key_S);
     registerKeybind(kShortcutGroupGlobal, kShortcutIDActionReloadProject, kShortcutDescActionReloadProject, Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_R);
     registerKeybind(kShortcutGroupGlobal, kShortcutIDActionExportProject, kShortcutDescActionExportProject, Qt::NoModifier, (Qt::Key)0);

@@ -164,12 +164,27 @@ NodeGraph::hasItemNearbyMouse(const QPoint& mousePosViewport,
             QPointF localPoint = (*it)->mapFromScene( mapToScene(mousePosViewport) );
             BackdropGui* isBd = dynamic_cast<BackdropGui*>(*it);
             if (isBd) {
+                // SOLVFX: resize from any of the 4 corners
+                {
+                    const QRectF r = isBd->boundingRect();
+                    const double tol = TO_DPIX(12);
+                    const QPointF corners[4] = { r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight() };
+                    for (int c = 0; c < 4; ++c) {
+                        if ( (std::abs( localPoint.x() - corners[c].x() ) < tol) && (std::abs( localPoint.y() - corners[c].y() ) < tol) ) {
+                            *node = *it;
+                            _imp->solvfxBdCorner = c;
+
+                            return eNearbyItemBackdropResizeHandle;
+                        }
+                    }
+                }
                 if ( isBd->isNearbyNameFrame(localPoint) ) {
                     *node = *it;
 
                     return eNearbyItemBackdropFrame;
                 } else if ( isBd->isNearbyResizeHandle(localPoint) ) {
                     *node = *it;
+                    _imp->solvfxBdCorner = 3;
 
                     return eNearbyItemBackdropResizeHandle;
                 }
@@ -180,6 +195,17 @@ NodeGraph::hasItemNearbyMouse(const QPoint& mousePosViewport,
         *edge = *edges.begin();
 
         QPointF scenePos = mapToScene(mousePosViewport);
+        // SOLVFX: several edges can overlap (e.g. the unconnected inputs of a Viewer next to its connected
+        // pipe): prefer the one whose bend point (Ctrl Dot) is under the mouse, then any connected one
+        for (std::set<Edge*>::iterator it = edges.begin(); it != edges.end(); ++it) {
+            if ( (*it)->hasSource() && (*it)->isBendPointVisible() && (*it)->isNearbyBendPoint(scenePos) ) {
+                *edge = *it;
+                break;
+            }
+            if ( (*it)->hasSource() && !(*edge)->hasSource() ) {
+                *edge = *it;
+            }
+        }
         if ( (*edge)->hasSource() && (*edge)->isBendPointVisible() && (*edge)->isNearbyBendPoint(scenePos) ) {
             return eNearbyItemEdgeBendPoint;
         } else {
@@ -200,6 +226,12 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
     takeClickFocus();
 
     _imp->_hasMovedOnce = false;
+    // SOLVFX: middle (or Alt+middle) while dragging nodes with the left button: pan, keep dragging
+    if ( (_imp->_evtState == eEventStateDraggingNode) && (e->button() == Qt::MiddleButton) && (e->buttons() & Qt::LeftButton) ) {
+        _imp->_lastMousePos = e->pos();
+
+        return;
+    }
     _imp->_deltaSinceMousePress = QPointF(0, 0);
     if ( buttonDownIsMiddle(e) ) {
         _imp->_evtState = eEventStateMovingArea;
@@ -268,6 +300,12 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
         didSomething = true;
         _imp->_backdropResized = nearbyNode->shared_from_this();
         _imp->_evtState = eEventStateResizingBackdrop;
+        {
+            const QRectF r = nearbyNode->mapRectToScene( nearbyNode->boundingRect() );
+            // the corner opposite to the one grabbed stays fixed
+            const QPointF opp[4] = { r.bottomRight(), r.bottomLeft(), r.topRight(), r.topLeft() };
+            _imp->solvfxBdFixed = opp[ std::max(0, std::min(3, _imp->solvfxBdCorner)) ];
+        }
     }
 
 

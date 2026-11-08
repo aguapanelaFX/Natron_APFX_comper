@@ -24,6 +24,7 @@
 // ***** END PYTHON BLOCK *****
 
 #include "Project.h"
+#include "Engine/SolvfxPathVars.h"
 
 #include <fstream>
 #include <algorithm> // min, max
@@ -2508,6 +2509,9 @@ Project::isRelative(const std::string& str)
 void
 Project::canonicalizePath(std::string& str)
 {
+    // SOLVFX: $PRJ / $SCN / $OUT / $AST path variables
+    SolvfxPathVars::expand(str, this);
+
     std::map<std::string, std::string> envvar;
 
     getEnvironmentVariables(envvar);

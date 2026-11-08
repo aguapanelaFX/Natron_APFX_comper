@@ -137,10 +137,15 @@ BackdropGui::adjustSizeToContent(int *w,
 }
 
 void
-BackdropGui::resizeExtraContent(int /*w*/,
-                                int /*h*/,
+BackdropGui::resizeExtraContent(int w,
+                                int h,
                                 bool forceResize)
 {
+    // SOLVFX: depth like Nuke: smaller backdrops sit on top of bigger ones (always under the nodes)
+    {
+        const double area = std::max(1., (double)w * (double)h);
+        setZValue( getBaseDepth() + 9. / ( 1. + area / 200000. ) );
+    }
     QPointF p = pos();
     QPointF thisItemPos = mapFromParent(p);
     int nameHeight = getFrameNameHeight();
@@ -184,11 +189,9 @@ BackdropGuiPrivate::refreshLabelText(int nameHeight,
 
     QRectF bbox = _publicInterface->boundingRect();
 
-    //label->adjustSize();
-    int w = std::max( bbox.width(), label->textWidth() * 1.2 );
-    QRectF labelBbox = label->boundingRect();
-    int h = std::max( labelBbox.height() + nameHeight + TO_DPIX(10), bbox.height() );
-    _publicInterface->resize(w, h);
+    // SOLVFX: changing the label (or its font size) never resizes the backdrop
+    (void)bbox;
+    (void)nameHeight;
     _publicInterface->update();
 }
 

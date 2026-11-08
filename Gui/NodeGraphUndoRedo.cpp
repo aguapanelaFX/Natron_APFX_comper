@@ -587,26 +587,26 @@ InsertNodeCommand::redo()
     doConnect(oldSrc, newSrc, dst, _inputNb);
 
 
-    ///find out if the node is already connected to what the edge is connected
-    bool alreadyConnected = false;
-    const std::vector<NodeWPtr> & inpNodes = newSrcInternal->getGuiInputs();
+    // SOLVFX: the inserted node takes the pipe on its main input (B for A / B nodes) whenever that input is free,
+    // even if another input (e.g. A) is already connected to the same node
+    _inputEdge = 0;
     if (oldSrcInternal) {
-        for (std::size_t i = 0; i < inpNodes.size(); ++i) {
-            if (inpNodes[i].lock() == oldSrcInternal) {
-                alreadyConnected = true;
+        const std::vector<NodeWPtr> & inpNodes = newSrcInternal->getGuiInputs();
+        int prefInput = -1;
+        for (int i = 0; i < (int)inpNodes.size(); ++i) {
+            if ( (newSrcInternal->getInputLabel(i) == "B") && !inpNodes[i].lock() ) {
+                prefInput = i;
                 break;
             }
         }
-    }
-
-    _inputEdge = 0;
-    if (oldSrcInternal && !alreadyConnected) {
-        ///push a second command... this is a bit dirty but I don't have time to add a whole new command just for this
-        int prefInput = newSrcInternal->getPreferredInputForConnection();
-        if (prefInput != -1) {
+        if (prefInput == -1) {
+            prefInput = newSrcInternal->getPreferredInputForConnection();
+        }
+        if ( (prefInput != -1) && ( prefInput < (int)inpNodes.size() ) && !inpNodes[prefInput].lock() ) {
             _inputEdge = newSrc->getInputArrow(prefInput);
-            assert(_inputEdge);
-            doConnect( _inputEdge->getSource(), oldSrc, _inputEdge->getDest(), _inputEdge->getInputNumber() );
+            if (_inputEdge) {
+                doConnect( _inputEdge->getSource(), oldSrc, _inputEdge->getDest(), _inputEdge->getInputNumber() );
+            }
         }
     }
 
@@ -645,6 +645,28 @@ ResizeBackdropCommand::ResizeBackdropCommand(const NodeGuiPtr& bd,
     setText( tr("Resize %1").arg( QString::fromUtf8( _bd->getNode()->getLabel().c_str() ) ) );
 }
 
+ResizeBackdropCommand::ResizeBackdropCommand(const NodeGuiPtr& bd,
+                                             int w,
+                                             int h,
+                                             const QPointF& topLeft,
+                                             QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , _bd(bd)
+    , _w(w)
+    , _h(h)
+    , _oldW(0)
+    , _oldH(0)
+    , _move(true)
+    , _pos(topLeft)
+    , _oldPos( bd->pos() )
+{
+    QRectF bbox = bd->boundingRect();
+
+    _oldW = bbox.width();
+    _oldH = bbox.height();
+    setText( tr("Resize %1").arg( QString::fromUtf8( _bd->getNode()->getLabel().c_str() ) ) );
+}
+
 ResizeBackdropCommand::~ResizeBackdropCommand()
 {
 }
@@ -652,12 +674,18 @@ ResizeBackdropCommand::~ResizeBackdropCommand()
 void
 ResizeBackdropCommand::undo()
 {
+    if (_move) {
+        _bd->refreshPosition( _oldPos.x(), _oldPos.y(), true );
+    }
     _bd->resize(_oldW, _oldH);
 }
 
 void
 ResizeBackdropCommand::redo()
 {
+    if (_move) {
+        _bd->refreshPosition( _pos.x(), _pos.y(), true );
+    }
     _bd->resize(_w, _h);
 }
 
@@ -674,6 +702,13 @@ ResizeBackdropCommand::mergeWith(const QUndoCommand *command)
     }
     _w = rCmd->_w;
     _h = rCmd->_h;
+    if (rCmd->_move) {
+        if (!_move) {
+            _oldPos = rCmd->_oldPos;
+        }
+        _move = true;
+        _pos = rCmd->_pos;
+    }
 
     return true;
 }

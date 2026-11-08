@@ -129,6 +129,9 @@ public:
     // SOLVFX: the in / out markers are only drawn when the user set in / out points
     void solvfxSetBoundsVisible(bool visible);
     void solvfxSetRangeEnds(int first, int last);
+    void solvfxGetRangeEnds(int* first, int* last) const; // unchanged when not set
+    // SOLVFX: frame being rendered by a Write (INT_MIN = none), shown by the cursor of every timeline
+    static void solvfxSetRenderFrame(int frame);
 
     void setTimeFormatFrames(bool value);
 

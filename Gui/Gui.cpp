@@ -653,6 +653,13 @@ Gui::createMenuActions()
     _imp->menuFile->addAction(_imp->actionSaveAndIncrementVersion);
     _imp->menuFile->addAction(_imp->actionExportAsGroup);
     _imp->menuFile->addSeparator();
+    {
+        // SOLVFX: Houdini-like path variables ($PRJ, $SCN, $OUT, $AST)
+        QAction* pv = new QAction(tr("Set Path Variables..."), this);
+        QObject::connect( pv, SIGNAL(triggered()), this, SLOT(solvfxPathVariablesDialog()) );
+        _imp->menuFile->addAction(pv);
+        _imp->menuFile->addSeparator();
+    }
     _imp->menuFile->addAction(_imp->actionExit);
 
     _imp->menuEdit->addAction(_imp->actionPreferences);
