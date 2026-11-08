@@ -42,6 +42,8 @@
 #include "Engine/KnobFile.h"
 #include "Engine/Node.h"
 #include "Engine/Project.h"
+#include "Engine/SolvfxPathVars.h"
+#include <QDir>
 #include "Engine/Settings.h"
 #include "Engine/TimeLine.h"
 #include "Engine/Utils.h" // convertFromPlainText
@@ -576,7 +578,16 @@ KnobGuiOutputFile::open_file(bool openSequence)
         appPTR->getSupportedWriterFileFormats(&filters);
     }
 
-    SequenceFileDialog dialog( _lineEdit->parentWidget(), filters, openSequence, SequenceFileDialog::eFileDialogModeSave, _lastOpened.toStdString(), getGui(), true);
+    // SOLVFX: a new Write starts browsing in $OUT (created if missing)
+    std::string startDir = _lastOpened.toStdString();
+    if ( _lineEdit->text().isEmpty() && getGui() ) {
+        std::string out = "$OUT";
+        if ( SolvfxPathVars::expand( out, getGui()->getApp()->getProject().get() ) ) {
+            QDir().mkpath( QString::fromUtf8( out.c_str() ) );
+            startDir = out;
+        }
+    }
+    SequenceFileDialog dialog( _lineEdit->parentWidget(), filters, openSequence, SequenceFileDialog::eFileDialogModeSave, startDir, getGui(), true);
     if ( dialog.exec() ) {
         std::string oldPattern = _lineEdit->text().toStdString();
         std::string newPattern = dialog.filesToSave();

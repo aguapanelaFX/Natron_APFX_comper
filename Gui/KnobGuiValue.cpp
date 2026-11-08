@@ -643,6 +643,9 @@ KnobGuiValue::expandAllDimensions()
         }
         if (i > 0) {
             sb->show();
+            if ( sb->parentWidget() ) {
+                sb->parentWidget()->show();
+            }
         }
         if (_imp->spinBoxes[i].second) {
             _imp->spinBoxes[i].second->show();
@@ -671,6 +674,11 @@ KnobGuiValue::foldAllDimensions()
         }
         if (i > 0) {
             sb->hide();
+            // SOLVFX: an empty per-dimension container would still take room and shorten the slider
+            QWidget* p = sb->parentWidget();
+            if ( p && ( p != _imp->spinBoxes[0].first->parentWidget() ) && (p != _imp->container) ) {
+                p->hide();
+            }
         }
         if (_imp->spinBoxes[i].second) {
             _imp->spinBoxes[i].second->hide();

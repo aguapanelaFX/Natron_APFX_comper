@@ -1,0 +1,409 @@
+diff --git a/Add/Add.cpp b/Add/Add.cpp
+index 36b5a1a..c515f9e 100644
+--- a/Add/Add.cpp
++++ b/Add/Add.cpp
+@@ -648,7 +648,7 @@ AddPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/CImg/CImgFilter.cpp b/CImg/CImgFilter.cpp
+index 2f96f87..e6eb045 100644
+--- a/CImg/CImgFilter.cpp
++++ b/CImg/CImgFilter.cpp
+@@ -140,7 +140,7 @@ CImgFilterPluginHelperBase::changedClip(const InstanceChangedArgs &args,
+                     _premult->setValue(false);
+                     break;
+                 case eImagePreMultiplied:
+-                    _premult->setValue(true);
++                    _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                     break;
+                 case eImageUnPreMultiplied:
+                     _premult->setValue(false);
+diff --git a/CImg/CImgOperator.cpp b/CImg/CImgOperator.cpp
+index 36da291..dd95e68 100644
+--- a/CImg/CImgOperator.cpp
++++ b/CImg/CImgOperator.cpp
+@@ -56,7 +56,7 @@ CImgOperatorPluginHelperBase::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+@@ -74,7 +74,7 @@ CImgOperatorPluginHelperBase::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/Clamp/Clamp.cpp b/Clamp/Clamp.cpp
+index 7e1b127..8ab3b1d 100644
+--- a/Clamp/Clamp.cpp
++++ b/Clamp/Clamp.cpp
+@@ -761,7 +761,7 @@ ClampPlugin::changedClip(const InstanceChangedArgs &args,
+                     _premult->setValue(false);
+                     break;
+                 case eImagePreMultiplied:
+-                    _premult->setValue(true);
++                    _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                     break;
+                 case eImageUnPreMultiplied:
+                     _premult->setValue(false);
+diff --git a/ColorCorrect/ColorCorrect.cpp b/ColorCorrect/ColorCorrect.cpp
+index a2ac348..3aab055 100644
+--- a/ColorCorrect/ColorCorrect.cpp
++++ b/ColorCorrect/ColorCorrect.cpp
+@@ -1234,7 +1234,7 @@ ColorCorrectPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/ColorLookup/ColorLookup.cpp b/ColorLookup/ColorLookup.cpp
+index 8e3a4c7..253ed19 100644
+--- a/ColorLookup/ColorLookup.cpp
++++ b/ColorLookup/ColorLookup.cpp
+@@ -1353,7 +1353,7 @@ ColorLookupPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/ColorMatrix/ColorMatrix.cpp b/ColorMatrix/ColorMatrix.cpp
+index f73237d..fa011d3 100644
+--- a/ColorMatrix/ColorMatrix.cpp
++++ b/ColorMatrix/ColorMatrix.cpp
+@@ -660,7 +660,7 @@ ColorMatrixPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/ColorSuppress/ColorSuppress.cpp b/ColorSuppress/ColorSuppress.cpp
+index 80d6a5d..81c42d4 100644
+--- a/ColorSuppress/ColorSuppress.cpp
++++ b/ColorSuppress/ColorSuppress.cpp
+@@ -736,7 +736,7 @@ ColorSuppressPlugin::changedClip(const InstanceChangedArgs &args,
+             _premult->setValue(false);
+             break;
+         case eImagePreMultiplied:
+-            _premult->setValue(true);
++            _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+             break;
+         case eImageUnPreMultiplied:
+             _premult->setValue(false);
+diff --git a/ColorTransform/ColorTransform.cpp b/ColorTransform/ColorTransform.cpp
+index f17e6c0..bdbccbd 100644
+--- a/ColorTransform/ColorTransform.cpp
++++ b/ColorTransform/ColorTransform.cpp
+@@ -695,7 +695,7 @@ ColorTransformPlugin<transform>::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/DenoiseSharpen/DenoiseSharpen.cpp b/DenoiseSharpen/DenoiseSharpen.cpp
+index 9a823cf..db7ffb1 100644
+--- a/DenoiseSharpen/DenoiseSharpen.cpp
++++ b/DenoiseSharpen/DenoiseSharpen.cpp
+@@ -2931,7 +2931,7 @@ DenoiseSharpenPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/Distortion/Distortion.cpp b/Distortion/Distortion.cpp
+index 0dfcd0b..623120b 100644
+--- a/Distortion/Distortion.cpp
++++ b/Distortion/Distortion.cpp
+@@ -779,6 +779,7 @@ protected:
+     bool _blackOutside;
+     bool _doMasking;
+     double _mix;
++    double _edgeSoft = 0.; // SOLVFX: anti-aliased border width (output pixels), 0 = off
+     bool _maskInvert;
+ 
+ public:
+@@ -866,6 +867,8 @@ public:
+         _mix = mix;
+     }
+ 
++    void setEdgeSoftness(double v) { _edgeSoft = v; }
++
+ private:
+ };
+ 
+@@ -1129,13 +1132,35 @@ DistortionProcessor<PIX, nComponents, maxValue, plugin, filter, clamp>::multiThr
+                 tmpPix[2] = 1.; // a
+                 tmpPix[3] = 1.; // be opaque
+             } else {
+-                if (filter == eFilterImpulse) {
++                // SOLVFX: anti-aliased border of the source image (sharp corners), like Nuke
++                double cov = 1.;
++                if ( (_edgeSoft > 0.) && _blackOutside && _srcImg ) {
++                    const OfxRectI& b = _srcImg->getBounds();
++                    if ( (b.x2 > b.x1) && (b.y2 > b.y1) ) {
++                        const double jxx = (filter == eFilterImpulse) ? sxx : Jxx, jxy = (filter == eFilterImpulse) ? sxy : Jxy;
++                        const double jyx = (filter == eFilterImpulse) ? syx : Jyx, jyy = (filter == eFilterImpulse) ? syy : Jyy;
++                        const double fpx = std::max(1e-6, std::sqrt(jxx * jxx + jxy * jxy) * _edgeSoft);
++                        const double fpy = std::max(1e-6, std::sqrt(jyx * jyx + jyy * jyy) * _edgeSoft);
++                        const double cx = std::max( 0., std::min( 1., 0.5 + std::min(sx - b.x1, b.x2 - sx) / fpx ) );
++                        const double cy = std::max( 0., std::min( 1., 0.5 + std::min(sy - b.y1, b.y2 - sy) / fpy ) );
++                        cov = cx * cy;
++                        if (cov < 1.) {
++                            sx = std::max(b.x1 + 0.5, std::min(b.x2 - 0.5, sx));
++                            sy = std::max(b.y1 + 0.5, std::min(b.y2 - 0.5, sy));
++                        }
++                    }
++                }
++                if (cov <= 0.) {
++                    for (unsigned c = 0; c < nComponents; ++c) {
++                        tmpPix[c] = 0.f;
++                    }
++                } else if (filter == eFilterImpulse) {
+                     ofxsFilterInterpolate2D<PIX, nComponents, filter, clamp>(sx, sy, _srcImg, _blackOutside, tmpPix);
+                 } else {
+                     ofxsFilterInterpolate2DSuper<PIX, nComponents, filter, clamp>(sx, sy, Jxx, Jxy, Jyx, Jyy, _srcImg, _blackOutside, tmpPix);
+                 }
+                 for (unsigned c = 0; c < nComponents; ++c) {
+-                    tmpPix[c] *= a;
++                    tmpPix[c] *= (float)(a * cov);
+                 }
+             }
+             ofxsMaskMix<PIX, nComponents, maxValue, true>(tmpPix, x, y, _srcImg, _doMasking, _maskImg, (float)_mix, _maskInvert, dstPix);
+@@ -1448,6 +1473,8 @@ public:
+         _clamp = fetchBooleanParam(kParamFilterClamp);
+         _blackOutside = fetchBooleanParam(kParamFilterBlackOutside);
+         assert(_filter && _clamp && _blackOutside);
++        _solvfxEdgeSoft = paramExists("solvfxEdgeSoftness") ? fetchDoubleParam("solvfxEdgeSoftness") : NULL;
++        _solvfxRaw = paramExists("solvfxRaw") ? fetchBooleanParam("solvfxRaw") : NULL;
+         if ( paramExists(kParamCropToFormat) ) {
+             _cropToFormat = fetchBooleanParam(kParamCropToFormat);
+             assert(_cropToFormat);
+@@ -1660,6 +1687,8 @@ private:
+     ChoiceParam* _filter;
+     BooleanParam* _clamp;
+     BooleanParam* _blackOutside;
++    DoubleParam* _solvfxEdgeSoft = NULL;
++    BooleanParam* _solvfxRaw = NULL;
+     BooleanParam* _cropToFormat;
+     BooleanParam* _useRoD;
+     DoubleParam* _mix;
+@@ -2562,6 +2591,10 @@ DistortionPlugin::setupAndProcess(DistortionProcessorBase &processor,
+                         direction,
+                         outputMode,
+                         blackOutside, mix);
++    {
++        const bool raw = _solvfxRaw && _solvfxRaw->getValueAtTime(time);
++        processor.setEdgeSoftness( ( raw || !_solvfxEdgeSoft ) ? 0. : _solvfxEdgeSoft->getValueAtTime(time) );
++    }
+ 
+     // Call the base class process member, this will call the derived templated process code
+     processor.process();
+@@ -2577,6 +2610,10 @@ DistortionPlugin::renderInternalForBitDepth(const RenderArguments &args)
+     if (!args.renderQualityDraft && _filter) {
+         filter = (FilterEnum)_filter->getValueAtTime(time);
+     }
++    // SOLVFX: raw = plain sampling (no filter, no edge smoothing)
++    if ( _solvfxRaw && _solvfxRaw->getValueAtTime(time) ) {
++        filter = eFilterImpulse;
++    }
+     bool clamp = false;
+     if (_clamp) {
+         clamp = _clamp->getValueAtTime(time);
+@@ -4615,6 +4652,27 @@ DistortionPluginFactory<plugin, majorVersion>::describeInContext(ImageEffectDesc
+     }
+ 
+     ofxsFilterDescribeParamsInterpolate2D( desc, page, (plugin == eDistortionPluginSTMap) );
++    {
++        // SOLVFX: anti-aliased border (0 = hard edge)
++        DoubleParamDescriptor* param = desc.defineDoubleParam("solvfxEdgeSoftness");
++        param->setLabel("edge softness");
++        param->setHint("Anti-aliasing of the source image border (when 'black outside' is on), in output pixels. 1 = clean edge with sharp corners, more = softer, 0 = hard edge.");
++        param->setDefault(1.);
++        param->setRange(0., 100.);
++        param->setDisplayRange(0., 4.);
++        if (page) {
++            page->addChild(*param);
++        }
++    }
++    if (plugin == eDistortionPluginSTMap) {
++        BooleanParamDescriptor* param = desc.defineBooleanParam("solvfxRaw");
++        param->setLabel("raw");
++        param->setHint("Raw STMap: plain sampling, no filtering and no edge smoothing (filter and edge softness are ignored).");
++        param->setDefault(false);
++        if (page) {
++            page->addChild(*param);
++        }
++    }
+ #ifdef OFX_EXTENSIONS_NATRON
+     if (plugin == eDistortionPluginLensDistortion && majorVersion >= 4 && getImageEffectHostDescription()->isNatron) {
+         BooleanParamDescriptor *param = desc.defineBooleanParam(kParamCropToFormat);
+diff --git a/Gamma/Gamma.cpp b/Gamma/Gamma.cpp
+index 13f9bd5..7fa656a 100644
+--- a/Gamma/Gamma.cpp
++++ b/Gamma/Gamma.cpp
+@@ -637,7 +637,7 @@ GammaPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/Grade/Grade.cpp b/Grade/Grade.cpp
+index ba8c871..859eda3 100644
+--- a/Grade/Grade.cpp
++++ b/Grade/Grade.cpp
+@@ -1199,7 +1199,7 @@ GradePlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/HSVTool/HSVTool.cpp b/HSVTool/HSVTool.cpp
+index 404a47b..84773d3 100644
+--- a/HSVTool/HSVTool.cpp
++++ b/HSVTool/HSVTool.cpp
+@@ -1726,7 +1726,7 @@ HSVToolPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/HueCorrect/HueCorrect.cpp b/HueCorrect/HueCorrect.cpp
+index 5adc1dd..1e5b3da 100644
+--- a/HueCorrect/HueCorrect.cpp
++++ b/HueCorrect/HueCorrect.cpp
+@@ -725,7 +725,7 @@ HueCorrectPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/HueCorrect/HueCorrect1.cpp b/HueCorrect/HueCorrect1.cpp
+index 9d83c75..cf01264 100644
+--- a/HueCorrect/HueCorrect1.cpp
++++ b/HueCorrect/HueCorrect1.cpp
+@@ -713,7 +713,7 @@ HueCorrectPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/Invert/Invert.cpp b/Invert/Invert.cpp
+index b39a08e..0163222 100644
+--- a/Invert/Invert.cpp
++++ b/Invert/Invert.cpp
+@@ -564,7 +564,7 @@ InvertPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/Log2Lin/Log2Lin.cpp b/Log2Lin/Log2Lin.cpp
+index 235c73f..b461021 100644
+--- a/Log2Lin/Log2Lin.cpp
++++ b/Log2Lin/Log2Lin.cpp
+@@ -769,7 +769,7 @@ Log2LinPlugin::changedClip(const InstanceChangedArgs &args,
+             _premult->setValue(false);
+             break;
+         case eImagePreMultiplied:
+-            _premult->setValue(true);
++            _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+             break;
+         case eImageUnPreMultiplied:
+             _premult->setValue(false);
+diff --git a/Multiply/Multiply.cpp b/Multiply/Multiply.cpp
+index 22515aa..f898bc5 100644
+--- a/Multiply/Multiply.cpp
++++ b/Multiply/Multiply.cpp
+@@ -642,7 +642,7 @@ MultiplyPlugin::changedClip(const InstanceChangedArgs &args,
+                 _premult->setValue(false);
+                 break;
+             case eImagePreMultiplied:
+-                _premult->setValue(true);
++                _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+                 break;
+             case eImageUnPreMultiplied:
+                 _premult->setValue(false);
+diff --git a/PLogLin/PLogLin.cpp b/PLogLin/PLogLin.cpp
+index 82ce626..b3f0e41 100644
+--- a/PLogLin/PLogLin.cpp
++++ b/PLogLin/PLogLin.cpp
+@@ -778,7 +778,7 @@ PLogLinPlugin::changedClip(const InstanceChangedArgs &args,
+             _premult->setValue(false);
+             break;
+         case eImagePreMultiplied:
+-            _premult->setValue(true);
++            _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+             break;
+         case eImageUnPreMultiplied:
+             _premult->setValue(false);
+diff --git a/Quantize/Quantize.cpp b/Quantize/Quantize.cpp
+index 617ee41..8f7e3b3 100644
+--- a/Quantize/Quantize.cpp
++++ b/Quantize/Quantize.cpp
+@@ -915,7 +915,7 @@ QuantizePlugin::changedClip(const InstanceChangedArgs &args,
+             _premult->setValue(false);
+             break;
+         case eImagePreMultiplied:
+-            _premult->setValue(true);
++            _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+             break;
+         case eImageUnPreMultiplied:
+             _premult->setValue(false);
+diff --git a/Saturation/Saturation.cpp b/Saturation/Saturation.cpp
+index b1dc99a..b1dfe5a 100644
+--- a/Saturation/Saturation.cpp
++++ b/Saturation/Saturation.cpp
+@@ -715,7 +715,7 @@ SaturationPlugin::changedClip(const InstanceChangedArgs &args,
+             _premult->setValue(false);
+             break;
+         case eImagePreMultiplied:
+-            _premult->setValue(true);
++            _premult->setValue(false); // SOLVFX: never auto-enable (un)premult, the user drives it
+             break;
+         case eImageUnPreMultiplied:
+             _premult->setValue(false);

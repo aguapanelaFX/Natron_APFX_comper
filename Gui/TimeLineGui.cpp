@@ -539,8 +539,9 @@ TimeLineGui::paintGL()
         kfR = 1.; kfG = 0x2a / 255.; kfB = 0x2a / 255.;
         cursorR = 0xe0 / 255.; cursorG = 0xa0 / 255.; cursorB = 0x3a / 255.;
         boundsR = 0xe0 / 255.; boundsG = 0x74 / 255.; boundsB = 0x3a / 255.;
-        cachedR = 0x3f / 255.; cachedG = 0xa3 / 255.; cachedB = 0x4d / 255.;
-        dcR = 0x2a / 255.; dcG = 0x6e / 255.; dcB = 0x36 / 255.;
+        // SOLVFX: cache = neutral dark grey bar, so keyframes (red) and tracked frames (blue) read on top
+        cachedR = cachedG = cachedB = 0x62 / 255.;
+        dcR = dcG = dcB = 0x46 / 255.;
 
 
         glColor4f(txtR / 2., txtG / 2., txtB / 2., 1.);
@@ -826,7 +827,7 @@ TimeLineGui::paintGL()
         glEnable(GL_LINE_SMOOTH);
         glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
         glCheckError();
-        glLineWidth(2 * _imp->_screenPixelRatio);
+        glLineWidth(4 * _imp->_screenPixelRatio);
         glBegin(GL_LINES);
         for (CachedFrames::const_iterator i = _imp->cachedFrames.begin(); i != _imp->cachedFrames.end(); ++i) {
             if ( ( i->time >= btmLeft.x() ) && ( i->time <= topRight.x() ) ) {

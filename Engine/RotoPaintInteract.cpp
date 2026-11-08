@@ -688,6 +688,16 @@ RotoPaintInteract::onRoleChangedInternal(const KnobGroupPtr& roleGroup)
     addKeyframeButton.lock()->setInViewerContextSecret(isPaintRole);
     removeKeyframeButton.lock()->setInViewerContextSecret(isPaintRole);
     showTransformHandle.lock()->setInViewerContextSecret(isPaintRole);
+    {
+        // SOLVFX: shape toolbar (lifetime, color, opacity, feather, falloff) only for the shape tools
+        const char* names[6] = { "lifeTime", "lifeTimeFrame", "color", "opacity", "feather", "featherFallOff" };
+        for (int i = 0; i < 6; ++i) {
+            KnobIPtr k = p->publicInterface->getKnobByName(names[i]);
+            if (k) {
+                k->setInViewerContextSecret(isPaintRole);
+            }
+        }
+    }
 
     // RotoPaint action bar
     colorWheelButton.lock()->setInViewerContextSecret(!isPaintRole);

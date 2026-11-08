@@ -393,7 +393,7 @@ RotoPaint::initializeKnobs()
     bboxClickAnywhere->setHintToolTip( tr(kRotoUIParamStickyBboxHint) );
     bboxClickAnywhere->setEvaluateOnChange(false);
     bboxClickAnywhere->setCheckable(true);
-    bboxClickAnywhere->setDefaultValue(false);
+    bboxClickAnywhere->setDefaultValue(true); // SOLVFX: like Nuke, drag anywhere inside the selection box
     bboxClickAnywhere->setSecretByDefault(true);
     bboxClickAnywhere->setInViewerContextCanHaveShortcut(true);
     bboxClickAnywhere->setIconLabel(NATRON_IMAGES_PATH "viewer_roiEnabled.png", true);
@@ -673,6 +673,19 @@ RotoPaint::initializeKnobs()
     addKnobToViewerUI(addKeyframe);
     addKnobToViewerUI(removeKeyframe);
     addKnobToViewerUI(showTransform);
+    // SOLVFX: Nuke-like shape toolbar: lifetime, color, opacity, feather, falloff (the selected shapes' values)
+    {
+        const char* names[6] = { "lifeTime", "lifeTimeFrame", "color", "opacity", "feather", "featherFallOff" };
+        const char* labels[6] = { "lifetime", "frame", "color", "opacity", "feather", "falloff" };
+        for (int i = 0; i < 6; ++i) {
+            KnobIPtr k = getKnobByName(names[i]);
+            if (k) {
+                k->setInViewerContextLabel( QString::fromUtf8(labels[i]) );
+                k->setInViewerContextItemSpacing( (i == 1) || (i == 5) ? ROTOPAINT_VIEWER_UI_SECTIONS_SPACING_PX : 4 );
+                addKnobToViewerUI(k);
+            }
+        }
+    }
 
     // RotoPaint
     addKnobToViewerUI(multiStroke);

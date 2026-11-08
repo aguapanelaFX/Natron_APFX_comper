@@ -25,6 +25,8 @@
 
 #include "Project.h"
 #include "Engine/SolvfxPathVars.h"
+#include <QElapsedTimer>
+#include <QDebug>
 
 #include <fstream>
 #include <algorithm> // min, max
@@ -443,10 +445,14 @@ Project::saveProject_imp(const QString & path,
             //We are saving, do not autosave.
             _imp->autoSaveTimer->stop();
 
+            QElapsedTimer solvfxT;
+            solvfxT.start();
             ret = saveProjectInternal(path, name, false, updateProjectProperties);
+            const qint64 tWrite = solvfxT.restart();
 
             ///We just saved, remove the last auto-save which is now obsolete
             removeLastAutosave();
+            qDebug() << "SOLVFX save:" << tWrite << "ms write," << solvfxT.elapsed() << "ms autosave cleanup";
 
             //}
         } else {
@@ -470,8 +476,8 @@ Project::saveProject_imp(const QString & path,
         _imp->isSavingProject = false;
     }
 
-    ///Save caches ToC
-    appPTR->saveCaches();
+    // SOLVFX: writing the cache table of contents could take seconds with a big cache: it is written when
+    // SOLVFX quits, not on every save
 
     if (newFilePath) {
         *newFilePath = ret;

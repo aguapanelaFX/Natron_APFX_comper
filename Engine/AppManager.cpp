@@ -2055,7 +2055,7 @@ AppManager::registerPlugin(const QString& resourcesPath,
         pluginMutex = new QRecursiveMutex();
     }
     // SOLVFX: plugins replaced by APFX ones are hidden from the menus (old projects still load them)
-    if ( pluginID == QString::fromUtf8("net.sf.openfx.Retime") ) {
+    if ( ( pluginID == QString::fromUtf8("net.sf.openfx.Retime") ) || ( pluginID == QString::fromUtf8("net.sf.openfx.KeyerPlugin") ) ) {
         isDeprecated = true;
     }
     Plugin* plugin = new Plugin(binary, resourcesPath, pluginID, pluginLabel, pluginIconPath, groupIconPath, groups, pluginMutex, major, minor,

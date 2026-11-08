@@ -164,6 +164,20 @@ if [ "$BUILD_MISC" = "1" ] && [ -d "$TMP_PATH/openfx-misc" ]; then
         fi
     done
 
+    # SOLVFX patches to openfx-misc itself (plugins)
+    for patch in "$INC_PATH"/patches/openfx-misc/*.patch; do
+        [ -f "$patch" ] || continue
+        if git apply --check "$patch" 2>/dev/null; then
+            echo "Info: applying $(basename "$patch") to openfx-misc"
+            git apply "$patch"
+        elif git apply --check --reverse "$patch" 2>/dev/null; then
+            echo "Info: $(basename "$patch") already applied to openfx-misc, skipping"
+        else
+            echo "Error: $(basename "$patch") does not apply to openfx-misc"
+            exit 1
+        fi
+    done
+
     # OSMesa (CPU OpenGL fallback for Shadertoy) is optional: it is only available
     # as a prebuilt package for MINGW64. Without it, Shadertoy renders on the GPU only.
     HAVE_OSMESA_LIB=0

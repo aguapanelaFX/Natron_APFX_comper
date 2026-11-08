@@ -664,14 +664,27 @@ RotoPanel::RotoPanel(const NodeGuiPtr&  n,
     _imp->iconClone.addPixmap(pixClone);
     _imp->iconReveal.addPixmap(pixReveal);
 
-    _imp->treeHeader->setIcon(COL_ACTIVATED, _imp->iconVisible);
-    _imp->treeHeader->setIcon(COL_LOCKED, _imp->iconLocked);
-    _imp->treeHeader->setIcon( COL_OVERLAY, QIcon(pixDefault) );
-    _imp->treeHeader->setIcon(COL_COLOR, _imp->iconWheel);
+    // SOLVFX: Nuke-like grey header icons
+    auto solvfxGrey = [](const QPixmap& src) {
+        QImage im = src.toImage().convertToFormat(QImage::Format_ARGB32);
+        for (int y = 0; y < im.height(); ++y) {
+            QRgb* line = (QRgb*)im.scanLine(y);
+            for (int x = 0; x < im.width(); ++x) {
+                const int g = std::min(220, 120 + qGray(line[x]) / 2);
+                line[x] = qRgba( g, g, g, qAlpha(line[x]) );
+            }
+        }
+
+        return QIcon( QPixmap::fromImage(im) );
+    };
+    _imp->treeHeader->setIcon( COL_ACTIVATED, solvfxGrey(pixVisible) );
+    _imp->treeHeader->setIcon( COL_LOCKED, solvfxGrey(pixLocked) );
+    _imp->treeHeader->setIcon( COL_OVERLAY, solvfxGrey(pixDefault) );
+    _imp->treeHeader->setIcon( COL_COLOR, solvfxGrey(pixWheel) );
 #ifdef NATRON_ROTO_INVERTIBLE
-    _imp->treeHeader->setIcon(COL_INVERTED, _imp->iconUninverted);
+    _imp->treeHeader->setIcon( COL_INVERTED, solvfxGrey(pixUninverted) );
 #endif
-    _imp->treeHeader->setIcon( COL_OPERATOR, QIcon(pixmerge) );
+    _imp->treeHeader->setIcon( COL_OPERATOR, solvfxGrey(pixmerge) );
     _imp->tree->setHeaderItem(_imp->treeHeader);
     _imp->tree->setMinimumHeight( TO_DPIY(350) );
     _imp->tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);

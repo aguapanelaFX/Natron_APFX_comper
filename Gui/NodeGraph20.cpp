@@ -66,7 +66,10 @@ NodeGraph::checkForHints(bool shiftdown,
     // SOLVFX: like Nuke, dragging a free node onto a connection inserts it
     // without any modifier; holding Ctrl drags over connections without inserting.
     bool doConnectionHints = doMergeHints || !controlDown;
-    if ( !doMergeHints && ( internalNode->hasInputConnected() || internalNode->hasOutputConnected() ) ) {
+    // SOLVFX: a node whose input is free but whose output is used (e.g. a Dot feeding something) can be dropped
+    // on a pipe too: its input then connects to that stream (like Nuke)
+    const bool solvfxInputOnly = !internalNode->hasInputConnected() && internalNode->hasOutputConnected() && (internalNode->getNInputs() > 0);
+    if ( !doMergeHints && !solvfxInputOnly && ( internalNode->hasInputConnected() || internalNode->hasOutputConnected() ) ) {
         // only fully disconnected nodes get inserted
         doConnectionHints = false;
     }
@@ -84,6 +87,9 @@ NodeGraph::checkForHints(bool shiftdown,
             doConnectionHints = false;
         } else if ( ( internalNode->getNInputs() > 0) && internalNode->hasAllInputsConnected() && internalNode->hasOutputConnected() ) {
             doConnectionHints = false;
+        }
+        if (solvfxInputOnly) {
+            doConnectionHints = !controlDown;
         }
     }
 

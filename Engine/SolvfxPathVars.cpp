@@ -78,6 +78,10 @@ all(const Project* project)
     for (std::map<std::string, std::string>::const_iterator it = u.begin(); it != u.end(); ++it) {
         ret[it->first] = it->second;
     }
+    // $OUT defaults to $PRJ/renders
+    if ( ( ret.find("OUT") == ret.end() ) && ( ret.find("PRJ") != ret.end() ) ) {
+        ret["OUT"] = ret["PRJ"] + "/renders";
+    }
     if (project) {
         const QString scn = project->getProjectPath();
         if ( !scn.isEmpty() ) {

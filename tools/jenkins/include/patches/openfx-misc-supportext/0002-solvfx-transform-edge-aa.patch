@@ -1,0 +1,186 @@
+diff --git a/ofxsTransform3x3.cpp b/ofxsTransform3x3.cpp
+index 1d94c25..0cb30a1 100644
+--- a/ofxsTransform3x3.cpp
++++ b/ofxsTransform3x3.cpp
+@@ -98,6 +98,7 @@ Transform3x3Plugin::Transform3x3Plugin(OfxImageEffectHandle handle,
+     , _filter(NULL)
+     , _clamp(NULL)
+     , _blackOutside(NULL)
++    , _solvfxEdgeSoft(NULL)
+     , _motionblur(NULL)
+     , _dirBlurAmount(NULL)
+     , _dirBlurCentered(NULL)
+@@ -129,6 +130,7 @@ Transform3x3Plugin::Transform3x3Plugin(OfxImageEffectHandle handle,
+         _clamp = fetchBooleanParam(kParamFilterClamp);
+         _blackOutside = fetchBooleanParam(kParamFilterBlackOutside);
+         assert(_invert && _filter && _clamp && _blackOutside);
++        _solvfxEdgeSoft = paramExists("solvfxEdgeSoftness") ? fetchDoubleParam("solvfxEdgeSoftness") : NULL;
+         if ( paramExists(kParamTransform3x3MotionBlur) ) {
+             _motionblur = fetchDoubleParam(kParamTransform3x3MotionBlur); // GodRays may not have have _motionblur
+             assert(_motionblur);
+@@ -379,6 +381,7 @@ Transform3x3Plugin::setupAndProcess(Transform3x3ProcessorBase &processor,
+                         blackOutside,
+                         motionblur,
+                         mix);
++    processor.setEdgeSoftness( _solvfxEdgeSoft ? _solvfxEdgeSoft->getValueAtTime(time) : 0. );
+ 
+     // Call the base class process member, this will call the derived templated process code
+     processor.process();
+@@ -1404,6 +1407,21 @@ Transform3x3DescribeInContextEnd(ImageEffectDescriptor &desc,
+ 
+     ofxsFilterDescribeParamsInterpolate2D(desc, page, paramsType == Transform3x3Plugin::eTransform3x3ParamsTypeMotionBlur);
+ 
++    // SOLVFX: anti-aliased border, like Nuke (0 = hard edge, raw)
++    {
++        DoubleParamDescriptor* param = desc.defineDoubleParam("solvfxEdgeSoftness");
++        param->setLabel("edge softness");
++        param->setHint("Anti-aliasing of the image border (when 'black outside' is on), in output pixels. "
++                       "1 = clean anti-aliased edge with sharp corners, more = softer, 0 = hard (raw) edge.");
++        param->setDefault(1.);
++        param->setRange(0., 100.);
++        param->setDisplayRange(0., 4.);
++        param->setAnimates(true);
++        if (page) {
++            page->addChild(*param);
++        }
++    }
++
+     // motionBlur
+     {
+         DoubleParamDescriptor* param = desc.defineDoubleParam(kParamTransform3x3MotionBlur);
+diff --git a/ofxsTransform3x3.h b/ofxsTransform3x3.h
+index 152a9ae..e909de9 100644
+--- a/ofxsTransform3x3.h
++++ b/ofxsTransform3x3.h
+@@ -192,6 +192,7 @@ protected:
+     OFX::ChoiceParam* _filter;
+     OFX::BooleanParam* _clamp;
+     OFX::BooleanParam* _blackOutside;
++    OFX::DoubleParam* _solvfxEdgeSoft; // SOLVFX: edge softness (anti-aliased border)
+     OFX::DoubleParam* _motionblur;
+     OFX::DoubleParam* _dirBlurAmount; // DirBlur only
+     OFX::BooleanParam* _dirBlurCentered; // DirBlur only
+diff --git a/ofxsTransform3x3Processor.h b/ofxsTransform3x3Processor.h
+index 1e6223a..b72823b 100644
+--- a/ofxsTransform3x3Processor.h
++++ b/ofxsTransform3x3Processor.h
+@@ -26,6 +26,7 @@
+ #define MISC_TRANSFORMPROCESSOR_H
+ 
+ #include <algorithm>
++#include <cmath>
+ 
+ #include "ofxsProcessing.H"
+ #include "ofxsMatrix2D.h"
+@@ -55,6 +56,7 @@ protected:
+     bool _domask;
+     double _mix;
+     bool _maskInvert;
++    double _edgeSoft; // SOLVFX: edge anti-aliasing width (output pixels), 0 = off
+ 
+ public:
+ 
+@@ -70,9 +72,51 @@ public:
+         , _domask(false)
+         , _mix(1.0)
+         , _maskInvert(false)
++        , _edgeSoft(0.)
+     {
+     }
+ 
++    // SOLVFX: anti-aliased border (like Nuke): coverage of the output pixel by the source image,
++    // from the distance to the source bounds measured in output pixels (sharp corners: x * y coverages)
++    void setEdgeSoftness(double v)
++    {
++        _edgeSoft = v;
++    }
++
++    double solvfxEdgeCoverage(const OFX::Matrix3x3& H,
++                              const OFX::Point3D& tr,
++                              double& fx,
++                              double& fy,
++                              int x1,
++                              int x2,
++                              int y1,
++                              int y2) const
++    {
++        if ( (_edgeSoft <= 0.) || !_blackOutside || (x2 <= x1) || (y2 <= y1) ) {
++            return 1.;
++        }
++        const double z2 = tr.z * tr.z;
++        const double Jxx = (H(0,0) * tr.z - tr.x * H(2,0)) / z2;
++        const double Jxy = (H(0,1) * tr.z - tr.x * H(2,1)) / z2;
++        const double Jyx = (H(1,0) * tr.z - tr.y * H(2,0)) / z2;
++        const double Jyy = (H(1,1) * tr.z - tr.y * H(2,1)) / z2;
++        // source pixels covered by one output pixel along x and y
++        const double fpx = std::max(1e-6, std::sqrt(Jxx * Jxx + Jxy * Jxy) * _edgeSoft);
++        const double fpy = std::max(1e-6, std::sqrt(Jyx * Jyx + Jyy * Jyy) * _edgeSoft);
++        const double dx = std::min(fx - x1, x2 - fx);
++        const double dy = std::min(fy - y1, y2 - fy);
++        const double cx = std::max(0., std::min(1., 0.5 + dx / fpx));
++        const double cy = std::max(0., std::min(1., 0.5 + dy / fpy));
++        const double cov = cx * cy;
++        if (cov < 1.) {
++            // sample the nearest inside position, the coverage fades it
++            fx = std::max(x1 + 0.5, std::min(x2 - 0.5, fx));
++            fy = std::max(y1 + 0.5, std::min(y2 - 0.5, fy));
++        }
++
++        return cov;
++    }
++
+     virtual FilterEnum getFilter() const = 0;
+     virtual bool getClamp() const = 0;
+ 
+@@ -188,7 +232,12 @@ private:
+                 } else {
+                     double fx = transformed.z != 0 ? transformed.x / transformed.z : transformed.x;
+                     double fy = transformed.z != 0 ? transformed.y / transformed.z : transformed.y;
+-                    if (filter == eFilterImpulse) {
++                    const double cov = solvfxEdgeCoverage(H, transformed, fx, fy, x1, x2, y1, y2);
++                    if (cov <= 0.) {
++                        for (int c = 0; c < nComponents; ++c) {
++                            tmpPix[c] = 0;
++                        }
++                    } else if (filter == eFilterImpulse) {
+                         ofxsFilterInterpolate2D<PIX, nComponents, filter, clamp>(fx, fy, _srcImg, _blackOutside, tmpPix);
+                     } else {
+                         bool xinside = (x1 <= fx + 0.5 && fx - 0.5 < x2);
+@@ -203,6 +252,11 @@ private:
+                         double Jyy = yinside ? (H(1,1) * transformed.z - transformed.y * H(2,1)) / (transformed.z * transformed.z) : 0.;
+                         ofxsFilterInterpolate2DSuper<PIX, nComponents, filter, clamp>(fx, fy, Jxx, Jxy, Jyx, Jyy, _srcImg, _blackOutside, tmpPix);
+                     }
++                    if ( (cov > 0.) && (cov < 1.) ) {
++                        for (int c = 0; c < nComponents; ++c) {
++                            tmpPix[c] = (float)(tmpPix[c] * cov);
++                        }
++                    }
+                 }
+ 
+                 ofxsMaskMix<PIX, nComponents, maxValue, masked>(tmpPix, x, y, _srcImg, _domask, _maskImg, (float)_mix, _maskInvert, dstPix);
+@@ -278,7 +332,12 @@ private:
+                         } else {
+                             double fx = transformed.z != 0 ? transformed.x / transformed.z : transformed.x;
+                             double fy = transformed.z != 0 ? transformed.y / transformed.z : transformed.y;
+-                            if (filter == eFilterImpulse) {
++                            const double cov = solvfxEdgeCoverage(H, transformed, fx, fy, x1, x2, y1, y2);
++                            if (cov <= 0.) {
++                                for (int c = 0; c < nComponents; ++c) {
++                                    tmpPix[c] = 0;
++                                }
++                            } else if (filter == eFilterImpulse) {
+                                 ofxsFilterInterpolate2D<PIX, nComponents, filter, clamp>(fx, fy, _srcImg, _blackOutside, tmpPix);
+                             } else {
+                                 bool xinside = (x1 <= fx + 0.5 && fx - 0.5 < x2);
+@@ -293,6 +352,11 @@ private:
+                                 double Jyy = yinside ? (H(1,1) * transformed.z - transformed.y * H(2,1)) / (transformed.z * transformed.z) : 0.;
+                                 ofxsFilterInterpolate2DSuper<PIX, nComponents, filter, clamp>(fx, fy, Jxx, Jxy, Jyx, Jyy, _srcImg, _blackOutside, tmpPix);
+                             }
++                            if ( (cov > 0.) && (cov < 1.) ) {
++                                for (int c = 0; c < nComponents; ++c) {
++                                    tmpPix[c] = (float)(tmpPix[c] * cov);
++                                }
++                            }
+                         }
+                         if (!_invtransformalpha) {
+                             for (int c = 0; c < nComponents; ++c) {
