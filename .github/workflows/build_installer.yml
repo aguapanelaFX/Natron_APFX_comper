@@ -126,6 +126,7 @@ jobs:
 
           echo "INSTALLER_NAME=${INSTALLER_NAME}" >> $GITHUB_OUTPUT
           echo "INSTALLER_DIR=$(cygpath -m ${INSTALLER_DIR})" >> $GITHUB_OUTPUT
+          echo "INSTALLER_ZIP=$(cygpath -m ${INSTALLER_ZIP_UNIX})" >> $GITHUB_OUTPUT
 
           TEST_RESULTS_FILE="${ARCHIVE_DIR}/${INSTALLER_NAME}-tests.txt"
           TEST_RESULTS_NAME="${INSTALLER_NAME}-tests"
@@ -172,20 +173,13 @@ jobs:
         run: |
           pacman -Rs --noconfirm ${MINGW_PACKAGE_PREFIX}-natron-build-deps-qt5
 
-      - name: Upload installer
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name:  ${{ steps.build.outputs.INSTALLER_NAME }}
-          path:  ${{ steps.build.outputs.INSTALLER_DIR }}
-          retention-days: 3
-
       - name: Upload test results
         if: ${{ !inputs.test_build }}
         uses: actions/upload-artifact@v4.3.1
         with:
           name:  ${{ steps.build.outputs.TEST_RESULTS_NAME }}
           path:  ${{ steps.build.outputs.TEST_RESULTS_FILE }}
-          retention-days: 3
+          retention-days: 1
 
       - name: Upload test failures
         if: ${{ !inputs.test_build }}
@@ -193,7 +187,7 @@ jobs:
         with:
           name:  ${{ steps.build.outputs.TEST_FAILURES_NAME }}
           path:  ${{ steps.build.outputs.TEST_FAILURES_DIR }}
-          retention-days: 3
+          retention-days: 1
 
       - name: Verify plugin loading
         run: |
@@ -202,6 +196,20 @@ jobs:
             echo "Testing $(basename ${x}) ..."
             PATH=${INSTALLER_DIR}/bin ./verify_plugin_loads.exe "${x}"
           done
+
+      - name: Publish installer to a release
+        # Installers go to GitHub Releases (not counted in Actions storage) as pre-releases.
+        # Older ones are never deleted here: they are removed by hand once the new build is confirmed.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NAME="${{ steps.build.outputs.INSTALLER_NAME }}"
+          TAG="build-${NAME}"
+          gh release create "${TAG}" "${{ steps.build.outputs.INSTALLER_ZIP }}" --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" --prerelease \
+            --title "${NAME}" \
+            --notes "SOLVFX build from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7} (run ${GITHUB_RUN_NUMBER}$([ "${TEST_BUILD}" = "1" ] && echo ', fast test build'))."
 
       - name: Verify passing tests match 2.5.0 release
         # Informational only: the toolchain differs from the 2.5.0 release build.
