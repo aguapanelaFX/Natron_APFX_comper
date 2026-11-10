@@ -1741,6 +1741,20 @@ Node::findPluginFormatKnobs(const KnobsVec & knobs,
                     }
                 }
             }
+            // SOLVFX: when extent is "Format", always show the format menu (some generators,
+            // e.g. CheckerBoard, did not refresh their param visibility on creation)
+            for (std::size_t i = 0; i < knobs.size(); ++i) {
+                if (knobs[i]->getName() == "extent") {
+                    KnobChoicePtr extent = std::dynamic_pointer_cast<KnobChoice>(knobs[i]);
+                    KnobChoicePtr choice = _imp->pluginFormatKnobs.formatChoice.lock();
+                    if ( extent && choice && (extent->getValue() == 0) ) {
+                        choice->setSecretByDefault(false);
+                        choice->setSecret(false);
+                        choice->setEnabled(0, true);
+                    }
+                    break;
+                }
+            }
         }
     }
 }

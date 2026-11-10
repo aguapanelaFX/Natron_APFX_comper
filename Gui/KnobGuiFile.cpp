@@ -175,7 +175,17 @@ KnobGuiFile::open_file()
     QString pathWhereToOpen;
     if ( path.empty() ) {
         pathWhereToOpen = _lastOpened;
+        // SOLVFX: a new Read starts browsing in $PRJ once the project is set
+        if ( pathWhereToOpen.isEmpty() && getGui() ) {
+            std::string prj = "$PRJ";
+            if ( SolvfxPathVars::expand( prj, getGui()->getApp()->getProject().get() ) && QDir( QString::fromUtf8( prj.c_str() ) ).exists() ) {
+                pathWhereToOpen = QString::fromUtf8( prj.c_str() );
+            }
+        }
     } else {
+        if ( (path.find('$') != std::string::npos) && getGui() ) {
+            SolvfxPathVars::expand( path, getGui()->getApp()->getProject().get() ); // SOLVFX: $VAR paths open where they point
+        }
         pathWhereToOpen = QString::fromUtf8( path.c_str() );
     }
 

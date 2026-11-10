@@ -1256,7 +1256,14 @@ Gui::solvfxSetProjectDialog()
     const std::map<std::string, std::string> cur = SolvfxPathVars::userVars();
     std::map<std::string, std::string>::const_iterator it = cur.find("PRJ");
     const QString start = it != cur.end() ? QString::fromUtf8( it->second.c_str() ) : getApp()->getProject()->getProjectPath();
-    const QString d = QFileDialog::getExistingDirectory( this, tr("Set Project"), start );
+    // SOLVFX: same internal browser as Read / Write / Save (with the $VARIABLE sidebar)
+    std::vector<std::string> filters;
+    SequenceFileDialog dialog( this, filters, false, SequenceFileDialog::eFileDialogModeDir, start.toStdString(), this, false );
+    dialog.setWindowTitle( tr("Set Project") );
+    if ( !dialog.exec() ) {
+        return;
+    }
+    const QString d = QString::fromUtf8( dialog.selectedDirectory().c_str() );
     if ( d.isEmpty() ) {
         return;
     }

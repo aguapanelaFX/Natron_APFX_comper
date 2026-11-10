@@ -2226,7 +2226,7 @@ UrlModel::mapPathToDisplayName(const QString& originalName)
         removeTrailingSlash(var);
         if (var == str) {
             if ( !it->first.empty() && (it->first[0] == '$') ) {
-                return QString::fromUtf8( it->first.c_str() ); // SOLVFX: $PRJ ...
+                return QString::fromUtf8( it->first.c_str() ) + QLatin1Char('/'); // SOLVFX: $PRJ/ (Houdini style)
             }
             str.clear();
             str.append( QLatin1Char('[') );
@@ -2251,7 +2251,24 @@ FavoriteItemDelegate::paint(QPainter * painter,
 {
     assert( index.isValid() );
 
-    return QStyledItemDelegate::paint(painter, option, index);
+    // SOLVFX (Houdini style): the $VARIABLE folders form their own group at the top of the sidebar,
+    // tinted and separated from the other places by a line
+    const bool isVar = index.data().toString().startsWith( QLatin1Char('$') );
+    if (isVar) {
+        painter->fillRect( option.rect, QColor(255, 209, 87, 22) );
+    }
+    QStyledItemDelegate::paint(painter, option, index);
+    if (isVar) {
+        const QModelIndex next = index.sibling(index.row() + 1, index.column());
+        if ( !next.isValid() || !next.data().toString().startsWith( QLatin1Char('$') ) ) {
+            painter->save();
+            painter->setPen( QPen(QColor(0x5a, 0x5a, 0x5a), 1) );
+            painter->drawLine( option.rect.bottomLeft(), option.rect.bottomRight() );
+            painter->restore();
+        }
+    }
+
+    return;
 
     /*
        The code below is deactivated because it crashes on Windows when trying to call drawPixmap and drawText

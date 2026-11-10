@@ -1332,10 +1332,11 @@ SmoothCuspUndoCommand::redo()
                 }
             }
         }
+        it->curve->incrementNodesAge(); // SOLVFX: new hash -> the viewer re-renders right away
     }
     BezierCP::solvfxSetFullSmooth(false);
 
-    roto->evaluate(_firstRedoCalled);
+    roto->evaluate(true); // SOLVFX: redraw the overlay immediately (was delayed until the next mouse move)
 
     _firstRedoCalled = true;
 }

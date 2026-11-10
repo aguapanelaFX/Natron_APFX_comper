@@ -1795,7 +1795,12 @@ RotoPaintInteract::removeFeatherForSelectedCurve()
         for (SelectedCPs::const_iterator it = selectedCps.begin(); it != selectedCps.end(); ++it) {
             RemoveFeatherUndoCommand::RemoveFeatherData data;
             data.curve = it->first->getBezier();
-            data.newPoints = data.curve->getFeatherPoints();
+            // SOLVFX (Nuke): only the selected points' feather is reset
+            const BezierCPPtr fp = it->first->isFeatherPoint() ? it->first : it->second;
+            if ( !data.curve || !fp ) {
+                continue;
+            }
+            data.newPoints.push_back(fp);
             datas.push_back(data);
         }
     } else {

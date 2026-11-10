@@ -2546,6 +2546,17 @@ RotoPaint::onOverlayPenDown(double time,
                     _imp->ui->tangentBeingDragged = cp;
                     _imp->ui->state = ret == 0 ? eEventStateDraggingLeftTangent : eEventStateDraggingRightTangent;
                     didSomething = true;
+                } else if (featherVisible) {
+                    // SOLVFX (Nuke): the feather point's own tangent handles are editable too
+                    const BezierCPPtr & fp = it->first->isFeatherPoint() ? it->first : it->second;
+                    if (fp) {
+                        ret = fp->isNearbyTangent(true, time, ViewIdx(0), pos.x(), pos.y(), tangentSelectionTol);
+                        if (ret >= 0) {
+                            _imp->ui->tangentBeingDragged = fp;
+                            _imp->ui->state = ret == 0 ? eEventStateDraggingLeftTangent : eEventStateDraggingRightTangent;
+                            didSomething = true;
+                        }
+                    }
                 }
             }
 
@@ -3481,31 +3492,7 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
 {
     bool didSomething = false;
 
-    if ( ( (key == Key_E) || (key == Key_e) ) && (_imp->ui->shiftDown) && !(_imp->ui->ctrlDown) && !(_imp->ui->altDown) ) {
-        // SOLVFX: Shift+E resets the feather of the selected points / shapes (Nuke)
-        const double t = getApp()->getTimeLine()->currentFrame();
-        std::list<std::pair<BezierCPPtr, BezierCPPtr> > pts = solvfxCollectFeatherPoints(t);
-        for (std::list<std::pair<BezierCPPtr, BezierCPPtr> >::iterator it = pts.begin(); it != pts.end(); ++it) {
-            BezierPtr b = it->first->getBezier();
-            if (!b) {
-                continue;
-            }
-            const int idx = b->getControlPointIndex(it->first);
-            if (idx < 0) {
-                continue;
-            }
-            double cx, cy, fx, fy;
-            it->first->getPositionAtTime(true, t, ViewIdx(0), &cx, &cy);
-            it->second->getPositionAtTime(true, t, ViewIdx(0), &fx, &fy);
-            b->moveFeatherByIndex(idx, t, cx - fx, cy - fy);
-        }
-        if ( !pts.empty() ) {
-            getNode()->getRotoContext()->evaluateChange();
-            redrawOverlayInteract();
-        }
-
-        return true;
-    }
+    // SOLVFX: Shift+E (reset feather of the selected points) is the plugin shortcut action -> removeFeatherForSelectedCurve
     if ( ( (key == Key_E) || (key == Key_e) ) && !(_imp->ui->ctrlDown) && !(_imp->ui->shiftDown) && !(_imp->ui->altDown) ) {
         if (!_imp->ui->solvfxFeatherKey) {
             // SOLVFX (Nuke): each E press pushes the feather of the selected points / shapes out one step
