@@ -516,6 +516,7 @@ private:
 
     void createAnimationMenu(QMenu* menu, int dimension);
     void createSolvfxOptionsMenu(QMenu* menu, int dimension); // SOLVFX
+    void solvfxAddCurveMenus(QMenu* menu, int dimension, bool enabled, bool anyAnim); // SOLVFX: File / Edit / Predefined
     Menu* createInterpolationMenu(QMenu* menu, int dimension, bool isEnabled);
 
     void setInterpolationForDimensions(QAction* action, KeyframeTypeEnum interp);

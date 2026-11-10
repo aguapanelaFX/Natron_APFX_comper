@@ -12,6 +12,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QUndoCommand>
 
 #include "Engine/EffectInstance.h"
 #include "Engine/KnobTypes.h"
@@ -19,11 +20,45 @@
 #include "Engine/ViewIdx.h"
 #include "Gui/GuiDefines.h"
 #include "Gui/GuiApplicationManager.h"
+#include "Gui/KnobGui.h"
 
 NATRON_NAMESPACE_ENTER
 
 static const char* kNames[4] = { "rangeA", "rangeB", "rangeC", "rangeD" };
 static const char* kLetters[4] = { "A", "B", "C", "D" };
+
+// One graph drag = one undo step. The value is already set while dragging,
+// so the first redo() (called by QUndoStack::push) does nothing.
+class SolvfxKeyerRangeUndo
+    : public QUndoCommand
+{
+public:
+    SolvfxKeyerRangeUndo(const KnobDoublePtr& k, double oldV, double newV)
+        : QUndoCommand( QObject::tr("Keyer range") ), _k(k), _old(oldV), _new(newV) {}
+
+    virtual void undo() OVERRIDE FINAL { set(_old); }
+    virtual void redo() OVERRIDE FINAL
+    {
+        if (_first) {
+            _first = false;
+            return;
+        }
+        set(_new);
+    }
+
+private:
+    void set(double v)
+    {
+        KnobDoublePtr k = _k.lock();
+        if (k) {
+            k->setValue(v, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, 0);
+        }
+    }
+
+    KnobDoubleWPtr _k;
+    double _old, _new;
+    bool _first = true;
+};
 
 bool
 SolvfxKeyerRange::isKeyerOperationKnob(const KnobIPtr& knob)
@@ -78,7 +113,7 @@ SolvfxKeyerRange::setValue(int i,
 {
     KnobDoublePtr k = _k[i].lock();
     if (k) {
-        k->setValue(v, ViewSpec::all(), 0, eValueChangedReasonUserEdited, 0);
+        k->setValue(v, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, 0);
     }
 }
 
@@ -193,6 +228,9 @@ SolvfxKeyerRange::mousePressEvent(QMouseEvent* e)
         }
     }
     _drag = best;
+    if (best >= 0) {
+        _dragStart = value(best);
+    }
     _dragLo = lo;
     _dragHi = hi; // keep the scale fixed while dragging
     update();
@@ -222,6 +260,16 @@ SolvfxKeyerRange::mouseMoveEvent(QMouseEvent* e)
 void
 SolvfxKeyerRange::mouseReleaseEvent(QMouseEvent*)
 {
+    if (_drag >= 0) {
+        KnobDoublePtr k = _k[_drag].lock();
+        const double v = value(_drag);
+        if ( k && (v != _dragStart) ) {
+            KnobGuiPtr g = std::dynamic_pointer_cast<KnobGui>( k->getKnobGuiPointer() );
+            if (g) {
+                g->pushUndoCommand( new SolvfxKeyerRangeUndo(k, _dragStart, v) );
+            }
+        }
+    }
     _drag = -1;
     update();
 }

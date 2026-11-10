@@ -50,6 +50,7 @@ private:
     KnobDoubleWPtr _k[4];
     int _drag = -1;
     double _dragLo = 0., _dragHi = 1.;
+    double _dragStart = 0.; // value of the dragged handle on press (undo)
 };
 
 NATRON_NAMESPACE_EXIT

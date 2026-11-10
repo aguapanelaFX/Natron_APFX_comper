@@ -31,6 +31,8 @@
 
 #include <QDebug>
 #include <QTimer>
+#include <QFile>
+#include <QFileSystemWatcher>
 
 #include <QAction>
 #include <QVBoxLayout>
@@ -1349,6 +1351,41 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     if ( !_imp->ocioViews.empty() ) {
         // apply the config's default view once everything is set up
         QTimer::singleShot( 0, this, SLOT(applyViewerColorSpace()) );
+
+        // SOLVFX: when the OCIO config file changes, refresh the display / view list (no restart needed)
+        const QString cfg = QString::fromLocal8Bit( qgetenv("OCIO") );
+        if ( !cfg.isEmpty() && QFile::exists(cfg) ) {
+            QFileSystemWatcher* watcher = new QFileSystemWatcher(QStringList() << cfg, this);
+            QObject::connect( watcher, &QFileSystemWatcher::fileChanged, this, [this, watcher, cfg](const QString&) {
+                // editors often replace the file: wait a bit, watch it again, then reload
+                QTimer::singleShot( 500, this, [this, watcher, cfg]() {
+                    if ( !watcher->files().contains(cfg) && QFile::exists(cfg) ) {
+                        watcher->addPath(cfg);
+                    }
+                    std::vector<SolvfxOcioViewerShader::DisplayView> views;
+                    int defIndex = -1;
+                    if ( !SolvfxOcioViewerShader::listDisplayViews(&views, &defIndex) || views.empty() ) {
+                        return;
+                    }
+                    const QString cur = _imp->viewerColorSpace->getCurrentIndexText();
+                    _imp->viewerColorSpace->blockSignals(true);
+                    _imp->viewerColorSpace->clear();
+                    int index = (defIndex >= 0) ? defIndex : 0;
+                    for (std::size_t i = 0; i < views.size(); ++i) {
+                        const QString label = QString::fromUtf8( views[i].label.c_str() );
+                        _imp->viewerColorSpace->addItem(label);
+                        if (label == cur) {
+                            index = (int)i;
+                        }
+                    }
+                    _imp->ocioViews = views;
+                    _imp->viewerColorSpace->setCurrentIndex_no_emit(index);
+                    _imp->viewerColorSpace->blockSignals(false);
+                    _imp->viewer->setOcioDisplayView( std::string(), std::string() ); // force a rebuild from the new config
+                    onColorSpaceComboBoxChanged(index);
+                } );
+            } );
+        }
     }
     QObject::connect( _imp->zoomCombobox, SIGNAL(currentIndexChanged(int)), this, SLOT(onZoomComboboxCurrentIndexChanged(int)) );
     QObject::connect( _imp->viewer, SIGNAL(zoomChanged(int)), this, SLOT(updateZoomComboBox(int)) );

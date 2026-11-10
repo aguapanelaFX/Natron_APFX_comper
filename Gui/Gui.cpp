@@ -654,8 +654,12 @@ Gui::createMenuActions()
     _imp->menuFile->addAction(_imp->actionExportAsGroup);
     _imp->menuFile->addSeparator();
     {
-        // SOLVFX: Houdini-like path variables ($PRJ, $SCN, $OUT, $AST)
-        QAction* pv = new QAction(tr("Set Path Variables..."), this);
+        // SOLVFX: Maya / Houdini-like project: Set Project picks $PRJ ($OUT = 05_renders, $AST = 01_assets inside it),
+        // Edit Project Variables remaps any of them ($SCN = folder of the current comp)
+        QAction* sp = new QAction(tr("Set Project..."), this);
+        QObject::connect( sp, SIGNAL(triggered()), this, SLOT(solvfxSetProjectDialog()) );
+        _imp->menuFile->addAction(sp);
+        QAction* pv = new QAction(tr("Edit Project Variables..."), this);
         QObject::connect( pv, SIGNAL(triggered()), this, SLOT(solvfxPathVariablesDialog()) );
         _imp->menuFile->addAction(pv);
         _imp->menuFile->addSeparator();

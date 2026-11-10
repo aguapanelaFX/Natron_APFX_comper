@@ -326,12 +326,12 @@ solvfxRenderDialog(Gui* gui,
         }
     } );
     static QString lastCustom = QString::fromUtf8("1-100");
-    preset->setCurrentIndex(g_solvfxRenderPreset);
-    if (g_solvfxRenderPreset == 3) {
-        frames->setText(lastCustom);
-    } else {
-        fill(g_solvfxRenderPreset);
-    }
+    // SOLVFX: always opens on the global range (Nuke)
+    preset->blockSignals(true);
+    preset->setCurrentIndex(0);
+    preset->blockSignals(false);
+    fill(0);
+    Q_UNUSED(lastCustom);
     frames->setFocus();
     frames->selectAll();
     if (dlg.exec() != QDialog::Accepted) {

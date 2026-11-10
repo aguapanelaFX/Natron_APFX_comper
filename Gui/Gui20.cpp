@@ -1251,14 +1251,27 @@ Gui::saveAndIncrVersion()
 } // Gui::saveAndIncrVersion
 
 void
+Gui::solvfxSetProjectDialog()
+{
+    const std::map<std::string, std::string> cur = SolvfxPathVars::userVars();
+    std::map<std::string, std::string>::const_iterator it = cur.find("PRJ");
+    const QString start = it != cur.end() ? QString::fromUtf8( it->second.c_str() ) : getApp()->getProject()->getProjectPath();
+    const QString d = QFileDialog::getExistingDirectory( this, tr("Set Project"), start );
+    if ( d.isEmpty() ) {
+        return;
+    }
+    SolvfxPathVars::setProject( QDir::fromNativeSeparators(d).toStdString() );
+}
+
+void
 Gui::solvfxPathVariablesDialog()
 {
     QDialog dlg(this);
-    dlg.setWindowTitle( tr("Path Variables") );
+    dlg.setWindowTitle( tr("Project Variables") );
     QVBoxLayout* lay = new QVBoxLayout(&dlg);
     QLabel* info = new QLabel( tr("Folders used in file paths as $NAME (e.g. $PRJ/plates/sh010.####.exr). "
-                                  "They belong to this machine, not to the comp: set them here to open a comp anywhere. "
-                                  "$SCN is always the folder of the current comp."), &dlg );
+                                  "Use File > Set Project to pick $PRJ: $OUT is $PRJ/05_renders and $AST is $PRJ/01_assets "
+                                  "unless you map them to other folders here. $SCN is always the folder of the current comp."), &dlg );
     info->setWordWrap(true);
     lay->addWidget(info);
     QTableWidget* table = new QTableWidget(0, 3, &dlg);
@@ -1268,6 +1281,14 @@ Gui::solvfxPathVariablesDialog()
     lay->addWidget(table);
 
     std::map<std::string, std::string> vars = SolvfxPathVars::userVars();
+    const std::map<std::string, std::string> effective = SolvfxPathVars::all(NULL);
+    // show the default $OUT / $AST (inside $PRJ) when they are not remapped
+    for (int i = 0; i < 2; ++i) {
+        const char* n = i == 0 ? "OUT" : "AST";
+        if ( ( vars.find(n) == vars.end() ) && ( effective.find(n) != effective.end() ) ) {
+            vars[n] = effective.find(n)->second;
+        }
+    }
     const char* fixedNames[3] = { "PRJ", "OUT", "AST" };
     bool scnAdded = false;
     auto addRow = [&](const QString& name, const QString& path, bool fixedName) {
@@ -1348,7 +1369,26 @@ Gui::solvfxPathVariablesDialog()
         name.remove( QLatin1Char('$') );
         const QString val = v ? v->text().trimmed() : QString();
         if ( !name.isEmpty() && !val.isEmpty() ) {
-            out[name.toStdString()] = val.toStdString();
+            out[name.toStdString()] = QDir::fromNativeSeparators(val).toStdString();
+        }
+    }
+    // $OUT / $AST left at their default folder inside $PRJ stay "default" (they follow a new Set Project)
+    if ( out.find("PRJ") != out.end() ) {
+        const std::string prj = out["PRJ"];
+        if ( (out.find("OUT") != out.end()) && (out["OUT"] == prj + "/" + SolvfxPathVars::kDefaultOutFolder) ) {
+            out.erase("OUT");
+        }
+        if ( (out.find("AST") != out.end()) && (out["AST"] == prj + "/" + SolvfxPathVars::kDefaultAstFolder) ) {
+            out.erase("AST");
+        }
+        QDir d( QString::fromUtf8( prj.c_str() ) );
+        if ( d.exists() ) {
+            if ( out.find("OUT") == out.end() ) {
+                d.mkpath( QString::fromUtf8(SolvfxPathVars::kDefaultOutFolder) );
+            }
+            if ( out.find("AST") == out.end() ) {
+                d.mkpath( QString::fromUtf8(SolvfxPathVars::kDefaultAstFolder) );
+            }
         }
     }
     SolvfxPathVars::setUserVars(out);

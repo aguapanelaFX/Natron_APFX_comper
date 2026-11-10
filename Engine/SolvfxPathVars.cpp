@@ -16,6 +16,9 @@ NATRON_NAMESPACE_ENTER
 
 namespace SolvfxPathVars {
 
+const char* const kDefaultOutFolder = "05_renders";
+const char* const kDefaultAstFolder = "01_assets";
+
 static QMutex g_mutex;
 static std::map<std::string, std::string> g_session; // derived from fallbacks for this session
 
@@ -66,6 +69,23 @@ setUserVars(const std::map<std::string, std::string>& vars)
     }
 }
 
+void
+setProject(const std::string& folder)
+{
+    const std::string prj = clean(folder);
+    if ( prj.empty() ) {
+        return;
+    }
+    std::map<std::string, std::string> u = userVars();
+    u["PRJ"] = prj;
+    u.erase("OUT");
+    u.erase("AST");
+    setUserVars(u);
+    QDir d( QString::fromUtf8( prj.c_str() ) );
+    d.mkpath( QString::fromUtf8(kDefaultOutFolder) );
+    d.mkpath( QString::fromUtf8(kDefaultAstFolder) );
+}
+
 std::map<std::string, std::string>
 all(const Project* project)
 {
@@ -78,9 +98,14 @@ all(const Project* project)
     for (std::map<std::string, std::string>::const_iterator it = u.begin(); it != u.end(); ++it) {
         ret[it->first] = it->second;
     }
-    // $OUT defaults to $PRJ/renders
-    if ( ( ret.find("OUT") == ret.end() ) && ( ret.find("PRJ") != ret.end() ) ) {
-        ret["OUT"] = ret["PRJ"] + "/renders";
+    // $OUT = $PRJ/05_renders, $AST = $PRJ/01_assets unless remapped
+    if ( ret.find("PRJ") != ret.end() ) {
+        if ( ret.find("OUT") == ret.end() ) {
+            ret["OUT"] = ret["PRJ"] + "/" + kDefaultOutFolder;
+        }
+        if ( ret.find("AST") == ret.end() ) {
+            ret["AST"] = ret["PRJ"] + "/" + kDefaultAstFolder;
+        }
     }
     if (project) {
         const QString scn = project->getProjectPath();

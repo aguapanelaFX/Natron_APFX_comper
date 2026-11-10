@@ -540,7 +540,7 @@ TimeLineGui::paintGL()
         cursorR = 0xe0 / 255.; cursorG = 0xa0 / 255.; cursorB = 0x3a / 255.;
         boundsR = 0xe0 / 255.; boundsG = 0x74 / 255.; boundsB = 0x3a / 255.;
         // SOLVFX: cache = neutral dark grey bar, so keyframes (red) and tracked frames (blue) read on top
-        cachedR = cachedG = cachedB = 0x62 / 255.;
+        cachedR = cachedG = cachedB = 0x6e / 255.; // a touch lighter than the timeline line
         dcR = dcG = dcB = 0x46 / 255.;
 
 

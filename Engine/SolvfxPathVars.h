@@ -30,6 +30,11 @@ bool expand(std::string& str, const Project* project);
 bool hasUnresolved(const std::string& str, const Project* project, std::string* name = 0);
 // absolute path inside a variable folder -> "$VAR/rest" (longest match). Returns false if none matches.
 bool toVariable(std::string& str, const Project* project);
+// SOLVFX project (Maya / Houdini style): $OUT = $PRJ/05_renders, $AST = $PRJ/01_assets unless remapped
+extern const char* const kDefaultOutFolder; // "05_renders"
+extern const char* const kDefaultAstFolder; // "01_assets"
+// Set Project: $PRJ = folder, $OUT / $AST back to their defaults (folders created if missing)
+void setProject(const std::string& folder);
 // fallback: str = "$VAR/rest" unresolved, absolute = ".../rest": defines VAR for this session from it
 bool deriveFromFallback(const std::string& str, const std::string& absolute, const Project* project);
 }

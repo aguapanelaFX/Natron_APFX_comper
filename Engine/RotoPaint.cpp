@@ -2082,13 +2082,15 @@ RotoPaint::drawOverlay(double time,
                         // SOLVFX: like Nuke, a point's feather handle only shows when the point is selected
                         // (or its feather bar is hovered / dragged): dashed link + hollow handle
                         bool solvfxCpSelected = false;
+                        bool solvfxHandleSelected = false; // the feather handle itself is selected (feather-first pair)
                         for (SelectedCPs::const_iterator cpIt = _imp->ui->selectedCps.begin(); cpIt != _imp->ui->selectedCps.end(); ++cpIt) {
                             if ( (cpIt->first == *it2) || (cpIt->second == *it2) || (cpIt->first == *itF) || (cpIt->second == *itF) ) {
                                 solvfxCpSelected = true;
+                                solvfxHandleSelected = (cpIt->first == *itF);
                                 break;
                             }
                         }
-                        const bool solvfxFeatherActive = isHovered ||
+                        const bool solvfxFeatherActive = isHovered || solvfxHandleSelected ||
                                                          ( (_imp->ui->state == eEventStateDraggingFeatherBar) &&
                                                            ( ( *itF == _imp->ui->featherBarBeingDragged.first) || ( *itF == _imp->ui->featherBarBeingDragged.second) ) );
                         if ( drawFeather && (solvfxCpSelected || solvfxFeatherActive) ) {
@@ -2583,18 +2585,35 @@ RotoPaint::onOverlayPenDown(double time,
         if (nearbyBezier) {
             ///check if the user clicked nearby the cross hair of the selection rectangle in which case
             ///we drag all the control points selected
-            // SOLVFX (Nuke): Ctrl + drag a point, or drag its feather handle, = drag that point's feather
-            if ( nearbyCP.first && featherVisible && (pen == ePenTypeLMB) &&
-                 ( ( _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown ) ||
-                   ( (_imp->ui->selectedTool == eRotoToolSelectPoints) && nearbyCP.first->isFeatherPoint() ) ) ) {
+            // SOLVFX (Nuke): feather handles are points: click selects (Shift adds), drag moves them freely.
+            // Ctrl + drag a point pulls its feather handle out. Handles only exist for selected points.
+            const bool solvfxCtrl = _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown;
+            bool solvfxFeatherPick = false;
+            if ( nearbyCP.first && nearbyCP.second && featherVisible && (pen == ePenTypeLMB) && !solvfxCtrl &&
+                 (_imp->ui->selectedTool == eRotoToolSelectPoints) && nearbyCP.first->isFeatherPoint() ) {
+                bool cpSelected = false;
+                for (SelectedCPs::const_iterator sIt = _imp->ui->selectedCps.begin(); sIt != _imp->ui->selectedCps.end(); ++sIt) {
+                    if ( (sIt->first == nearbyCP.first) || (sIt->second == nearbyCP.first) ||
+                         (sIt->first == nearbyCP.second) || (sIt->second == nearbyCP.second) ) {
+                        cpSelected = true;
+                        break;
+                    }
+                }
+                if (cpSelected) {
+                    solvfxFeatherPick = true;
+                } else {
+                    std::swap(nearbyCP.first, nearbyCP.second); // hidden handle: pick the point itself
+                }
+            }
+            if ( nearbyCP.first && featherVisible && (pen == ePenTypeLMB) && (solvfxCtrl || solvfxFeatherPick) ) {
                 const BezierCPPtr cp = nearbyCP.first->isFeatherPoint() ? nearbyCP.second : nearbyCP.first;
                 const BezierCPPtr fp = nearbyCP.first->isFeatherPoint() ? nearbyCP.first : nearbyCP.second;
                 if (cp && fp) {
-                    _imp->ui->clearCPSSelection();
-                    _imp->ui->featherBarBeingDragged = std::make_pair(cp, fp);
-                    _imp->ui->handleControlPointSelection(_imp->ui->featherBarBeingDragged);
+                    if (solvfxCtrl) {
+                        _imp->ui->clearCPSSelection();
+                    }
+                    _imp->ui->handleControlPointSelection( std::make_pair(fp, cp) ); // feather first = the handle moves
                     _imp->ui->handleBezierSelection(nearbyBezier);
-                    _imp->ui->state = eEventStateDraggingFeatherBar;
                     didSomething = true;
                     break;
                 }
@@ -2793,8 +2812,14 @@ RotoPaint::onOverlayPenDown(double time,
                         _imp->ui->selectedCps.clear();
                         _imp->ui->setCurrentTool( _imp->ui->selectPointsAction.lock() ); // SOLVFX: select points by default (Nuke)
 
-                        // SOLVFX: like Nuke, keep dragging to pull the tangents of the closing point
+                        // SOLVFX: like Nuke, keep dragging to pull both tangents of the closing point (shown while dragging)
+                        BezierCPPtr closeFp = (*it)->getBezier()->getFeatherPointForControlPoint(*it);
+                        if (closeFp) {
+                            _imp->ui->selectedCps.push_back( std::make_pair(*it, closeFp) );
+                            _imp->ui->computeSelectedCpsBBOX();
+                        }
                         _imp->ui->tangentBeingDragged = *it;
+                        _imp->ui->solvfxCloseTangents = true;
                         _imp->ui->state = eEventStateDraggingRightTangent;
                     } else {
                         BezierCPPtr fp = _imp->ui->builtBezier->getFeatherPointAtIndex(i);
@@ -3140,16 +3165,20 @@ RotoPaint::onOverlayPenMotion(double time,
     }
     case eEventStateDraggingLeftTangent: {
         assert(_imp->ui->tangentBeingDragged);
-        pushUndoCommand( new MoveTangentUndoCommand( _imp->ui, dx, dy, time, _imp->ui->tangentBeingDragged, true,
-                                                     _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown ) );
+        MoveTangentUndoCommand* tcmd = new MoveTangentUndoCommand( _imp->ui, dx, dy, time, _imp->ui->tangentBeingDragged, true,
+                                                                   _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown );
+        tcmd->solvfxSetBoth(_imp->ui->solvfxCloseTangents);
+        pushUndoCommand(tcmd);
         _imp->ui->evaluateOnPenUp = true;
         didSomething = true;
         break;
     }
     case eEventStateDraggingRightTangent: {
         assert(_imp->ui->tangentBeingDragged);
-        pushUndoCommand( new MoveTangentUndoCommand( _imp->ui, dx, dy, time, _imp->ui->tangentBeingDragged, false,
-                                                     _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown ) );
+        MoveTangentUndoCommand* tcmd = new MoveTangentUndoCommand( _imp->ui, dx, dy, time, _imp->ui->tangentBeingDragged, false,
+                                                                   _imp->ui->ctrlDown && !_imp->ui->shiftDown && !_imp->ui->altDown );
+        tcmd->solvfxSetBoth(_imp->ui->solvfxCloseTangents);
+        pushUndoCommand(tcmd);
         _imp->ui->evaluateOnPenUp = true;
         didSomething = true;
         break;
@@ -3354,6 +3383,7 @@ RotoPaint::onOverlayPenUp(double /*time*/,
     if ( _imp->solv && _imp->solv->penUp() ) {
         return true;
     }
+    _imp->ui->solvfxCloseTangents = false;
     if (_imp->ui->solvfxFeatherDrag) {
         _imp->ui->solvfxFeatherDrag = false;
 
@@ -3477,6 +3507,16 @@ RotoPaint::onOverlayKeyDown(double /*time*/,
         return true;
     }
     if ( ( (key == Key_E) || (key == Key_e) ) && !(_imp->ui->ctrlDown) && !(_imp->ui->shiftDown) && !(_imp->ui->altDown) ) {
+        if (!_imp->ui->solvfxFeatherKey) {
+            // SOLVFX (Nuke): each E press pushes the feather of the selected points / shapes out one step
+            const double t = getApp()->getTimeLine()->currentFrame();
+            if ( !solvfxCollectFeatherPoints(t).empty() ) {
+                std::pair<double, double> ps(1., 1.);
+                getCurrentViewportForOverlays()->getPixelScale(ps.first, ps.second);
+                solvfxDragFeather(t, 10. * ps.first);
+                getNode()->getRotoContext()->evaluateChange();
+            }
+        }
         _imp->ui->solvfxFeatherKey = true; // SOLVFX: hold E + drag = feather of the selected points / shapes (Nuke)
         return true;
     }

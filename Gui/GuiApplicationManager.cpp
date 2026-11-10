@@ -859,7 +859,7 @@ GuiApplicationManager::initGui(const CLArgs& args)
     SolvfxCursor::install(); // SOLVFX: dark arrow cursor with a white outline everywhere
 
     // SOLVFX: debug console window (Preferences > User Interface > Show console window)
-    if ( settings.value( QString::fromUtf8("solvfxShowConsole"), QVariant(true) ).toBool() ) {
+    if ( settings.value( QString::fromUtf8("solvfxShowConsoleWindow"), QVariant(false) ).toBool() ) { // off by default
         SolvfxConsole::open();
     }
 

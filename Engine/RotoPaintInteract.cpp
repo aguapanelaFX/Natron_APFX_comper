@@ -1734,7 +1734,9 @@ RotoPaintInteract::smoothSelectedCurve()
         }
     }
     if ( !datas.empty() ) {
-        p->publicInterface->pushUndoCommand( new SmoothCuspUndoCommand(shared_from_this(), datas, time, false, pixelScale) );
+        SmoothCuspUndoCommand* cmd = new SmoothCuspUndoCommand(shared_from_this(), datas, time, false, pixelScale);
+        cmd->solvfxSetFullSmooth(true); // SOLVFX: Z smooths the selection fully in one press
+        p->publicInterface->pushUndoCommand(cmd);
 
         return true;
     }

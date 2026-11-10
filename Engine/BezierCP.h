@@ -109,6 +109,9 @@ public:
     ///returns true if a keyframe was set
     bool smoothPoint(bool useGuiCurves, double time, ViewIdx view, bool autoKeying, bool rippleEdit, const std::pair<double, double>& pixelScale);
 
+    // SOLVFX: while on, smoothPoint() makes the point fully smooth in one go (Nuke's Z) instead of one small step
+    static void solvfxSetFullSmooth(bool on);
+
 
     virtual bool isFeatherPoint() const
     {

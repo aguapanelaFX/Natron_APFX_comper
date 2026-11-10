@@ -161,6 +161,7 @@ MoveControlPointsUndoCommand::redo()
             if ( itPoints->first->isFeatherPoint() ) {
                 if ( ok && ( ( selectedTool == eRotoToolSelectFeatherPoints ) ||
                              ( selectedTool == eRotoToolSelectAll ) ||
+                             ( selectedTool == eRotoToolSelectPoints ) || // SOLVFX: feather handles move freely with the default tool (Nuke)
                              ( selectedTool == eRotoToolDrawBezier ) ) ) {
                     itPoints->first->getBezier()->moveFeatherByIndex(*it, _time, _dx, _dy);
                 }
@@ -931,7 +932,7 @@ MoveTangentUndoCommand::redo()
     bool autoKeying = roto->getContext()->isAutoKeyingEnabled();
 
 
-    dragTangent( _time, *cp, *fp, transform, _dx, _dy, false, _left, autoKeying, _breakTangents, _tangentBeingDragged->isFeatherPoint() );
+    dragTangent( _time, *cp, *fp, transform, _dx, _dy, _solvfxBoth, _left, autoKeying, _breakTangents, _tangentBeingDragged->isFeatherPoint() );
 
 
     if (_firstRedoCalled) {
@@ -953,7 +954,7 @@ MoveTangentUndoCommand::mergeWith(const UndoCommandPtr &other)
     if (!mvCmd) {
         return false;
     }
-    if ( (mvCmd->_tangentBeingDragged != _tangentBeingDragged) || (mvCmd->_left != _left) || (mvCmd->_featherLinkEnabled != _featherLinkEnabled)
+    if ( (mvCmd->_tangentBeingDragged != _tangentBeingDragged) || (mvCmd->_left != _left) || (mvCmd->_solvfxBoth != _solvfxBoth) || (mvCmd->_featherLinkEnabled != _featherLinkEnabled)
          || ( mvCmd->_rippleEditEnabled != _rippleEditEnabled) ) {
         return false;
     }
@@ -1309,6 +1310,7 @@ SmoothCuspUndoCommand::redo()
     if (!roto) {
         return;
     }
+    BezierCP::solvfxSetFullSmooth(_solvfxFull && !_cusp);
     for (std::list<SmoothCuspCurveData>::iterator it = curves.begin(); it != curves.end(); ++it) {
         SelectedPointList::const_iterator itOld = it->oldPoints.begin();
         for (SelectedPointList::const_iterator itNew = it->newPoints.begin();
@@ -1325,9 +1327,13 @@ SmoothCuspUndoCommand::redo()
                 } else {
                     it->curve->smoothPointAtIndex(index, _time, _pixelScale);
                 }
+                if (_solvfxFull) {
+                    break; // one pass is already fully smooth
+                }
             }
         }
     }
+    BezierCP::solvfxSetFullSmooth(false);
 
     roto->evaluate(_firstRedoCalled);
 
@@ -1339,7 +1345,7 @@ SmoothCuspUndoCommand::mergeWith(const UndoCommandPtr& other)
 {
     const SmoothCuspUndoCommand* sCmd = dynamic_cast<const SmoothCuspUndoCommand*>( other.get() );
 
-    if (!sCmd) {
+    if (!sCmd || _solvfxFull || sCmd->_solvfxFull) {
         return false;
     }
     if ( ( sCmd->curves.size() != curves.size() ) ||

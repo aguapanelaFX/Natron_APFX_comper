@@ -44,6 +44,15 @@
 #include "Gui/Menu.h"
 #include <QStyle>
 #include <QPixmap>
+#include <QFile>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QTextStream>
+
+#include "Engine/Curve.h"
+#include "Engine/Project.h"
+#include "Engine/AppInstance.h"
+#include "Gui/KnobUndoCommand.h"
 
 
 NATRON_NAMESPACE_ENTER
@@ -549,6 +558,10 @@ KnobGui::createSolvfxOptionsMenu(QMenu* menu,
             add( menu, tr("Link to..."), SLOT(onLinkToActionTriggered()), isEnabled );
         }
     }
+    // SOLVFX: Nuke's File / Edit / Predefined submenus (animation curves of the knob)
+    if (animEnabled) {
+        solvfxAddCurveMenus(menu, dimension, isEnabled && !anySlaved, anyAnim);
+    }
     // Natron's complete menu (aliases, per-dimension actions, knob extras)
     {
         Menu* more = new Menu(menu);
@@ -561,6 +574,247 @@ KnobGui::createSolvfxOptionsMenu(QMenu* menu,
         }
     }
 } // createSolvfxOptionsMenu
+
+// ---- SOLVFX: File / Edit / Predefined (Nuke) ----
+
+namespace {
+// keys of one dimension
+static std::vector<KeyFrame>
+solvfxKeys(const KnobIPtr& knob, int d)
+{
+    std::vector<KeyFrame> ret;
+    CurvePtr c = knob->getCurve(ViewIdx(0), d);
+    if (c) {
+        const KeyFrameSet ks = c->getKeyFrames_mt_safe();
+        ret.assign( ks.begin(), ks.end() );
+    }
+
+    return ret;
+}
+
+// replace the animation of one dimension by the given keys
+static void
+solvfxSetKeys(const KnobIPtr& knob, int d, const std::vector<KeyFrame>& keys)
+{
+    knob->removeAnimation(ViewSpec::all(), d);
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        knob->setKeyFrame(keys[i], ViewSpec::all(), d, eValueChangedReasonNatronGuiEdited);
+    }
+}
+} // anon
+
+void
+KnobGui::solvfxAddCurveMenus(QMenu* menu,
+                             int dimension,
+                             bool enabled,
+                             bool anyAnim)
+{
+    KnobIPtr knob = getKnob();
+    const int nDims = knob->getDimension();
+    std::vector<int> dims;
+    for (int i = 0; i < nDims; ++i) {
+        if ( (dimension == -1) || (i == dimension) ) {
+            dims.push_back(i);
+        }
+    }
+    KnobGuiPtr self = shared_from_this();
+    QWidget* parentW = getGui();
+    double pFirst = 1., pLast = 100.;
+    if ( knob->getHolder() && knob->getHolder()->getApp() ) {
+        knob->getHolder()->getApp()->getProject()->getFrameRange(&pFirst, &pLast);
+    }
+    // first / last key over the edited dimensions
+    double kFirst = 0., kLast = 0.;
+    bool hasKeys = false;
+    for (std::size_t i = 0; i < dims.size(); ++i) {
+        std::vector<KeyFrame> k = solvfxKeys(knob, dims[i]);
+        if ( !k.empty() ) {
+            kFirst = hasKeys ? std::min( kFirst, k.front().getTime() ) : k.front().getTime();
+            kLast = hasKeys ? std::max( kLast, k.back().getTime() ) : k.back().getTime();
+            hasKeys = true;
+        }
+    }
+    auto act = [&](QMenu* m, const QString& text, bool on, std::function<void()> f) {
+        QAction* a = new QAction(text, m);
+        a->setEnabled(on);
+        QObject::connect( a, &QAction::triggered, this, f );
+        m->addAction(a);
+    };
+
+    // File
+    {
+        Menu* m = new Menu(menu);
+        m->setTitle( tr("File") );
+        act( m, tr("Import ascii..."), enabled, [knob, dims, parentW, pFirst]() {
+            const QString fn = QFileDialog::getOpenFileName( parentW, tr("Import ascii"), QString(), QString::fromUtf8("Text (*.txt *.chan *.ascii);;All (*)") );
+            if ( fn.isEmpty() ) {
+                return;
+            }
+            QFile f(fn);
+            if ( !f.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+                return;
+            }
+            // one line per frame: "frame v1 v2 ..." (or only values: frames start at the comp's first frame)
+            std::vector<std::vector<KeyFrame> > keys( dims.size() );
+            QTextStream in(&f);
+            double frame = pFirst;
+            while ( !in.atEnd() ) {
+                const QStringList cols = in.readLine().simplified().split( QLatin1Char(' '), Qt::SkipEmptyParts );
+                if ( cols.isEmpty() || cols[0].startsWith( QLatin1Char('#') ) ) {
+                    continue;
+                }
+                int c0 = 0;
+                if ( cols.size() > (int)dims.size() ) {
+                    frame = cols[0].toDouble();
+                    c0 = 1;
+                }
+                for (std::size_t i = 0; i < dims.size() && (c0 + (int)i) < cols.size(); ++i) {
+                    keys[i].push_back( KeyFrame( frame, cols[c0 + (int)i].toDouble(), 0., 0., eKeyframeTypeLinear ) );
+                }
+                frame += 1.;
+            }
+            knob->beginChanges();
+            for (std::size_t i = 0; i < dims.size(); ++i) {
+                if ( !keys[i].empty() ) {
+                    solvfxSetKeys(knob, dims[i], keys[i]);
+                }
+            }
+            knob->endChanges();
+        } );
+        act( m, tr("Export ascii..."), true, [knob, dims, parentW, pFirst, pLast, hasKeys, kFirst, kLast]() {
+            const QString fn = QFileDialog::getSaveFileName( parentW, tr("Export ascii"), QString(), QString::fromUtf8("Text (*.txt)") );
+            if ( fn.isEmpty() ) {
+                return;
+            }
+            QFile f(fn);
+            if ( !f.open(QIODevice::WriteOnly | QIODevice::Text) ) {
+                return;
+            }
+            QTextStream out(&f);
+            const int a = (int)std::floor(hasKeys ? kFirst : pFirst), b = (int)std::ceil(hasKeys ? kLast : pLast);
+            for (int fr = a; fr <= b; ++fr) {
+                out << fr;
+                for (std::size_t i = 0; i < dims.size(); ++i) {
+                    CurvePtr c = knob->getCurve(ViewIdx(0), dims[i]);
+                    double v = 0.;
+                    if ( c && (c->getKeyFramesCount() > 0) ) {
+                        v = c->getValueAt(fr);
+                    } else {
+                        KnobDoubleBasePtr dk = std::dynamic_pointer_cast<KnobDoubleBase>(knob);
+                        KnobIntBasePtr ik = std::dynamic_pointer_cast<KnobIntBase>(knob);
+                        v = dk ? dk->getValue(dims[i]) : ( ik ? ik->getValue(dims[i]) : 0. );
+                    }
+                    out << ' ' << v;
+                }
+                out << '\n';
+            }
+        } );
+        menu->addAction( m->menuAction() );
+    }
+
+    // Edit
+    {
+        Menu* m = new Menu(menu);
+        m->setTitle( tr("Edit") );
+        act( m, tr("Generate keys..."), enabled, [knob, dims, parentW, pFirst, pLast]() {
+            bool ok = false;
+            const QString r = QInputDialog::getText( parentW, tr("Generate keys"), tr("Frames (first-last, or first-last x step):"),
+                                                     QLineEdit::Normal, QString::fromUtf8("%1-%2").arg(pFirst).arg(pLast), &ok );
+            if ( !ok || r.trimmed().isEmpty() ) {
+                return;
+            }
+            QString t = r.trimmed();
+            double step = 1.;
+            const int xi = t.indexOf( QLatin1Char('x') );
+            if (xi > 0) {
+                step = std::max( 1e-3, t.mid(xi + 1).toDouble() );
+                t = t.left(xi);
+            }
+            const QStringList ab = t.split( QLatin1Char('-'), Qt::SkipEmptyParts );
+            const double a = ab.size() > 0 ? ab[0].toDouble() : pFirst;
+            const double b = ab.size() > 1 ? ab[1].toDouble() : a;
+            knob->beginChanges();
+            for (std::size_t i = 0; i < dims.size(); ++i) {
+                std::vector<KeyFrame> keys = solvfxKeys(knob, dims[i]);
+                CurvePtr c = knob->getCurve(ViewIdx(0), dims[i]);
+                KnobDoubleBasePtr dk = std::dynamic_pointer_cast<KnobDoubleBase>(knob);
+                KnobIntBasePtr ik = std::dynamic_pointer_cast<KnobIntBase>(knob);
+                const double cur = dk ? dk->getValue(dims[i]) : ( ik ? ik->getValue(dims[i]) : 0. );
+                std::vector<KeyFrame> out;
+                for (double fr = a; fr <= b + 1e-9; fr += step) {
+                    const double v = ( c && !keys.empty() ) ? c->getValueAt(fr) : cur;
+                    out.push_back( KeyFrame(fr, v, 0., 0., eKeyframeTypeSmooth) );
+                }
+                solvfxSetKeys(knob, dims[i], out);
+            }
+            knob->endChanges();
+        } );
+        act( m, tr("Move..."), enabled && anyAnim, [knob, dims, parentW]() {
+            bool ok = false;
+            const double off = QInputDialog::getDouble( parentW, tr("Move keys"), tr("Frames to move by:"), 0., -100000., 100000., 2, &ok );
+            if ( !ok || (off == 0.) ) {
+                return;
+            }
+            knob->beginChanges();
+            for (std::size_t i = 0; i < dims.size(); ++i) {
+                std::vector<KeyFrame> keys = solvfxKeys(knob, dims[i]);
+                for (std::size_t k = 0; k < keys.size(); ++k) {
+                    keys[k].setTime(keys[k].getTime() + off);
+                }
+                solvfxSetKeys(knob, dims[i], keys);
+            }
+            knob->endChanges();
+        } );
+        act( m, tr("Reverse"), enabled && anyAnim, [knob, dims, kFirst, kLast]() {
+            knob->beginChanges();
+            for (std::size_t i = 0; i < dims.size(); ++i) {
+                const std::vector<KeyFrame> keys = solvfxKeys(knob, dims[i]);
+                std::vector<KeyFrame> out;
+                for (std::size_t k = 0; k < keys.size(); ++k) {
+                    const KeyFrame& kf = keys[k];
+                    out.push_back( KeyFrame( kFirst + kLast - kf.getTime(), kf.getValue(), -kf.getRightDerivative(), -kf.getLeftDerivative(), kf.getInterpolation() ) );
+                }
+                solvfxSetKeys(knob, dims[i], out);
+            }
+            knob->endChanges();
+        } );
+        act( m, tr("Negate"), enabled && anyAnim, [knob, dims]() {
+            knob->beginChanges();
+            for (std::size_t i = 0; i < dims.size(); ++i) {
+                const std::vector<KeyFrame> keys = solvfxKeys(knob, dims[i]);
+                std::vector<KeyFrame> out;
+                for (std::size_t k = 0; k < keys.size(); ++k) {
+                    const KeyFrame& kf = keys[k];
+                    out.push_back( KeyFrame( kf.getTime(), -kf.getValue(), -kf.getLeftDerivative(), -kf.getRightDerivative(), kf.getInterpolation() ) );
+                }
+                solvfxSetKeys(knob, dims[i], out);
+            }
+            knob->endChanges();
+        } );
+        menu->addAction( m->menuAction() );
+    }
+
+    // Predefined (expressions on top of the animation curve, Python)
+    {
+        Menu* m = new Menu(menu);
+        m->setTitle( tr("Predefined") );
+        const bool range = hasKeys && (kLast > kFirst);
+        const QString F = QString::number(kFirst, 'g', 12), L = QString::number(kLast - kFirst, 'g', 12), E = QString::number(kLast, 'g', 12);
+        auto pre = [&](const QString& text, bool on, const QString& expr) {
+            act( m, text, enabled && on, [self, knob, dims, expr]() {
+                for (std::size_t i = 0; i < dims.size(); ++i) {
+                    self->pushUndoCommand( new SetExpressionCommand(knob, false, dims[i], expr.toStdString()) );
+                }
+            } );
+        };
+        pre( tr("Loop"), range, QString::fromUtf8("thisParam.curve(%1 + ((frame - %1) % %2), dimension)").arg(F, L) );
+        pre( tr("Ping-pong"), range, QString::fromUtf8("thisParam.curve(%1 + (%2 - abs(((frame - %1) % (2 * %2)) - %2)), dimension)").arg(F, L) );
+        pre( tr("Reverse"), range, QString::fromUtf8("thisParam.curve(%1 + %2 - frame, dimension)").arg(F, E) );
+        pre( tr("Hold first / last"), range, QString::fromUtf8("thisParam.curve(min(max(frame, %1), %2), dimension)").arg(F, E) );
+        pre( tr("Random"), true, QString::fromUtf8("thisParam.random()") );
+        menu->addAction( m->menuAction() );
+    }
+} // solvfxAddCurveMenus
 
 void
 KnobGui::onSolvfxShowDopeSheetTriggered()

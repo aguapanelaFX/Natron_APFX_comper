@@ -42,11 +42,12 @@ NATRON_NAMESPACE_ENTER
 
 
 #define kControlPointMidSize 3
-#define kBezierSelectionTolerance 8
-#define kControlPointSelectionTolerance 8
-#define kXHairSelectedCpsTolerance 8
+// SOLVFX: bigger pick areas (points / tangents / feather handles easier to grab)
+#define kBezierSelectionTolerance 10
+#define kControlPointSelectionTolerance 12
+#define kXHairSelectedCpsTolerance 10
 #define kXHairSelectedCpsBox 8
-#define kTangentHandleSelectionTolerance 8
+#define kTangentHandleSelectionTolerance 12
 #define kTransformArrowLenght 10
 #define kTransformArrowWidth 3
 #define kTransformArrowOffsetFromPoint 15
@@ -539,6 +540,7 @@ public:
     bool solvfxFeatherKey = false;   // SOLVFX: E held
     bool solvfxFeatherDrag = false;  // SOLVFX: E + drag in progress
     QPointF solvfxFeatherLast;
+    bool solvfxCloseTangents = false; // SOLVFX: dragging both tangents of the point that closed the shape
     int ctrlDown;
     int altDown;
     bool lastTabletDownTriggeredEraser;

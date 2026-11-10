@@ -314,6 +314,12 @@ private:
     BezierCPPtr _tangentBeingDragged, _oldCp, _oldFp;
     bool _left;
     bool _breakTangents;
+    bool _solvfxBoth = false; // SOLVFX: move both tangents (mirrored), used when closing a shape
+
+public:
+    void solvfxSetBoth(bool b) { _solvfxBoth = b; }
+
+private:
 };
 
 
@@ -434,6 +440,11 @@ private:
     bool _cusp;
     std::list<SmoothCuspCurveData> curves;
     std::pair<double, double> _pixelScale;
+    bool _solvfxFull = false;
+
+public:
+    // SOLVFX: Z = fully smooth in one press (Nuke) instead of one small step
+    void solvfxSetFullSmooth(bool b) { _solvfxFull = b; }
 };
 
 

@@ -68,7 +68,22 @@ NodeGraph::checkForHints(bool shiftdown,
     bool doConnectionHints = doMergeHints || !controlDown;
     // SOLVFX: a node whose input is free but whose output is used (e.g. a Dot feeding something) can be dropped
     // on a pipe too: its input then connects to that stream (like Nuke)
-    const bool solvfxInputOnly = !internalNode->hasInputConnected() && internalNode->hasOutputConnected() && (internalNode->getNInputs() > 0);
+    // SOLVFX: also a node with its main input free while others are used (Merge with only A connected): the pipe goes to B
+    bool solvfxMainFree = false;
+    if (internalNode->getNInputs() > 0) {
+        int mainInput = -1;
+        for (int i = 0; i < internalNode->getNInputs(); ++i) {
+            if (internalNode->getInputLabel(i) == "B") {
+                mainInput = i;
+                break;
+            }
+        }
+        if (mainInput == -1) {
+            mainInput = internalNode->getPreferredInputForConnection();
+        }
+        solvfxMainFree = (mainInput != -1) && !internalNode->getInput(mainInput);
+    }
+    const bool solvfxInputOnly = solvfxMainFree && ( internalNode->hasInputConnected() || internalNode->hasOutputConnected() );
     if ( !doMergeHints && !solvfxInputOnly && ( internalNode->hasInputConnected() || internalNode->hasOutputConnected() ) ) {
         // only fully disconnected nodes get inserted
         doConnectionHints = false;

@@ -132,6 +132,22 @@ FloatingWidget::setWidget(QWidget* w)
         setWindowFilePath( QString() );
         setWindowModified(false);
         setWindowTitle( tr("Properties") );
+#ifdef Q_OS_WIN
+        // SOLVFX: rounded window corners (Windows 11 DWM; ignored on older Windows). Loaded at run time: no link change.
+        {
+            typedef HRESULT (WINAPI *DwmSetWindowAttributeFn)(HWND, DWORD, LPCVOID, DWORD);
+            HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+            if (dwm) {
+                DwmSetWindowAttributeFn fn = (DwmSetWindowAttributeFn)(void*)GetProcAddress(dwm, "DwmSetWindowAttribute");
+                if (fn) {
+                    const DWORD kCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+                    const int kRound = 2; // DWMWCP_ROUND
+                    fn( (HWND)winId(), kCornerPreference, &kRound, sizeof(kRound) );
+                }
+                FreeLibrary(dwm);
+            }
+        }
+#endif
     }
     _scrollArea->setWidget(w);
     w->setVisible(true);

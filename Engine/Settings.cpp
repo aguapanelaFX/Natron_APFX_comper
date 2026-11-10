@@ -511,6 +511,7 @@ Settings::initializeKnobsProjectSetup()
     _firstReadSetProjectFormat = AppManager::createKnob<KnobBool>( this, tr("First image read set project format") );
     _firstReadSetProjectFormat->setName("autoProjectFormat");
     _firstReadSetProjectFormat->setHintToolTip( tr("If checked, the project size is set to this of the first image or video read within the project.") );
+    _firstReadSetProjectFormat->setSecret(true); // SOLVFX: always off
     _projectsPage->addKnob(_firstReadSetProjectFormat);
 
 
@@ -579,7 +580,8 @@ Settings::initializeKnobsUserInterface()
 #ifdef NATRON_ENABLE_IO_META_NODES
     _filedialogForWriters = AppManager::createKnob<KnobBool>( this, tr("Prompt with file dialog when creating Write node") );
     _filedialogForWriters->setName("writeUseDialog");
-    _filedialogForWriters->setDefaultValue(true);
+    _filedialogForWriters->setDefaultValue(false);
+    _filedialogForWriters->setSecret(true); // SOLVFX: never prompt (Nuke)
     _filedialogForWriters->setHintToolTip( tr("When checked, opens-up a file dialog when creating a Write node") );
     _uiPage->addKnob(_filedialogForWriters);
 #endif
@@ -627,10 +629,10 @@ Settings::initializeKnobsUserInterface()
     _uiPage->addKnob(_defaultLayoutFile);
 
     _solvfxShowConsole = AppManager::createKnob<KnobBool>( this, tr("Show console window") );
-    _solvfxShowConsole->setName("solvfxShowConsole");
+    _solvfxShowConsole->setName("solvfxShowConsoleWindow"); // SOLVFX: renamed so the new default (off) applies to existing settings
     _solvfxShowConsole->setHintToolTip( tr("When checked, %1 opens a console window next to the main window that prints "
                                            "playback and node graph timing lines, for debugging. Takes effect on the next launch.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
-    _solvfxShowConsole->setDefaultValue(true);
+    _solvfxShowConsole->setDefaultValue(false);
     _solvfxShowConsole->setAnimationEnabled(false);
     _uiPage->addKnob(_solvfxShowConsole);
 
@@ -1538,7 +1540,7 @@ Settings::setDefaultValues()
 #endif
 
     // General/Projects setup
-    _firstReadSetProjectFormat->setDefaultValue(true);
+    _firstReadSetProjectFormat->setDefaultValue(false);
     _autoPreviewEnabledForNewProjects->setDefaultValue(true, 0);
     _fixPathsOnProjectPathChanged->setDefaultValue(true);
     //_enableMappingFromDriveLettersToUNCShareNames
@@ -3263,7 +3265,8 @@ Settings::useCursorPositionIncrements() const
 bool
 Settings::isAutoProjectFormatEnabled() const
 {
-    return _firstReadSetProjectFormat->getValue();
+    // SOLVFX: Reads never change the comp format; the user sets it by hand (Comp Settings)
+    return false;
 }
 
 bool
@@ -3930,7 +3933,8 @@ Settings::isFileDialogEnabledForNewWriters() const
 {
 #ifdef NATRON_ENABLE_IO_META_NODES
 
-    return _filedialogForWriters->getValue();
+    // SOLVFX (Nuke): W / a new Write just creates the node; the browser only opens from the Write's file field
+    return false;
 #else
 
     return true;

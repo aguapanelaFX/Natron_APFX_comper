@@ -1,0 +1,111 @@
+diff --git a/ofxsRamp.cpp b/ofxsRamp.cpp
+index a384974..09f81cf 100644
+--- a/ofxsRamp.cpp
++++ b/ofxsRamp.cpp
+@@ -233,7 +233,7 @@ RampInteractHelper::draw(const DrawArgs &args)
+             bool dragging = _state == (i == 0 ? eInteractStateDraggingPoint0 : eInteractStateDraggingPoint1);
+             glBegin(GL_POINTS);
+             if (dragging) {
+-                glColor3f(0.f * l, 1.f * l, 0.f * l);
++                glColor3f(0.88f * l, 0.45f * l, 0.23f * l); // SOLVFX: alt hover = orange
+             } else {
+                 glColor3f( (float)color.r * l, (float)color.g * l, (float)color.b * l );
+             }
+diff --git a/ofxsRectangleInteract.cpp b/ofxsRectangleInteract.cpp
+index ec101ad..0149c9e 100644
+--- a/ofxsRectangleInteract.cpp
++++ b/ofxsRectangleInteract.cpp
+@@ -83,9 +83,9 @@ drawPoint(const OfxRGBColourD &color,
+     if (draw) {
+         if (ds == id) {
+             if (keepAR) {
+-                glColor3f(1.f * l, 0.f * l, 0.f * l);
++                glColor3f(1.f * l, 0.82f * l, 0.34f * l); // SOLVFX: hover = yellow (Nuke)
+             } else {
+-                glColor3f(0.f * l, 1.f * l, 0.f * l);
++                glColor3f(0.88f * l, 0.45f * l, 0.23f * l); // SOLVFX: alt hover = orange
+             }
+         } else {
+             glColor3f( (float)color.r * l, (float)color.g * l, (float)color.b * l );
+@@ -187,7 +187,7 @@ RectangleInteract::draw(const DrawArgs &args)
+         ///draw center cross hair
+         glBegin(GL_LINES);
+         if ( (_drawState == eDrawStateHoveringCenter) || ( centered && (_drawState != eDrawStateInactive) ) ) {
+-            glColor3f(0.f * l, 1.f * l, 0.f * l);
++            glColor3f(0.88f * l, 0.45f * l, 0.23f * l); // SOLVFX: alt hover = orange
+         } else if ( !allowCenterInteraction() ) {
+             glColor3f( (float)(color.r / 2) * l, (float)(color.g / 2) * l, (float)(color.b / 2) * l );
+         } else {
+diff --git a/ofxsTransform3x3.cpp b/ofxsTransform3x3.cpp
+index 0cb30a1..6c7a812 100644
+--- a/ofxsTransform3x3.cpp
++++ b/ofxsTransform3x3.cpp
+@@ -55,6 +55,7 @@
+ #include <algorithm>
+ 
+ #include "ofxsTransform3x3.h"
++#include <cmath>
+ #include "ofxsTransform3x3Processor.h"
+ #include "ofxsCoords.h"
+ #include "ofxsShutter.h"
+@@ -703,6 +704,17 @@ Transform3x3Plugin::getRegionOfDefinition(const RegionOfDefinitionArguments &arg
+         }
+ 
+         ofxsFilterExpandRoD(this, _dstClip->getPixelAspectRatio(), args.renderScale, blackOutside, &rod);
++
++        // SOLVFX: the soft (anti-aliased) border spreads past the image edge: grow the bbox so it is not chopped
++        const double soft = _solvfxEdgeSoft ? _solvfxEdgeSoft->getValueAtTime(time) : 0.;
++        if ( blackOutside && (soft > 0.) && !Coords::rectIsInfinite(rod) ) {
++            const double par = _dstClip->getPixelAspectRatio();
++            const double px = std::ceil(soft) + 1.;
++            rod.x1 -= px * par;
++            rod.x2 += px * par;
++            rod.y1 -= px;
++            rod.y2 += px;
++        }
+     }
+ 
+     if ( doMasking && ( (mix != 1.) || _maskClip->isConnected() ) ) {
+diff --git a/ofxsTransformInteract.cpp b/ofxsTransformInteract.cpp
+index 6cdace0..f22c51f 100644
+--- a/ofxsTransformInteract.cpp
++++ b/ofxsTransformInteract.cpp
+@@ -516,9 +516,9 @@ drawSquare(const OfxRGBColourD& color,
+ 
+     if (hovered) {
+         if (althovered) {
+-            glColor3f(0.f * l, 1.f * l, 0.f * l);
++            glColor3f(0.88f * l, 0.45f * l, 0.23f * l); // SOLVFX: alt hover = orange
+         } else {
+-            glColor3f(1.f * l, 0.f * l, 0.f * l);
++            glColor3f(1.f * l, 0.82f * l, 0.34f * l); // SOLVFX: hover = yellow (Nuke)
+         }
+     } else {
+         glColor3f( (float)color.r * l, (float)color.g * l, (float)color.b * l );
+@@ -544,7 +544,7 @@ drawEllipse(const OfxRGBColourD& color,
+             int l)
+ {
+     if (hovered) {
+-        glColor3f(1.f * l, 0.f * l, 0.f * l);
++        glColor3f(1.f * l, 0.82f * l, 0.34f * l); // SOLVFX: hover = yellow (Nuke)
+     } else {
+         glColor3f( (float)color.r * l, (float)color.g * l, (float)color.b * l );
+     }
+@@ -575,7 +575,7 @@ drawSkewBar(const OfxRGBColourD& color,
+             int l)
+ {
+     if (hovered) {
+-        glColor3f(1.f * l, 0.f * l, 0.f * l);
++        glColor3f(1.f * l, 0.82f * l, 0.34f * l); // SOLVFX: hover = yellow (Nuke)
+     } else {
+         glColor3f( (float)color.r * l, (float)color.g * l, (float)color.b * l );
+     }
+@@ -632,7 +632,7 @@ drawRotationBar(const OfxRGBColourD& color,
+     double meanPixelScale = (pixelScale.x + pixelScale.y) / 2.;
+ 
+     if (hovered) {
+-        glColor3f(1.f * l, 0.f * l, 0.f * l);
++        glColor3f(1.f * l, 0.82f * l, 0.34f * l); // SOLVFX: hover = yellow (Nuke)
+     } else {
+         glColor3d(color.r * l, color.g * l, color.b * l);
+     }

@@ -625,8 +625,96 @@ BezierCP::isNearbyTangent(bool useGuiCurves,
 
 #define TANGENTS_CUSP_LIMIT 25
 
+static bool g_solvfxFullSmooth = false;
+
+void
+BezierCP::solvfxSetFullSmooth(bool on)
+{
+    g_solvfxFullSmooth = on;
+}
 
 NATRON_NAMESPACE_ANONYMOUS_ENTER
+
+// SOLVFX: Nuke-like smooth in one step: both tangents on the line prev -> next,
+// each a third of the distance to its neighbour (Catmull-Rom style).
+static bool
+solvfxFullSmoothTangent(bool useGuiCurves,
+                        double time,
+                        bool left,
+                        const BezierCP* p,
+                        const Transform::Matrix3x3& transform,
+                        double x,
+                        double y,
+                        double *tx,
+                        double *ty)
+{
+    const std::list<BezierCPPtr> & cps = ( p->isFeatherPoint() ?
+                                           p->getBezier()->getFeatherPoints() :
+                                           p->getBezier()->getControlPoints() );
+    if (cps.size() < 2) {
+        return false;
+    }
+    std::list<BezierCPPtr>::const_iterator it = cps.begin();
+    for (; it != cps.end(); ++it) {
+        if (it->get() == p) {
+            break;
+        }
+    }
+    if ( it == cps.end() ) {
+        return false;
+    }
+    const bool open = p->getBezier()->isOpenBezier();
+    std::list<BezierCPPtr>::const_iterator prev = it, next = it;
+    bool hasPrev = true, hasNext = true;
+    if ( prev == cps.begin() ) {
+        if (open) {
+            hasPrev = false;
+        } else {
+            prev = cps.end();
+            --prev;
+        }
+    } else {
+        --prev;
+    }
+    ++next;
+    if ( next == cps.end() ) {
+        if (open) {
+            hasNext = false;
+        } else {
+            next = cps.begin();
+        }
+    }
+    Transform::Point3D a, b;
+    a.z = b.z = 1.;
+    a.x = b.x = x;
+    a.y = b.y = y;
+    if (hasPrev) {
+        (*prev)->getPositionAtTime(useGuiCurves, time, ViewIdx(0), &a.x, &a.y);
+        a = Transform::matApply(transform, a);
+    }
+    if (hasNext) {
+        (*next)->getPositionAtTime(useGuiCurves, time, ViewIdx(0), &b.x, &b.y);
+        b = Transform::matApply(transform, b);
+    }
+    double dx = b.x - a.x, dy = b.y - a.y;
+    const double n = std::sqrt(dx * dx + dy * dy);
+    if (n <= 0.) {
+        return false;
+    }
+    dx /= n;
+    dy /= n;
+    if (left) {
+        const double d = std::sqrt( (x - a.x) * (x - a.x) + (y - a.y) * (y - a.y) ) / 3.;
+        *tx = x - dx * d;
+        *ty = y - dy * d;
+    } else {
+        const double d = std::sqrt( (b.x - x) * (b.x - x) + (b.y - y) * (b.y - y) ) / 3.;
+        *tx = x + dx * d;
+        *ty = y + dy * d;
+    }
+
+    return true;
+}
 
 static void
 cuspTangent(double x,
@@ -664,6 +752,9 @@ smoothTangent(bool useGuiCurves,
               double *ty,
               const std::pair<double, double>& pixelScale)
 {
+    if ( g_solvfxFullSmooth && solvfxFullSmoothTangent(useGuiCurves, time, left, p, transform, x, y, tx, ty) ) {
+        return;
+    }
     if ( (x == *tx) && (y == *ty) ) {
         const std::list<BezierCPPtr> & cps = ( p->isFeatherPoint() ?
                                                                   p->getBezier()->getFeatherPoints() :

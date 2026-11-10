@@ -253,15 +253,9 @@ NodeGraph::mouseReleaseEvent(QMouseEvent* e)
                         pushUndoCommand( new ConnectCommand( this, inputEdge, inputEdge->getSource(),
                                                              _imp->_highLightedEdge->getSource() ) );
                     }
-                } else if ( !selectedNode->getNode()->hasInputConnected() && selectedNode->getNode()->hasOutputConnected() &&
-                            _imp->_highLightedEdge->getSource() ) {
-                    // SOLVFX: node already feeding something (e.g. a Dot): only its input joins the stream
-                    int prefInput = selectedNode->getNode()->getPreferredInputForConnection();
-                    Edge* inputEdge = (prefInput != -1) ? selectedNode->getInputArrow(prefInput) : 0;
-                    if (inputEdge) {
-                        pushUndoCommand( new ConnectCommand( this, inputEdge, inputEdge->getSource(), _imp->_highLightedEdge->getSource() ) );
-                    }
                 } else {
+                    // SOLVFX: always inserted into the stream (source -> node -> destination), also for a Dot that already
+                    // feeds something or a Merge whose A is connected (the pipe goes to its free B / main input)
                     pushUndoCommand( new InsertNodeCommand(this, _imp->_highLightedEdge, selectedNode) );
                 } // if ( _imp->_highLightedEdge->isOutputEdge() )
 
