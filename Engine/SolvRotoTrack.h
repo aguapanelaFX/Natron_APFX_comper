@@ -68,7 +68,10 @@ private:
         double x[4], y[4];
     };
 
-    bool getQuadAtTime(double time, Quad* q) const;
+    bool getQuadAtTime(double time, Quad* q) const;     // tracked + adjust track offsets
+    bool getRawQuadAtTime(double time, Quad* q) const;  // tracked only (tracker data)
+    void addAdjust(double time, Quad* q) const;
+    void reapplyAll();                                  // re-bake shapes + derived data after an adjust
     bool getRefQuad(Quad* q) const;
     void getSurfaceRef(Quad* q) const;
     void setSurfaceRef(const Quad& q);
@@ -98,6 +101,7 @@ private:
     std::atomic<bool> _abort;
     std::atomic<bool> _running;
     int _dragCorner;
+    bool _adjustDrag = false;
 };
 
 NATRON_NAMESPACE_EXIT

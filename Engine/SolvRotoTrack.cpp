@@ -79,6 +79,10 @@ struct SolvRotoTrack::Knobs
     KnobDoubleWPtr surface[4];     // animated surface corners (baked, for linked exports)
     KnobDoubleWPtr xfTranslate, xfRotate, xfScale, xfCenter; // animated transform (linked exports)
     KnobStringWPtr shapes;         // script names of the tracked shapes, ';' separated
+    // adjust track (Mocha-like manual correction)
+    KnobBoolWPtr adjust;           // on: dragging a surface corner corrects the track at this frame
+    KnobButtonWPtr adjustClear;
+    KnobDoubleWPtr adjustOffsets;  // 8 dims, animated: corner offsets added to the tracked quad
 };
 
 SolvRotoTrack::SolvRotoTrack(RotoPaint* effect)
@@ -272,6 +276,21 @@ SolvRotoTrack::createKnobs()
     _k->gridSize = gridSize;
 
     _k->alignSurface = makeButton(fx, page, "solvTrackAlignSurface", "align to shapes", "Put the surface corners on the bounding box of the tracked shapes (at the frame the track started).", 0, true);
+
+    // SOLVFX: adjust track (Mocha-like): drag the surface corners at frames where the track drifts;
+    // the correction is keyed and interpolated between the corrected frames, the shapes follow
+    KnobBoolPtr adjust = AppManager::createKnob<KnobBool>( fx, std::string("adjust track") );
+    adjust->setName("solvTrackAdjust");
+    adjust->setHintToolTip( std::string("On: dragging a surface corner corrects the TRACK at the current frame (a correction key). "
+                                        "Corrections are interpolated between corrected frames and the tracked shapes follow. "
+                                        "Off: dragging only moves the surface (corner pin placement).") );
+    adjust->setDefaultValue(false);
+    adjust->setAnimationEnabled(false);
+    adjust->setEvaluateOnChange(false);
+    adjust->setAddNewLine(false);
+    page->addKnob(adjust);
+    _k->adjust = adjust;
+    _k->adjustClear = makeButton(fx, page, "solvTrackAdjustClear", "clear corrections", "Remove all adjust track corrections.", 0, true);
     makeDivider(fx, page, "solvTrackDiv2");
 
     // result
@@ -351,6 +370,16 @@ SolvRotoTrack::createKnobs()
     KnobDoublePtr c = AppManager::createKnob<KnobDouble>( fx, std::string("center"), 2 );
     c->setName("solvTrackCenter"); c->setSecretByDefault(true); c->setAnimationEnabled(false); c->setEvaluateOnChange(false); page->addKnob(c); _k->xfCenter = c;
 
+    KnobDoublePtr adjOff = AppManager::createKnob<KnobDouble>( fx, std::string("adjustOffsets"), 8 );
+    adjOff->setName("solvTrackAdjustOffsets");
+    adjOff->setSecretByDefault(true);
+    adjOff->setEvaluateOnChange(false);
+    page->addKnob(adjOff);
+    _k->adjustOffsets = adjOff;
+    fx->addKnobToViewerUI(adjust);
+    adjust->setInViewerContextLabel( QString::fromUtf8("adjust") );
+    fx->addOverlaySlaveParam(adjOff);
+
     KnobStringPtr shapes = AppManager::createKnob<KnobString>( fx, std::string("trackedShapes") );
     shapes->setName("solvTrackShapes");
     shapes->setSecretByDefault(true);
@@ -411,6 +440,32 @@ applyH(const Transform::Matrix3x3& H,
 bool
 SolvRotoTrack::getQuadAtTime(double time,
                              Quad* q) const
+{
+    if ( !getRawQuadAtTime(time, q) ) {
+        return false;
+    }
+    addAdjust(time, q);
+
+    return true;
+}
+
+void
+SolvRotoTrack::addAdjust(double time,
+                         Quad* q) const
+{
+    KnobDoublePtr a = _k->adjustOffsets.lock();
+    if ( !a || (a->getKeyFramesCount(ViewSpec(0), 0) == 0) ) {
+        return;
+    }
+    for (int i = 0; i < 4; ++i) {
+        q->x[i] += a->getValueAtTime(time, 2 * i);
+        q->y[i] += a->getValueAtTime(time, 2 * i + 1);
+    }
+}
+
+bool
+SolvRotoTrack::getRawQuadAtTime(double time,
+                                Quad* q) const
 {
     KnobDoublePtr k = _k->trackCorners.lock();
     if ( !k || (k->getKeyFramesCount(ViewSpec(0), 0) == 0) ) {
@@ -745,7 +800,7 @@ SolvRotoTrack::startTracking(int direction,
 
             return;
         }
-        getQuadAtTime(start, &qStart);
+        getRawQuadAtTime(start, &qStart); // SOLVFX: tracker data without the adjust corrections
     } else {
         // new track: the reference frame is this frame, quad = shapes bounding box
         RectD bb;
@@ -1010,10 +1065,12 @@ SolvRotoTrack::applyFrame(int frame,
     }
     corners->endChanges();
 
-    // tracked shapes follow the surface (baked keyframes)
+    // tracked shapes follow the surface (baked keyframes), with the adjust track corrections
     Quad qr;
+    Quad qa = q;
+    addAdjust(frame, &qa);
     Transform::Matrix3x3 H;
-    if ( getRefQuad(&qr) && homography(qr, q, &H) ) {
+    if ( getRefQuad(&qr) && homography(qr, qa, &H) ) {
         std::list<RotoDrawableItemPtr> shapes = trackedShapes();
         for (std::list<RotoDrawableItemPtr>::iterator it = shapes.begin(); it != shapes.end(); ++it) {
             (*it)->setExtraMatrix(true, frame, H);
@@ -1390,6 +1447,16 @@ SolvRotoTrack::knobChanged(KnobI* k)
         clearTrack(-1);
     } else if ( k == _k->clearFw.lock().get() ) {
         clearTrack(1);
+    } else if ( k == _k->adjustClear.lock().get() ) {
+        KnobDoublePtr a = _k->adjustOffsets.lock();
+        for (int d = 0; d < 8; ++d) {
+            a->removeAnimation(ViewSpec::all(), d);
+            a->setValue(0., ViewSpec::all(), d);
+        }
+        reapplyAll();
+        redraw();
+    } else if ( k == _k->adjust.lock().get() ) {
+        redraw();
     } else if ( k == _k->exportCreate.lock().get() ) {
         exportNode( _k->exportMenu.lock()->getValue() );
     } else if ( (k == _k->showSurface.lock().get()) || (k == _k->showGrid.lock().get()) || (k == _k->gridSize.lock().get()) ) {
@@ -1496,6 +1563,7 @@ SolvRotoTrack::penDown(double time,
     for (int i = 0; i < 4; ++i) {
         if ( (std::fabs(s.x[i] - x) < tol) && (std::fabs(s.y[i] - y) < tol) ) {
             _dragCorner = i;
+            _adjustDrag = _k->adjust.lock()->getValue();
             redraw();
 
             return true;
@@ -1512,6 +1580,36 @@ SolvRotoTrack::penMotion(double time,
 {
     if (_dragCorner < 0) {
         return false;
+    }
+    if (_adjustDrag) {
+        // SOLVFX adjust track: the surface corner must land on (x, y) at this frame. The new
+        // homography surfaceRef -> corrected surface gives the corrected quad (ref quad through it);
+        // the difference with the raw tracked quad is keyed as the correction of this frame.
+        Quad sref, sNow, qr, raw;
+        getSurfaceRef(&sref);
+        sNow = surfaceAtTime(time);
+        sNow.x[_dragCorner] = x;
+        sNow.y[_dragCorner] = y;
+        Transform::Matrix3x3 Hs;
+        if ( getRefQuad(&qr) && getRawQuadAtTime(time, &raw) && homography(sref, sNow, &Hs) ) {
+            KnobDoublePtr a = _k->adjustOffsets.lock();
+            a->beginChanges();
+            for (int i = 0; i < 4; ++i) {
+                double nx = qr.x[i], ny = qr.y[i];
+                applyH(Hs, &nx, &ny);
+                a->setValueAtTime(time, nx - raw.x[i], ViewSpec::all(), 2 * i);
+                a->setValueAtTime(time, ny - raw.y[i], ViewSpec::all(), 2 * i + 1);
+            }
+            a->endChanges();
+            // live: this frame's shapes follow right away (all frames are re-baked on release)
+            Quad q;
+            if ( getRawQuadAtTime(time, &q) ) {
+                applyFrame( (int)time, q );
+            }
+        }
+        redraw();
+
+        return true;
     }
     // move the corner at this frame = move it in reference space through the inverse motion
     Quad qr, qt;
@@ -1537,10 +1635,29 @@ SolvRotoTrack::penUp()
         return false;
     }
     _dragCorner = -1;
-    refreshDerived();
+    if (_adjustDrag) {
+        _adjustDrag = false;
+        reapplyAll();
+    } else {
+        refreshDerived();
+    }
     redraw();
 
     return true;
+}
+
+// re-bakes every tracked frame (shapes + surface + transform) with the current corrections
+void
+SolvRotoTrack::reapplyAll()
+{
+    std::vector<double> frames;
+    getTrackedFrames(&frames);
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+        Quad q;
+        if ( getRawQuadAtTime(frames[i], &q) ) {
+            applyFrame( (int)frames[i], q );
+        }
+    }
 }
 
 NATRON_NAMESPACE_EXIT
