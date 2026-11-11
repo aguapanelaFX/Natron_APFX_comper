@@ -166,11 +166,11 @@ public:
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
-
+    virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
 
 private:
     Solv3DXformKnobs _xf;
-    KnobChoiceWPtr _display, _projection;
+    KnobChoiceWPtr _display, _projection, _preset;
     KnobDoubleWPtr _focal, _hAperture, _vAperture, _near, _far;
     KnobDoubleWPtr _winTranslate, _winScale, _winRoll, _focusDist, _fStop;
 };
@@ -180,7 +180,7 @@ class Solv3DVanishingCamera
     : public Solv3DNode
 {
 public:
-    explicit Solv3DVanishingCamera(NodePtr n) : Solv3DNode(n), _drag(-1) {}
+    explicit Solv3DVanishingCamera(NodePtr n) : Solv3DNode(n), _drag(-1), _selLine(-1) {}
 
     static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DVanishingCamera(n); }
 
@@ -199,26 +199,39 @@ public:
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
 
     virtual bool hasOverlay() const OVERRIDE FINAL { return true; }
+    virtual void onKnobsLoaded() OVERRIDE FINAL { refreshLineRows(); }
     virtual void drawOverlay(double time, const RenderScale & renderScale, ViewIdx view) OVERRIDE FINAL;
     virtual bool onOverlayPenDown(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp, PenType pen) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool onOverlayPenMotion(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool onOverlayPenUp(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp) OVERRIDE FINAL WARN_UNUSED_RETURN;
 
+    static const int kMaxLines = 16;
+
 private:
     void plateFormat(RectD* f);
     void solveFromLines();
-    void resetLines();
+    void addLine(double x1, double y1, double x2, double y2);
+    void refreshLineRows();
     void exportCamera();
+    int activeLineCount() const;
 
-    KnobChoiceWPtr _axes;
-    KnobDoubleWPtr _lines[6];   // x1 y1 x2 y2 (canonical) : X1 X2 Y1 Y2 Z1 Z2
-    KnobDoubleWPtr _distance, _hAperture;
-    KnobButtonWPtr _solve, _reset;
+    KnobChoiceWPtr _preset, _focalMode;
+    KnobDoubleWPtr _filmBack, _focal, _tolerance, _distance;
+    KnobButtonWPtr _addLine, _solve;
+    // per line: end points (hidden), on (hidden), type, swap, delete, length
+    KnobDoubleWPtr _lines[kMaxLines];
+    KnobBoolWPtr _lineOn[kMaxLines];
+    KnobChoiceWPtr _lineType[kMaxLines];
+    KnobButtonWPtr _lineSwap[kMaxLines], _lineDel[kMaxLines];
+    KnobDoubleWPtr _lineLen[kMaxLines];
+    KnobBoolWPtr _useOrigin, _flipY, _flipZ;
+    KnobDoubleWPtr _origin;
     KnobDoubleWPtr _rFocal, _rVAperture, _rTranslate, _rRotate; // results
     KnobStringWPtr _status;
     KnobChoiceWPtr _exportMode;
     KnobButtonWPtr _export;
-    int _drag;                  // line * 2 + end
+    int _drag;                  // line * 2 + end, -2 = origin, -3 = drawing a new line
+    int _selLine;
 };
 
 class Solv3DTransformGeo
@@ -252,12 +265,17 @@ public:
 
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_SCENE; }
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Scene"; }
-    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Merges up to 8 3D inputs into one scene."; }
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 8; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Merges 3D inputs into one scene. Only the connected inputs and one free input arrow are shown: connect it and the next one appears (up to 32)."; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 32; }
     virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return std::to_string(i + 1); }
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+    virtual void onInputChanged(int inputNo) OVERRIDE FINAL;
+    virtual void onEffectCreated(bool mayCreateFileDialog, const CreateNodeArgs& args) OVERRIDE FINAL;
+
+private:
+    void refreshInputVisibility();
 };
 
 class Solv3DReadGeo

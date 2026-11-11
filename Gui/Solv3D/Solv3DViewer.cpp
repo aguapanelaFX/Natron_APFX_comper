@@ -31,6 +31,9 @@
 #include "Engine/AppInstance.h"
 #include "Engine/AppManager.h"
 #include "Engine/EffectInstance.h"
+#include "Engine/KnobTypes.h"
+#include "Engine/Curve.h"
+#include "Engine/Settings.h"
 #include "Engine/Node.h"
 #include "Engine/TimeLine.h"
 #include "Engine/ViewerInstance.h"
@@ -66,7 +69,7 @@ Solv3DGLWidget::Solv3DGLWidget(QWidget* parent)
     : QOpenGLWidget(parent)
 {
     setFocusPolicy(Qt::StrongFocus);
-    setMouseTracking(false);
+    setMouseTracking(true); // gizmo hover
 }
 
 Solv3DGLWidget::~Solv3DGLWidget()
@@ -396,27 +399,71 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
                 }
             }
         } else if ( (p.type == PrimType::Camera) && p.camera && (kv.first != _lookThrough) ) {
-            // frustum icon
-            const double ha = p.camera->horizontalAperture, va = p.camera->verticalAperture, fl = std::max(1e-6, p.camera->focalLength);
-            const double sz = 0.6, w = sz * ha / fl * 0.5, h = sz * va / fl * 0.5;
-            glLineWidth(sel ? 2.f : 1.5f);
-            if (sel) {
-                glColor4f(kSelCol[0], kSelCol[1], kSelCol[2], 1.f);
-            } else {
-                glColor4f(0.85f, 0.62f, 0.95f, 1.f);
-            }
-            glBegin(GL_LINES);
-            const double c[4][2] = { { -w, -h }, { w, -h }, { w, h }, { -w, h } };
-            for (int i = 0; i < 4; ++i) {
-                glVertex3d(0, 0, 0); glVertex3d(c[i][0], c[i][1], -sz);
-                glVertex3d(c[i][0], c[i][1], -sz); glVertex3d(c[(i + 1) % 4][0], c[(i + 1) % 4][1], -sz);
-            }
-            // up marker
-            glVertex3d(-w * 0.4, h * 1.1, -sz); glVertex3d(0, h * 1.5, -sz);
-            glVertex3d(0, h * 1.5, -sz); glVertex3d(w * 0.4, h * 1.1, -sz);
-            glEnd();
+            drawCameraIcon(sel, p.camera->horizontalAperture, p.camera->verticalAperture, p.camera->focalLength);
         }
     }
+}
+
+// camera icon (Maya / Houdini style): body + film reels + lens hood, a short frustum and the up marker.
+// Drawn in camera space (looking down -Z), about 1.5 units long.
+void
+Solv3DGLWidget::drawCameraIcon(bool sel, double ha, double va, double fl)
+{
+    const float col[3] = { sel ? kSelCol[0] : 0.62f, sel ? kSelCol[1] : 0.66f, sel ? kSelCol[2] : 0.95f };
+    glLineWidth(sel ? 2.f : 1.5f);
+    glColor4f(col[0], col[1], col[2], 1.f);
+    auto box = [](double x0, double x1, double y0, double y1, double z0, double z1) {
+        const double v[8][3] = { { x0, y0, z0 }, { x1, y0, z0 }, { x1, y1, z0 }, { x0, y1, z0 },
+                                 { x0, y0, z1 }, { x1, y0, z1 }, { x1, y1, z1 }, { x0, y1, z1 } };
+        const int e[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
+                               { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+        glBegin(GL_LINES);
+        for (int i = 0; i < 12; ++i) {
+            glVertex3dv(v[e[i][0]]);
+            glVertex3dv(v[e[i][1]]);
+        }
+        glEnd();
+    };
+    // body (behind the lens: +Z)
+    box(-0.25, 0.25, -0.35, 0.3, 0.15, 1.2);
+    // film reels on top
+    for (int r = 0; r < 2; ++r) {
+        const double zc = (r == 0) ? 0.45 : 0.95, yc = 0.3 + 0.24, rad = 0.24;
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < 24; ++i) {
+            const double a = i * 2. * 3.14159265358979323846 / 24.;
+            glVertex3d(0., yc + rad * std::sin(a), zc + rad * std::cos(a) );
+        }
+        glEnd();
+    }
+    // lens hood: square tapering forward (-Z)
+    {
+        const double s0 = 0.14, s1 = 0.26, z0 = 0.15, z1 = -0.35;
+        const double q[2][4][3] = { { { -s0, -s0, z0 }, { s0, -s0, z0 }, { s0, s0, z0 }, { -s0, s0, z0 } },
+                                    { { -s1, -s1, z1 }, { s1, -s1, z1 }, { s1, s1, z1 }, { -s1, s1, z1 } } };
+        glBegin(GL_LINES);
+        for (int i = 0; i < 4; ++i) {
+            glVertex3dv(q[0][i]); glVertex3dv(q[0][(i + 1) % 4]);
+            glVertex3dv(q[1][i]); glVertex3dv(q[1][(i + 1) % 4]);
+            glVertex3dv(q[0][i]); glVertex3dv(q[1][i]);
+        }
+        glEnd();
+    }
+    // short frustum (field of view) + up triangle
+    const double f = std::max(1e-6, fl), d = 2.;
+    const double w = d * ha / f * 0.5, h = d * va / f * 0.5;
+    glLineWidth(1.f);
+    glColor4f(col[0], col[1], col[2], 0.45f);
+    glBegin(GL_LINES);
+    const double c[4][2] = { { -w, -h }, { w, -h }, { w, h }, { -w, h } };
+    for (int i = 0; i < 4; ++i) {
+        glVertex3d(0, 0, -0.35); glVertex3d(c[i][0], c[i][1], -0.35 - d);
+        glVertex3d(c[i][0], c[i][1], -0.35 - d); glVertex3d(c[(i + 1) % 4][0], c[(i + 1) % 4][1], -0.35 - d);
+    }
+    glEnd();
+    glBegin(GL_TRIANGLES);
+    glVertex3d(-w * 0.35, h * 1.08, -0.35 - d); glVertex3d(0, h * 1.4, -0.35 - d); glVertex3d(w * 0.35, h * 1.08, -0.35 - d);
+    glEnd();
 }
 
 void
@@ -438,23 +485,23 @@ Solv3DGLWidget::paintGL()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     if (_grid) {
-        // grid on the ground plane (XZ)
+        // ground grid (XZ) like Maya: 12 units each side, a line every unit, stronger every 5, axes darkest
         glDisable(GL_LIGHTING);
         glLineWidth(1.f);
         glBegin(GL_LINES);
-        for (int i = -10; i <= 10; ++i) {
-            const float a = (i == 0) ? 0.55f : 0.32f;
+        for (int i = -12; i <= 12; ++i) {
+            const float a = (i == 0) ? 0.08f : ( (i % 5 == 0) ? 0.30f : 0.38f );
             glColor4f(a, a, a, 1.f);
-            glVertex3d(i, 0, -10); glVertex3d(i, 0, 10);
-            glVertex3d(-10, 0, i); glVertex3d(10, 0, i);
+            glVertex3d(i, 0, -12); glVertex3d(i, 0, 12);
+            glVertex3d(-12, 0, i); glVertex3d(12, 0, i);
         }
         glEnd();
         // world axes
         glLineWidth(2.f);
         glBegin(GL_LINES);
-        glColor3f(0.93f, 0.33f, 0.31f); glVertex3d(0, 0, 0); glVertex3d(1, 0, 0);
-        glColor3f(0.4f, 0.85f, 0.42f); glVertex3d(0, 0, 0); glVertex3d(0, 1, 0);
-        glColor3f(0.36f, 0.55f, 1.f); glVertex3d(0, 0, 0); glVertex3d(0, 0, 1);
+        glColor3f(0.93f, 0.33f, 0.31f); glVertex3d(0, 0, 0); glVertex3d(2, 0, 0);
+        glColor3f(0.4f, 0.85f, 0.42f); glVertex3d(0, 0, 0); glVertex3d(0, 2, 0);
+        glColor3f(0.36f, 0.55f, 1.f); glVertex3d(0, 0, 0); glVertex3d(0, 0, 2);
         glEnd();
     }
 
@@ -474,6 +521,7 @@ Solv3DGLWidget::paintGL()
 
     drawScene(_scene, V, false);
     drawScene(_templ, V, true);
+    drawGizmo(P, V);
 
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_LIGHTING);
@@ -556,6 +604,268 @@ Solv3DGLWidget::pick(const QPoint& pt) const
     return best;
 }
 
+
+// ---------------------------------------------------------------- manipulator
+// parameter t of the point on line O + t*a closest to the ray ro + s*rd
+static double
+closestParam(const Vec3& O, const Vec3& a, const Vec3& ro, const Vec3& rd)
+{
+    const Vec3 w = O - ro;
+    const double A = dot(a, a), B = dot(a, rd), C = dot(rd, rd), D = dot(a, w), E = dot(rd, w);
+    const double den = A * C - B * B;
+    if (std::fabs(den) < 1e-12) {
+        return 0.;
+    }
+
+    return (B * E - C * D) / den;
+}
+
+// ray / plane (point P0, normal n) intersection
+static Vec3
+rayPlane(const Vec3& ro, const Vec3& rd, const Vec3& P0, const Vec3& n)
+{
+    const double den = dot(rd, n);
+    if (std::fabs(den) < 1e-12) {
+        return P0;
+    }
+
+    return ro + rd * ( dot(P0 - ro, n) / den );
+}
+
+void
+Solv3DGLWidget::setGizmo(bool on, const Mat4& parentWorld, const Mat4& world, const Vec3& pivot)
+{
+    if (_gDrag) {
+        return; // keep the start values while dragging
+    }
+    _gizmoOn = on;
+    _gParent = parentWorld;
+    _gWorld = world;
+    _gPivot = pivot;
+    _gOrigin = world.point(pivot);
+}
+
+bool
+Solv3DGLWidget::screenPoint(const Vec3& w, double* x, double* y) const
+{
+    Mat4 P, V;
+    viewMatrices(&P, &V);
+    const Mat4 M = P * V;
+    double c[4];
+    for (int i = 0; i < 4; ++i) {
+        c[i] = M.m[i][0] * w.x + M.m[i][1] * w.y + M.m[i][2] * w.z + M.m[i][3];
+    }
+    if (c[3] <= 1e-9) {
+        return false;
+    }
+    *x = (c[0] / c[3] * 0.5 + 0.5) * width();
+    *y = (1. - (c[1] / c[3] * 0.5 + 0.5) ) * height();
+
+    return true;
+}
+
+void
+Solv3DGLWidget::mouseRay(const QPoint& p, Vec3* o, Vec3* d) const
+{
+    Mat4 P, V;
+    viewMatrices(&P, &V);
+    const Mat4 inv = (P * V).inverse();
+    const double nx = 2. * p.x() / std::max(1, width()) - 1., ny = 1. - 2. * p.y() / std::max(1, height());
+    auto un = [&](double z) {
+        double c[4];
+        const double in[4] = { nx, ny, z, 1. };
+        for (int i = 0; i < 4; ++i) {
+            c[i] = inv.m[i][0] * in[0] + inv.m[i][1] * in[1] + inv.m[i][2] * in[2] + inv.m[i][3] * in[3];
+        }
+
+        return Vec3(c[0] / c[3], c[1] / c[3], c[2] / c[3]);
+    };
+    const Vec3 a = un(-1.), b = un(1.);
+    *o = a;
+    *d = normalize(b - a);
+}
+
+Vec3
+Solv3DGLWidget::gizmoAxis(int a) const
+{
+    Vec3 e;
+    (a == 0 ? e.x : (a == 1 ? e.y : e.z) ) = 1.;
+    if (_manipMode == 3) {
+        // scale handles follow the object's axes
+        const Vec3 v = _gWorld.vector(e);
+        const double l = std::sqrt( dot(v, v) );
+
+        return l > 1e-12 ? v * (1. / l) : e;
+    }
+
+    return e; // move / rotate: world axes
+}
+
+Vec3
+Solv3DGLWidget::viewForward() const
+{
+    Mat4 P, V;
+    viewMatrices(&P, &V);
+
+    return normalize( Vec3(V.m[2][0], V.m[2][1], V.m[2][2]) ); // camera +Z in world (the plane normal)
+}
+
+double
+Solv3DGLWidget::gizmoSize() const
+{
+    // constant size on screen: ~ 1/8 of the view height
+    Mat4 P, V;
+    viewMatrices(&P, &V);
+    const Vec3 c = V.point(_gOrigin);
+    const double depth = std::max(1e-6, -c.z);
+    const double pyy = std::max(1e-9, P.m[1][1]);
+    if (P.m[3][3] == 1.) { // orthographic
+
+        return 0.25 / pyy;
+    }
+
+    return depth * 0.25 / pyy;
+}
+
+static double
+segDist(double px, double py, double ax, double ay, double bx, double by)
+{
+    const double ex = bx - ax, ey = by - ay, l2 = ex * ex + ey * ey;
+    double u = l2 > 1e-12 ? ( (px - ax) * ex + (py - ay) * ey ) / l2 : 0.;
+    u = std::max( 0., std::min(1., u) );
+
+    return std::hypot(ax + u * ex - px, ay + u * ey - py);
+}
+
+int
+Solv3DGLWidget::gizmoHandle(const QPoint& p) const
+{
+    if ( !_gizmoOn || (_manipMode == 0) ) {
+        return 0;
+    }
+    double ox, oy;
+    if ( !screenPoint(_gOrigin, &ox, &oy) ) {
+        return 0;
+    }
+    if ( (_manipMode != 2) && (std::hypot(p.x() - ox, p.y() - oy) < 9.) ) {
+        return 4;
+    }
+    const double S = gizmoSize();
+    int best = 0;
+    double bd = 8.;
+    for (int a = 0; a < 3; ++a) {
+        const Vec3 ax = gizmoAxis(a);
+        if (_manipMode == 2) {
+            // ring around the axis
+            Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
+            const Vec3 v = cross(ax, u);
+            double px0 = 0, py0 = 0;
+            bool have = false;
+            for (int i = 0; i <= 48; ++i) {
+                const double t = i * 2. * 3.14159265358979323846 / 48.;
+                const Vec3 w = _gOrigin + (u * std::cos(t) + v * std::sin(t) ) * S;
+                double x, y;
+                if ( !screenPoint(w, &x, &y) ) {
+                    have = false;
+                    continue;
+                }
+                if (have) {
+                    const double dd = segDist(p.x(), p.y(), px0, py0, x, y);
+                    if (dd < bd) {
+                        bd = dd;
+                        best = a + 1;
+                    }
+                }
+                px0 = x; py0 = y; have = true;
+            }
+        } else {
+            double x, y;
+            if ( screenPoint(_gOrigin + ax * S, &x, &y) ) {
+                const double dd = segDist(p.x(), p.y(), ox, oy, x, y);
+                if (dd < bd) {
+                    bd = dd;
+                    best = a + 1;
+                }
+            }
+        }
+    }
+
+    return best;
+}
+
+void
+Solv3DGLWidget::drawGizmo(const Mat4& /*P*/, const Mat4& V)
+{
+    if ( !_gizmoOn || (_manipMode == 0) ) {
+        return;
+    }
+    loadMat(GL_MODELVIEW, V);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    const double S = gizmoSize();
+    const float axc[3][3] = { { 0.93f, 0.33f, 0.31f }, { 0.4f, 0.85f, 0.42f }, { 0.36f, 0.55f, 1.f } };
+    const int hot = _gDrag ? _gDrag : _gHot;
+    for (int a = 0; a < 3; ++a) {
+        const Vec3 ax = gizmoAxis(a);
+        if (hot == a + 1) {
+            glColor4f(1.f, 0.85f, 0.3f, 1.f);
+        } else {
+            glColor4f(axc[a][0], axc[a][1], axc[a][2], 1.f);
+        }
+        glLineWidth(hot == a + 1 ? 3.f : 2.f);
+        if (_manipMode == 2) {
+            Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
+            const Vec3 v = cross(ax, u);
+            glBegin(GL_LINE_LOOP);
+            for (int i = 0; i < 64; ++i) {
+                const double t = i * 2. * 3.14159265358979323846 / 64.;
+                const Vec3 w = _gOrigin + (u * std::cos(t) + v * std::sin(t) ) * S;
+                glVertex3d(w.x, w.y, w.z);
+            }
+            glEnd();
+            continue;
+        }
+        const Vec3 e = _gOrigin + ax * S;
+        glBegin(GL_LINES);
+        glVertex3d(_gOrigin.x, _gOrigin.y, _gOrigin.z);
+        glVertex3d(e.x, e.y, e.z);
+        glEnd();
+        // tip: cone (move) or cube (scale), drawn as a few lines / a point
+        Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
+        const Vec3 v = cross(ax, u);
+        if (_manipMode == 1) {
+            const double r = S * 0.06, L = S * 0.2;
+            glBegin(GL_TRIANGLE_FAN);
+            const Vec3 tip = e + ax * L;
+            glVertex3d(tip.x, tip.y, tip.z);
+            for (int i = 0; i <= 12; ++i) {
+                const double t = i * 2. * 3.14159265358979323846 / 12.;
+                const Vec3 w = e + (u * std::cos(t) + v * std::sin(t) ) * r;
+                glVertex3d(w.x, w.y, w.z);
+            }
+            glEnd();
+        } else {
+            glPointSize(9.f);
+            glBegin(GL_POINTS);
+            glVertex3d(e.x, e.y, e.z);
+            glEnd();
+        }
+    }
+    if (_manipMode != 2) {
+        glPointSize(hot == 4 ? 11.f : 9.f);
+        if (hot == 4) {
+            glColor4f(1.f, 0.85f, 0.3f, 1.f);
+        } else {
+            glColor4f(0.9f, 0.9f, 0.6f, 1.f);
+        }
+        glBegin(GL_POINTS);
+        glVertex3d(_gOrigin.x, _gOrigin.y, _gOrigin.z);
+        glEnd();
+    }
+    glEnable(GL_DEPTH_TEST);
+}
+
 void
 Solv3DGLWidget::mousePressEvent(QMouseEvent* e)
 {
@@ -574,6 +884,25 @@ Solv3DGLWidget::mousePressEvent(QMouseEvent* e)
     if ( _dragMode && _locked && !_lookThrough.empty() ) {
         _dragMode = 0; // locked to the camera
     }
+    if ( !_dragMode && (e->button() == Qt::LeftButton) ) {
+        const int h = gizmoHandle( e->pos() );
+        if ( h && onManipBegin && onManipBegin(&_gStart) ) {
+            _gDrag = h;
+            Vec3 ro, rd;
+            mouseRay(e->pos(), &ro, &rd);
+            if ( (_manipMode == 1 || _manipMode == 3) && (h <= 3) ) {
+                _gT0 = closestParam( _gOrigin, gizmoAxis(h - 1), ro, rd );
+            } else if ( (_manipMode == 1) && (h == 4) ) {
+                // plane through the gizmo, facing the view
+                _gAxisStart = rayPlane( ro, rd, _gOrigin, viewForward() );
+            } else if (_manipMode == 2) {
+                double ox, oy;
+                screenPoint(_gOrigin, &ox, &oy);
+                _gAng0 = std::atan2( -(e->pos().y() - oy), e->pos().x() - ox );
+            }
+            _moved = true; // no pick on release
+        }
+    }
     setFocus();
 }
 
@@ -585,7 +914,66 @@ Solv3DGLWidget::mouseMoveEvent(QMouseEvent* e)
     if ( (e->pos() - _pressPos).manhattanLength() > 3 ) {
         _moved = true;
     }
+    if (_gDrag) {
+        Vec3 ro, rd;
+        mouseRay(e->pos(), &ro, &rd);
+        const Mat4 parentInv = _gParent.inverse();
+        if (_manipMode == 1) {
+            Vec3 dw;
+            if (_gDrag <= 3) {
+                const Vec3 ax = gizmoAxis(_gDrag - 1);
+                dw = ax * (closestParam(_gOrigin, ax, ro, rd) - _gT0);
+            } else {
+                dw = rayPlane( ro, rd, _gOrigin, viewForward() ) - _gAxisStart;
+            }
+            if (onManipSet) {
+                onManipSet(1, _gStart.translate + parentInv.vector(dw), 0.);
+            }
+        } else if (_manipMode == 2) {
+            double ox, oy;
+            screenPoint(_gOrigin, &ox, &oy);
+            double ang = std::atan2( -(e->pos().y() - oy), e->pos().x() - ox );
+            double da = (ang - _gAng0) * 180. / 3.14159265358979323846;
+            while (da > 180.) da -= 360.;
+            while (da < -180.) da += 360.;
+            // counter-clockwise on screen = positive around an axis pointing at the viewer
+            Mat4 P, V;
+            viewMatrices(&P, &V);
+            const Vec3 axView = V.vector( gizmoAxis(_gDrag - 1) );
+            if (axView.z < 0.) {
+                da = -da;
+            }
+            Vec3 r = _gStart.rotate;
+            (_gDrag == 1 ? r.x : (_gDrag == 2 ? r.y : r.z) ) += da;
+            if (onManipSet) {
+                onManipSet(2, r, 0.);
+            }
+        } else if (_manipMode == 3) {
+            if (_gDrag <= 3) {
+                const Vec3 ax = gizmoAxis(_gDrag - 1);
+                const double t = closestParam(_gOrigin, ax, ro, rd);
+                const double fct = std::fabs(_gT0) > 1e-9 ? std::max(0.001, t / _gT0) : 1.;
+                Vec3 sc = _gStart.scale;
+                (_gDrag == 1 ? sc.x : (_gDrag == 2 ? sc.y : sc.z) ) *= fct;
+                if (onManipSet) {
+                    onManipSet(3, sc, 0.);
+                }
+            } else if (onManipSet) {
+                const double fct = std::max(0.001, std::pow(1.01, (e->pos().x() - _pressPos.x()) - (e->pos().y() - _pressPos.y()) ) );
+                onManipSet(4, Vec3(), _gStart.uniform * fct);
+            }
+        }
+        update();
+
+        return;
+    }
     if (!_dragMode) {
+        const int h = gizmoHandle( e->pos() );
+        if (h != _gHot) {
+            _gHot = h;
+            update();
+        }
+
         return;
     }
     if ( !_lookThrough.empty() ) {
@@ -612,9 +1000,13 @@ Solv3DGLWidget::mouseMoveEvent(QMouseEvent* e)
         _target = _target + r.vector( Vec3(-d.x() * k, d.y() * k, 0) );
         break;
     }
-    case 3:
-        _dist = std::max( 0.05, _dist * std::pow(1.006, d.x() - d.y()) );
+    case 3: {
+        // right / up = closer (Maya); Settings > Viewer can invert it
+        const bool inv = appPTR->getCurrentSettings()->solvfx3DInvertDolly();
+        const double amount = (d.x() - d.y()) * (inv ? 1. : -1.);
+        _dist = std::max( 0.05, _dist * std::pow(1.006, amount) );
         break;
+    }
     default:
         return;
     }
@@ -624,6 +1016,13 @@ Solv3DGLWidget::mouseMoveEvent(QMouseEvent* e)
 void
 Solv3DGLWidget::mouseReleaseEvent(QMouseEvent* e)
 {
+    if (_gDrag) {
+        _gDrag = 0;
+        _dragMode = 0;
+        update();
+
+        return;
+    }
     if ( !_dragMode && !_moved && (e->button() == Qt::LeftButton) && onPick ) {
         onPick( pick( e->pos() ), e->modifiers() & Qt::ShiftModifier );
     }
@@ -667,6 +1066,18 @@ Solv3DGLWidget::keyPressEvent(QKeyEvent* e)
         }
 
         return;
+    case Qt::Key_Q:
+    case Qt::Key_W:
+    case Qt::Key_E:
+    case Qt::Key_R: {
+        const int m = (e->key() == Qt::Key_Q) ? 0 : (e->key() == Qt::Key_W) ? 1 : (e->key() == Qt::Key_E) ? 2 : 3;
+        setManipMode(m);
+        if (onManipModeChanged) {
+            onManipModeChanged(m);
+        }
+
+        return;
+    }
     default:
         QOpenGLWidget::keyPressEvent(e);
 
@@ -702,6 +1113,22 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
     _lock->setCheckable(true);
     _lock->setToolTip( tr("Lock the view to the camera: navigation does not leave it.") );
     h->addWidget(_lock);
+    h->addSpacing(8);
+    {
+        const char* names[4] = { "select", "move", "rotate", "scale" };
+        const char* tips[4] = { "Select only (Q).", "Move (W): drag an arrow along its axis, the centre in the view plane.",
+                                "Rotate (E): drag a ring.", "Scale (R): drag a handle along its axis, the centre for uniform scale." };
+        for (int i = 0; i < 4; ++i) {
+            _manipBtn[i] = new QToolButton(bar);
+            _manipBtn[i]->setText( QString::fromUtf8(names[i]) );
+            _manipBtn[i]->setToolTip( QString::fromUtf8(tips[i]) );
+            _manipBtn[i]->setCheckable(true);
+            _manipBtn[i]->setChecked(i == 1);
+            _manipBtn[i]->setProperty("solvManip", i);
+            QObject::connect( _manipBtn[i], SIGNAL(clicked()), this, SLOT(onManipButton()) );
+            h->addWidget(_manipBtn[i]);
+        }
+    }
     h->addStretch(1);
     _display = new QComboBox(bar);
     const char* modes[7] = { "as set", "wireframe", "solid", "solid+lines", "textured", "textured+lines", 0 };
@@ -735,6 +1162,51 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         }
     };
     _gl->onLookThroughSelected = [this]() { lookThroughSelected(); };
+    _gl->onManipModeChanged = [this](int m) {
+        for (int i = 0; i < 4; ++i) {
+            _manipBtn[i]->setChecked(i == m);
+        }
+    };
+    _gl->onManipBegin = [this](Solv3DGLWidget::Xform* x) -> bool {
+        NodePtr n = gizmoNode();
+        if (!n) {
+            return false;
+        }
+        auto get3 = [&](const char* name, Vec3* v) {
+            KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(name) );
+            if (k) {
+                *v = Vec3( k->getValue(0), k->getValue(1), k->getValue(2) );
+            }
+        };
+        get3("translate", &x->translate);
+        get3("rotate", &x->rotate);
+        get3("scaling", &x->scale);
+        get3("pivot", &x->pivot);
+        KnobDoublePtr u = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName("uniform_scale") );
+        x->uniform = u ? u->getValue() : 1.;
+
+        return true;
+    };
+    _gl->onManipSet = [this](int what, const Vec3& v, double uniform) {
+        NodePtr n = gizmoNode();
+        if (!n) {
+            return;
+        }
+        const char* name = (what == 1) ? "translate" : (what == 2) ? "rotate" : (what == 3) ? "scaling" : "uniform_scale";
+        KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(name) );
+        if (!k) {
+            return;
+        }
+        // user edit: keys the value when the parameter is animated (auto key)
+        const double vals[3] = { v.x, v.y, v.z };
+        const int dims = (what == 4) ? 1 : 3;
+        k->beginChanges();
+        for (int d = 0; d < dims; ++d) {
+            KeyFrame kf;
+            k->setValue( (what == 4) ? uniform : vals[d], ViewSpec::all(), d, eValueChangedReasonUserEdited, &kf );
+        }
+        k->endChanges();
+    };
     _gl->onLeaveCamera = [this]() {
         _view->blockSignals(true);
         _view->setCurrentIndex(0);
@@ -828,6 +1300,41 @@ Solv3DView::refresh()
         sel.insert(kv.second.node);
     }
     _gl->setScenes(main, templ, sel);
+
+    // manipulator on the last selected node that has a transform (its own prim in the scene)
+    _gizmoNode.clear();
+    bool gizmo = false;
+    for (NodesGuiList::const_reverse_iterator it = selection.rbegin(); it != selection.rend() && !gizmo; ++it) {
+        NodePtr node = (*it) ? (*it)->getNode() : NodePtr();
+        EffectInstancePtr e = node ? node->getEffectInstance() : EffectInstancePtr();
+        if ( !e || !Solv3DNode::as3D(e) || !node->getKnobByName("translate") ) {
+            continue;
+        }
+        const std::string name = node->getFullyQualifiedName();
+        const std::string leaf = makeValidName( node->getScriptName_mt_safe() );
+        const Scene* scenes[2] = { &main, &templ };
+        for (int si = 0; si < 2 && !gizmo; ++si) {
+            for (const auto& kv : scenes[si]->prims()) {
+                if ( (kv.second.node != name) || (leafName(kv.first) != leaf) ) {
+                    continue;
+                }
+                const std::string parent = parentPath(kv.first);
+                const Mat4 pw = parent.empty() ? Mat4() : scenes[si]->worldMatrix(parent);
+                Vec3 pivot;
+                KnobDoublePtr pk = std::dynamic_pointer_cast<KnobDouble>( node->getKnobByName("pivot") );
+                if (pk) {
+                    pivot = Vec3( pk->getValue(0), pk->getValue(1), pk->getValue(2) );
+                }
+                _gl->setGizmo( true, pw, scenes[si]->worldMatrix(kv.first), pivot );
+                _gizmoNode = name;
+                gizmo = true;
+                break;
+            }
+        }
+    }
+    if (!gizmo) {
+        _gl->setGizmo( false, Mat4(), Mat4(), Vec3() );
+    }
     // camera list
     std::vector<std::string> cams = main.pathsOfType(PrimType::Camera);
     std::vector<std::string> tc = templ.pathsOfType(PrimType::Camera);
@@ -907,6 +1414,28 @@ void
 Solv3DView::onLockToggled(bool on)
 {
     _gl->setLocked(on);
+}
+
+void
+Solv3DView::onManipButton()
+{
+    QToolButton* b = qobject_cast<QToolButton*>( sender() );
+    const int m = b ? b->property("solvManip").toInt() : 1;
+    for (int i = 0; i < 4; ++i) {
+        _manipBtn[i]->setChecked(i == m);
+    }
+    _gl->setManipMode(m);
+    _gl->setFocus();
+}
+
+NodePtr
+Solv3DView::gizmoNode() const
+{
+    if ( _gizmoNode.empty() || !_gui || !_gui->getApp() ) {
+        return NodePtr();
+    }
+
+    return _gui->getApp()->getNodeByFullySpecifiedName(_gizmoNode);
 }
 
 void

@@ -58,6 +58,19 @@ public:
     void frameAll();
     void setTime(double t) { _time = t; }
 
+    // manipulator (W move, E rotate, R scale, Q none) on the selected node
+    struct Xform
+    {
+        Solv3D::Vec3 translate, rotate, scale = Solv3D::Vec3(1, 1, 1), pivot;
+        double uniform = 1.;
+    };
+    void setGizmo(bool on, const Solv3D::Mat4& parentWorld, const Solv3D::Mat4& world, const Solv3D::Vec3& pivot);
+    void setManipMode(int m) { _manipMode = m; update(); }
+    int manipMode() const { return _manipMode; }
+    std::function<bool(Xform* out)> onManipBegin;                      // current knob values
+    std::function<void(int what, const Solv3D::Vec3& v, double uniform)> onManipSet; // 1 translate 2 rotate 3 scale 4 uniform
+    std::function<void(int mode)> onManipModeChanged;
+
     std::function<void(const std::string& node, bool add)> onPick;     // click on geometry
     std::function<void(int preset)> onPresetChanged;                     // keys changed the view
     std::function<void()> onLookThroughSelected;                         // H
@@ -79,6 +92,15 @@ private:
     unsigned int textureFor(const std::shared_ptr<void>& handle); // GL texture id, 0 = not ready
     void pollTextures();
     std::string pick(const QPoint& p) const;
+    void drawCameraIcon(bool sel, double ha, double va, double fl);
+    void drawGizmo(const Solv3D::Mat4& P, const Solv3D::Mat4& V);
+    // gizmo handle under the mouse: 1..3 axes, 4 centre, 0 none
+    int gizmoHandle(const QPoint& p) const;
+    bool screenPoint(const Solv3D::Vec3& w, double* x, double* y) const; // widget pixels, y down
+    void mouseRay(const QPoint& p, Solv3D::Vec3* o, Solv3D::Vec3* d) const;
+    Solv3D::Vec3 gizmoAxis(int a) const;
+    double gizmoSize() const;
+    Solv3D::Vec3 viewForward() const;
 
     Solv3D::Scene _scene, _templ;
     std::set<std::string> _selected;
@@ -88,12 +110,22 @@ private:
     bool _grid = true;
     int _preset = 0;
     double _time = 0.;
-    // orbit camera
-    double _yaw = 30., _pitch = -20., _dist = 8.;
+    // orbit camera (Maya default persp view: 1 unit = 1 cm)
+    double _yaw = 45., _pitch = -27.9, _dist = 45.;
     Solv3D::Vec3 _target;
     int _dragMode = 0; // 1 tumble, 2 track, 3 dolly
     QPoint _last, _pressPos;
     bool _moved = false;
+
+    // manipulator
+    int _manipMode = 1;
+    bool _gizmoOn = false;
+    Solv3D::Mat4 _gParent, _gWorld;
+    Solv3D::Vec3 _gPivot, _gOrigin;
+    int _gHot = 0, _gDrag = 0;
+    Xform _gStart;
+    Solv3D::Vec3 _gAxisStart;   // axis-parameter / plane point at press
+    double _gT0 = 0., _gAng0 = 0.;
 
     // texture previews (key: the image node)
     struct Tex
@@ -128,10 +160,13 @@ public Q_SLOTS:
     void onGridToggled(bool);
     void onLockToggled(bool);
     void onFrameClicked();
+    void onManipButton();
 
 private:
     void lookThroughSelected();
     void pickNode(const std::string& name, bool add);
+    NodePtr gizmoNode() const;
+    std::string _gizmoNode;
 
     ViewerTab* _viewer;
     Gui* _gui;
@@ -140,6 +175,7 @@ private:
     QComboBox* _display;
     QToolButton* _lock;
     QToolButton* _gridBtn;
+    QToolButton* _manipBtn[4];
     QTimer* _timer;
     std::vector<std::string> _cams;
 };

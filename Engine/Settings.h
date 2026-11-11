@@ -257,6 +257,7 @@ public:
     void getCheckerboardColor1(double* r, double* g, double* b, double* a) const;
     void getCheckerboardColor2(double* r, double* g, double* b, double* a) const;
     bool isAutoWipeEnabled() const;
+    bool solvfx3DInvertDolly() const; // SOLVFX 3D viewer: invert Alt+right drag zoom
     bool isAutoProxyEnabled() const;
     unsigned int getAutoProxyMipmapLevel() const;
     int getMaxOpenedNodesViewerContext() const;
@@ -541,6 +542,7 @@ private:
     KnobColorPtr _checkerboardColor1;
     KnobColorPtr _checkerboardColor2;
     KnobBoolPtr _autoWipe;
+    KnobBoolPtr _solvfx3DInvertDolly;
     KnobBoolPtr _autoProxyWhenScrubbingTimeline;
     KnobChoicePtr _autoProxyLevel;
     KnobIntPtr _maximumNodeViewerUIOpened;

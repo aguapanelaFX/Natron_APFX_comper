@@ -223,7 +223,32 @@ struct Tri
     bool hasUV;
     bool textured = true; // render mode solid: no texture / projections
     double lodArea = 0.; // uv area / screen area (texture minification), 0 = unknown
+    unsigned char edges = 0; // face edges among the triangle edges: bit0 = 0-1, bit1 = 1-2, bit2 = 2-0
+    int lineMode = 0;        // 0 none, 1 wireframe only, 2 lines over the surface
 };
+
+// distance (pixels) from (px, py) to the nearest face edge of the triangle, large if none
+double
+edgeDistance(const Tri& t, double px, double py)
+{
+    double best = 1e30;
+    for (int e = 0; e < 3; ++e) {
+        if ( !( t.edges & (1 << e) ) ) {
+            continue;
+        }
+        const int a = e, b = (e + 1) % 3;
+        const double ex = t.sx[b] - t.sx[a], ey = t.sy[b] - t.sy[a];
+        const double l2 = ex * ex + ey * ey;
+        double u = l2 > 1e-12 ? ( (px - t.sx[a]) * ex + (py - t.sy[a]) * ey ) / l2 : 0.;
+        u = std::max( 0., std::min(1., u) );
+        const double dx = t.sx[a] + u * ex - px, dy = t.sy[a] + u * ey - py;
+        best = std::min( best, std::sqrt(dx * dx + dy * dy) );
+    }
+
+    return best;
+}
+
+static const double kLineHalfWidth = 0.6; // pixels
 
 struct ClipVert
 {
@@ -405,6 +430,17 @@ scanlineRender(const Scene& scene,
         m.triangulate(&t3, &fv);
         const bool hasN = m.normals.size() == m.faceVertexIndices.size();
         const bool hasUV = m.st.size() == m.faceVertexIndices.size();
+        std::vector<int> faceEnd( m.faceVertexIndices.size(), 0 );
+        {
+            size_t base = 0;
+            for (int n : m.faceVertexCounts) {
+                for (int k = 0; k < n; ++k) {
+                    faceEnd[base + k] = (int)(base + n);
+                }
+                base += n;
+            }
+        }
+        const int lineMode = (p.render == 1) ? 1 : ( (p.render == 3) || (p.render == 5) ) ? 2 : 0;
         for (size_t t = 0; t < t3.size(); ++t) {
             ClipVert v[3];
             for (int k = 0; k < 3; ++k) {
@@ -447,6 +483,14 @@ scanlineRender(const Scene& scene,
                 const Vec3 n = normalize( cross(v[1].P - v[0].P, v[2].P - v[0].P) );
                 v[0].N = v[1].N = v[2].N = n;
             }
+            // face edges of this fan triangle (no lines on the diagonals of quads / polygons)
+            unsigned char edges = 2; // 1-2 is always a face edge
+            if (fv[t][1] == fv[t][0] + 1) {
+                edges |= 1;
+            }
+            if ( (fv[t][2] + 1) == faceEnd[fv[t][0]] ) {
+                edges |= 4;
+            }
             // clip against the near plane (w > eps)
             const double eps = 1e-5;
             std::vector<ClipVert> poly(v, v + 3), outp;
@@ -466,7 +510,9 @@ scanlineRender(const Scene& scene,
                 Tri tr;
                 tr.mesh = &m;
                 tr.hasUV = hasUV;
-                tr.textured = p.render != 1;
+                tr.textured = p.render >= 4;
+                tr.lineMode = lineMode;
+                tr.edges = (outp.size() == 3) ? edges : 0;
                 for (int k = 0; k < 3; ++k) {
                     const double iw = 1. / q[k]->cw;
                     // NDC -> format pixels -> output buffer pixels
@@ -587,6 +633,9 @@ scanlineRender(const Scene& scene,
                         const double z = w0 * t.zw[0] + w1 * t.zw[1] + w2 * t.zw[2];
                         if ( (z < -1.) || (z > 1.) ) {
                             continue;
+                        }
+                        if ( (t.lineMode == 1) && (edgeDistance(t, px, py) > kLineHalfWidth) ) {
+                            continue; // wireframe: only the edges exist
                         }
                         const size_t k = (size_t)y * W + x;
                         if ( !s.zBuffer || (z < depth[k]) ) {
@@ -740,6 +789,18 @@ scanlineRender(const Scene& scene,
                         }
                         break;
                     }
+                    }
+                    // wireframe / lines: rgba output only
+                    if ( (t.lineMode != 0) && (s.output == ScanlineOutput::RGBA) ) {
+                        const double pxs = x + ox, pys = y + oy;
+                        if (t.lineMode == 1) {
+                            // wireframe: flat lines in the base colour
+                            const Vec3& bcol = t.mesh->material.baseColor;
+                            c[0] = (float)bcol.x; c[1] = (float)bcol.y; c[2] = (float)bcol.z; c[3] = 1.f;
+                        } else if (edgeDistance(t, pxs, pys) <= kLineHalfWidth) {
+                            c[0] = c[1] = c[2] = 0.02f;
+                            c[3] = 1.f;
+                        }
                     }
                     float* o = &sampleCol[k * 4];
                     for (int ch = 0; ch < 4; ++ch) {

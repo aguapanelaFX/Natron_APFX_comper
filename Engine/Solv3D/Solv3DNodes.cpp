@@ -16,6 +16,8 @@
 #include <mutex>
 #include <sstream>
 
+#include <QApplication>
+
 #include "Global/GLIncludes.h"
 
 #include "Engine/AppInstance.h"
@@ -34,6 +36,8 @@
 #include "Engine/Solv3D/SolvAlembic.h"
 #include "Engine/Solv3D/SolvScanline.h"
 #include "Engine/Solv3D/SolvVanishingCamera.h"
+#include "Engine/Solv3D/SolvCameraPresets.h"
+#include "Engine/Solv3D/SolvLineAlign.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -110,6 +114,23 @@ makeGroup(EffectInstance* fx, const KnobPagePtr& page, const char* name, const c
     page->addKnob(g);
 
     return g;
+}
+
+// film back presets (cascading menu: maker / camera mode)
+static KnobChoicePtr
+makePresetChoice(EffectInstance* fx, const KnobPagePtr& page)
+{
+    std::vector<std::string> names;
+    for (int i = 0; i < kCameraPresetCount; ++i) {
+        names.push_back(kCameraPresets[i].name);
+    }
+    KnobChoicePtr k = makeChoice(fx, page, "film_back_preset", "film back preset", names, 0,
+                                 "Sets the film back (sensor area of the recording mode) of known cameras. Phones: 35 mm-equivalent "
+                                 "film back + the lens' equivalent focal length (video is cropped a little by stabilisation: approximate).");
+    k->setCascading(true);
+    k->setEvaluateOnChange(false);
+
+    return k;
 }
 
 static void
@@ -205,16 +226,16 @@ Solv3DGeoKnobs::create(EffectInstance* fx, const KnobPagePtr& page)
     display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
                          "How it is drawn in the 3D viewer (does not change the render).", false);
     selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
-    const char* rm[3] = { "off", "solid", "textured" };
-    render = makeChoice(fx, page, "render_mode", "render", std::vector<std::string>(rm, rm + 3), 2,
-                        "ScanlineRender: off = not rendered, solid = colour only (no texture / projections), textured = everything.");
+    render = makeChoice(fx, page, "render_mode", "render", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
+                        "How ScanlineRender draws it: off, wireframe (edges in the colour), solid (colour, no texture / projections), "
+                        "solid+lines, textured (everything), textured+lines (dark edges over the surface).");
 }
 
 void
 Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std::string& root) const
 {
     const int d = display.lock() ? display.lock()->getValueAtTime(t) : 4;
-    const int r = render.lock() ? render.lock()->getValueAtTime(t) : 2;
+    const int r = render.lock() ? render.lock()->getValueAtTime(t) : 4;
     const bool sel = selectable.lock() ? selectable.lock()->getValueAtTime(t) : true;
     for (auto& kv : scene->prims()) {
         const std::string& path = kv.first;
@@ -391,7 +412,9 @@ Solv3DPrimitive::initializeKnobs()
         _imageAspect = makeBool(this, page, "image_aspect", "image aspect", true,
                                 "Card height follows the img input proportions (width = size). Off: square.");
     }
-    _size = makeDouble(this, page, "size", "size", 1, 1., 0., 10., "Overall size of the shape.");
+    // Maya scale (1 unit = 1 cm): plane / cube 1, sphere radius 1, cylinder radius 1 height 2
+    const double defSize = ( (_kind == eSphere) || (_kind == eCylinder) ) ? 2. : 1.;
+    _size = makeDouble(this, page, "size", "size", 1, defSize, 0., 10., "Overall size of the shape (width; sphere and cylinder: diameter).");
     if ( (_kind == eCard) || (_kind == eSphere) || (_kind == eCylinder) ) {
         KnobIntPtr r = AppManager::createKnob<KnobInt>( this, std::string("rows/columns") );
         r->setName("rows");
@@ -490,10 +513,12 @@ Solv3DCamera::initializeKnobs()
     const char* pm[2] = { "perspective", "orthographic" };
     _projection = makeChoice(this, proj, "projection", "projection", std::vector<std::string>(pm, pm + 2), 0,
                              "Orthographic: the horizontal aperture is the width of the view in tenths of a scene unit (USD).");
+    _preset = makePresetChoice(this, proj);
     KnobGroupPtr fr = makeGroup(this, proj, "frustum", "Frustum", true);
-    _focal = makeDouble(this, fr, "focal", "focal length", 1, 50., 5., 200., "mm");
-    _hAperture = makeDouble(this, fr, "haperture", "horiz aperture", 1, 24.576, 1., 70., "Film back width (mm). The image width fits it.");
-    _vAperture = makeDouble(this, fr, "vaperture", "vert aperture", 1, 18.672, 1., 70., "Film back height (mm), kept for export: the image height follows the format.");
+    // defaults: 35 mm lens on a full frame film back (Maya default camera)
+    _focal = makeDouble(this, fr, "focal", "focal length", 1, 35., 5., 200., "mm");
+    _hAperture = makeDouble(this, fr, "haperture", "horiz aperture", 1, 36., 1., 70., "Film back width (mm). The image width fits it.");
+    _vAperture = makeDouble(this, fr, "vaperture", "vert aperture", 1, 24., 1., 70., "Film back height (mm), kept for export: the image height follows the format.");
     _near = makeDouble(this, fr, "near", "clipping near", 1, 0.1, 0.001, 10.);
     _far = makeDouble(this, fr, "far", "clipping far", 1, 10000., 10., 100000.);
     KnobGroupPtr win = makeGroup(this, proj, "window", "Window", true);
@@ -530,51 +555,146 @@ Solv3DCamera::buildScene(double t, Scene* scene)
     p.node = nodeName();
 }
 
+bool
+Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
+{
+    if ( (k == _preset.lock().get()) && (reason != eValueChangedReasonTimeChanged) ) {
+        const int i = _preset.lock()->getValue();
+        if ( (i > 0) && (i < kCameraPresetCount) ) {
+            const CameraPreset& p = kCameraPresets[i];
+            _hAperture.lock()->setValue(p.width);
+            _vAperture.lock()->setValue(p.height);
+            if (p.focal > 0.) {
+                _focal.lock()->setValue(p.focal);
+            }
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 // ============================================================================ VanishingCamera
+static const char* kLineTypes[7] = { "parallel X", "parallel Y", "parallel Z", "on X axis", "on Y axis", "on Z axis", "off" };
+
 std::string
 Solv3DVanishingCamera::getPluginDescription() const
 {
-    return "Finds a camera from a still plate. Drag the X (red), Y (green) and Z (blue) line pairs onto edges of the "
-           "plate that are parallel in the real world (the three directions at right angles), then press 'solve': "
-           "the focal length comes from where the lines meet (vanishing points) and the rotation from their "
-           "directions; the camera is placed 'distance' away from the start of the first red line. 'Export' creates a "
-           "Camera node, linked to this result or baked. The image passes through unchanged.";
+    return "Finds a camera from a still plate with lines. Ctrl+drag on the plate (or 'add line') draws a line; set its type: "
+           "parallel to the X, Y or Z axis of the scene, or ON an axis (its arrow points to + and where the on-axis lines cross "
+           "is the origin; a length on one of them sets the scale). Needs lines on two axes: known focal 3 lines, approximate "
+           "focal 3, free focal 4 (two parallel on one axis). Y points up and X to the right automatically; flip Y / flip Z "
+           "switch to the other orientations that fit the same lines. 'create' makes a Camera, linked or baked. "
+           "The plate passes through unchanged.";
 }
 
 void
 Solv3DVanishingCamera::initializeKnobs()
 {
     KnobPagePtr vp = makePage(this, "VanishingCamera");
-    const char* ax[3] = { "X and Z", "X and Y", "X, Y and Z" };
-    _axes = makeChoice(this, vp, "axes", "axes", std::vector<std::string>(ax, ax + 3), 0,
-                       "Which line pairs are used. Two directions: the lens centre is the image centre. Three: the lens centre is solved too.");
-    _axes.lock()->setEvaluateOnChange(false);
-    const char* names[6] = { "lineX1", "lineX2", "lineY1", "lineY2", "lineZ1", "lineZ2" };
-    const char* labels[6] = { "X line 1", "X line 2", "Y line 1", "Y line 2", "Z line 1", "Z line 2" };
-    for (int i = 0; i < 6; ++i) {
-        KnobDoublePtr k = AppManager::createKnob<KnobDouble>( this, std::string(labels[i]), 4 );
-        k->setName(names[i]);
+    _preset = makePresetChoice(this, vp);
+    _filmBack = makeDouble(this, vp, "haperture", "film back width", 1, 36., 1., 70., "Horizontal aperture (mm) of the camera.");
+    _filmBack.lock()->setEvaluateOnChange(false);
+    const char* fm[3] = { "solve", "known", "approximate" };
+    _focalMode = makeChoice(this, vp, "focal_mode", "focal", std::vector<std::string>(fm, fm + 3), 2,
+                            "solve: from the lines (4+ lines). known: locked to 'focal length'. approximate: stays near 'focal length' "
+                            "within 'tolerance' (best with few or imprecise lines).", false);
+    _focalMode.lock()->setEvaluateOnChange(false);
+    _focal = makeDouble(this, vp, "focal_guess", "", 1, 35., 5., 200., "Focal length (mm) for known / approximate.");
+    _focal.lock()->setAddNewLine(false);
+    _focal.lock()->setEvaluateOnChange(false);
+    _tolerance = makeDouble(this, vp, "focal_tolerance", "tolerance", 1, 10., 0.5, 50., "Approximate: how far (mm) the solve may move from the focal length.");
+    _tolerance.lock()->setEvaluateOnChange(false);
+
+    makeDivider(this, vp, "lines_divider");
+    KnobButtonPtr add = AppManager::createKnob<KnobButton>( this, std::string("add line") );
+    add->setName("add_line");
+    add->setHintToolTip( std::string("Adds a line in the middle of the plate (or Ctrl+drag on the plate).") );
+    add->setAddNewLine(false);
+    vp->addKnob(add);
+    _addLine = add;
+    KnobStringPtr hint = AppManager::createKnob<KnobString>( this, std::string("") );
+    hint->setName("lines_hint");
+    hint->setAsLabel();
+    hint->setDefaultValue("Ctrl+drag on the plate draws a line. Red X, green Y, blue Z; arrows on on-axis lines.");
+    hint->setIsPersistent(false);
+    vp->addKnob(hint);
+    for (int i = 0; i < kMaxLines; ++i) {
+        const std::string n = std::to_string(i + 1);
+        KnobDoublePtr k = AppManager::createKnob<KnobDouble>( this, "line " + n + " points", 4 );
+        k->setName("line" + n);
         k->setAnimationEnabled(false);
         k->setEvaluateOnChange(false);
         k->setSecretByDefault(true);
         vp->addKnob(k);
         _lines[i] = k;
         addOverlaySlaveParam(k);
+        KnobBoolPtr on = AppManager::createKnob<KnobBool>( this, "line " + n + " on" );
+        on->setName("line" + n + "_on");
+        on->setEvaluateOnChange(false);
+        on->setSecretByDefault(true);
+        vp->addKnob(on);
+        _lineOn[i] = on;
+        KnobChoicePtr ty = makeChoice(this, vp, ("line" + n + "_type").c_str(), ("line " + n).c_str(),
+                                      std::vector<std::string>(kLineTypes, kLineTypes + 7), i % 3,
+                                      "parallel: the edge is parallel to that axis of the scene. on axis: the edge lies on it (arrow = +).", false);
+        ty->setEvaluateOnChange(false);
+        ty->setSecretByDefault(true);
+        _lineType[i] = ty;
+        addOverlaySlaveParam(ty);
+        KnobButtonPtr sw = AppManager::createKnob<KnobButton>( this, std::string("<->") );
+        sw->setName("line" + n + "_swap");
+        sw->setHintToolTip( std::string("Swap the ends (arrow direction).") );
+        sw->setAddNewLine(false);
+        sw->setSecretByDefault(true);
+        vp->addKnob(sw);
+        _lineSwap[i] = sw;
+        KnobDoublePtr len = AppManager::createKnob<KnobDouble>( this, std::string("length") );
+        len->setName("line" + n + "_length");
+        len->setDefaultValue(0.);
+        len->setDisplayMinimum(0.);
+        len->setDisplayMaximum(1000.);
+        len->setAnimationEnabled(false);
+        len->setEvaluateOnChange(false);
+        len->setHintToolTip( std::string("Real length of this on-axis line in scene units (1 = 1 cm). Sets the scale. 0 = unknown.") );
+        len->setSecretByDefault(true);
+        len->setAddNewLine(false);
+        vp->addKnob(len);
+        _lineLen[i] = len;
+        KnobButtonPtr del = AppManager::createKnob<KnobButton>( this, std::string("x") );
+        del->setName("line" + n + "_delete");
+        del->setHintToolTip( std::string("Delete the line.") );
+        del->setSecretByDefault(true);
+        vp->addKnob(del);
+        _lineDel[i] = del;
     }
-    _hAperture = makeDouble(this, vp, "haperture", "film back width", 1, 24.576, 1., 70., "Horizontal aperture (mm) of the exported camera.");
-    _hAperture.lock()->setEvaluateOnChange(false);
-    _distance = makeDouble(this, vp, "distance", "distance", 1, 5., 0.1, 100., "Distance from the camera to the start of the first red line (sets the scene scale).");
+
+    makeDivider(this, vp, "origin_divider");
+    _useOrigin = makeBool(this, vp, "use_origin", "origin point", false,
+                          "Place the origin on this point of the plate (drag the cross). Off: where the on-axis lines cross, "
+                          "else the start of the first line.", false);
+    _useOrigin.lock()->setEvaluateOnChange(false);
+    addOverlaySlaveParam( _useOrigin.lock() );
+    KnobDoublePtr org = AppManager::createKnob<KnobDouble>( this, std::string(""), 2 );
+    org->setName("origin");
+    org->setAnimationEnabled(false);
+    org->setEvaluateOnChange(false);
+    vp->addKnob(org);
+    _origin = org;
+    addOverlaySlaveParam(org);
+    _distance = makeDouble(this, vp, "distance", "distance", 1, 500., 1., 5000.,
+                           "Distance from the camera to the origin when no line has a length (scene units, 1 = 1 cm).");
     _distance.lock()->setEvaluateOnChange(false);
+    _flipY = makeBool(this, vp, "flip_y", "flip Y", false, "Upside down <-> upright (180 deg around the Z axis).", false);
+    _flipZ = makeBool(this, vp, "flip_z", "flip Z", false, "Facing the scene <-> facing away (180 deg around the Y axis).");
+    _flipY.lock()->setEvaluateOnChange(false);
+    _flipZ.lock()->setEvaluateOnChange(false);
     KnobButtonPtr solve = AppManager::createKnob<KnobButton>( this, std::string("solve") );
     solve->setName("solve");
     solve->setHintToolTip( std::string("Compute focal length, rotation and position from the lines.") );
-    solve->setAddNewLine(false);
     vp->addKnob(solve);
     _solve = solve;
-    KnobButtonPtr reset = AppManager::createKnob<KnobButton>( this, std::string("reset lines") );
-    reset->setName("reset_lines");
-    vp->addKnob(reset);
-    _reset = reset;
     KnobStringPtr st = AppManager::createKnob<KnobString>( this, std::string("status") );
     st->setName("status");
     st->setAsLabel();
@@ -582,8 +702,8 @@ Solv3DVanishingCamera::initializeKnobs()
     _status = st;
 
     KnobGroupPtr res = makeGroup(this, vp, "result", "Result", true);
-    _rFocal = makeDouble(this, res, "focal", "focal length", 1, 50., 5., 200., "mm (solved)");
-    _rVAperture = makeDouble(this, res, "vaperture", "vert aperture", 1, 18.672, 1., 70., "mm (film back width / plate aspect)");
+    _rFocal = makeDouble(this, res, "focal", "focal length", 1, 35., 5., 200., "mm (solved)");
+    _rVAperture = makeDouble(this, res, "vaperture", "vert aperture", 1, 24., 1., 70., "mm (film back width / plate aspect)");
     _rTranslate = makeDouble(this, res, "translate", "translate", 3, 0., -10., 10.);
     _rRotate = makeDouble(this, res, "rotate", "rotate", 3, 0., -180., 180., "Degrees, rotation order XYZ.");
     KnobDoublePtr rk[4] = { _rFocal.lock(), _rVAperture.lock(), _rTranslate.lock(), _rRotate.lock() };
@@ -603,6 +723,32 @@ Solv3DVanishingCamera::initializeKnobs()
     ex->setHintToolTip( std::string("Creates the Camera node next to this one.") );
     vp->addKnob(ex);
     _export = ex;
+}
+
+int
+Solv3DVanishingCamera::activeLineCount() const
+{
+    int n = 0;
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( _lineOn[i].lock()->getValue() ) {
+            ++n;
+        }
+    }
+
+    return n;
+}
+
+void
+Solv3DVanishingCamera::refreshLineRows()
+{
+    for (int i = 0; i < kMaxLines; ++i) {
+        const bool on = _lineOn[i].lock()->getValue();
+        _lineType[i].lock()->setSecret(!on);
+        _lineSwap[i].lock()->setSecret(!on);
+        _lineDel[i].lock()->setSecret(!on);
+        const int ty = _lineType[i].lock()->getValue();
+        _lineLen[i].lock()->setSecret( !on || (ty < 3) || (ty > 5) );
+    }
 }
 
 void
@@ -657,36 +803,49 @@ Solv3DVanishingCamera::getRegionsOfInterest(double, const RenderScale &, const R
 }
 
 void
-Solv3DVanishingCamera::resetLines()
+Solv3DVanishingCamera::addLine(double x1, double y1, double x2, double y2)
 {
-    RectD f;
-    plateFormat(&f);
-    const double w = f.width(), h = f.height(), x0 = f.x1, y0 = f.y1;
-    // starting positions: X lines converge to the right, Z to the left, Y vertical
-    const double L[6][4] = {
-        { 0.25, 0.30, 0.45, 0.33 }, { 0.25, 0.60, 0.45, 0.55 },
-        { 0.70, 0.25, 0.70, 0.70 }, { 0.82, 0.25, 0.82, 0.70 },
-        { 0.75, 0.33, 0.55, 0.30 }, { 0.75, 0.55, 0.55, 0.60 }
-    };
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( _lineOn[i].lock()->getValue() ) {
+            continue;
+        }
         KnobDoublePtr k = _lines[i].lock();
-        k->setValue(x0 + L[i][0] * w, ViewSpec::all(), 0);
-        k->setValue(y0 + L[i][1] * h, ViewSpec::all(), 1);
-        k->setValue(x0 + L[i][2] * w, ViewSpec::all(), 2);
-        k->setValue(y0 + L[i][3] * h, ViewSpec::all(), 3);
+        k->setValue(x1, ViewSpec::all(), 0);
+        k->setValue(y1, ViewSpec::all(), 1);
+        k->setValue(x2, ViewSpec::all(), 2);
+        k->setValue(y2, ViewSpec::all(), 3);
+        // cycle the default type through X, Z, Y so the first lines are usable at once
+        const int order[3] = { 0, 2, 1 };
+        _lineType[i].lock()->setValue( order[activeLineCount() % 3] );
+        _lineLen[i].lock()->setValue(0.);
+        _lineOn[i].lock()->setValue(true);
+        _selLine = i;
+        refreshLineRows();
+
+        return;
     }
+    _status.lock()->setValue("All 16 lines are used: delete one first.");
 }
 
 bool
-Solv3DVanishingCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
+Solv3DVanishingCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
 {
     if ( k == _solve.lock().get() ) {
         solveFromLines();
 
         return true;
     }
-    if ( k == _reset.lock().get() ) {
-        resetLines();
+    if ( (k == _flipY.lock().get()) || (k == _flipZ.lock().get()) ) {
+        if (reason == eValueChangedReasonUserEdited) {
+            solveFromLines();
+        }
+
+        return true;
+    }
+    if ( k == _addLine.lock().get() ) {
+        RectD f;
+        plateFormat(&f);
+        addLine(f.x1 + f.width() * 0.35, f.y1 + f.height() * 0.5, f.x1 + f.width() * 0.65, f.y1 + f.height() * 0.5);
 
         return true;
     }
@@ -694,6 +853,46 @@ Solv3DVanishingCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, 
         exportCamera();
 
         return true;
+    }
+    if ( (k == _preset.lock().get()) && (reason != eValueChangedReasonTimeChanged) ) {
+        const int i = _preset.lock()->getValue();
+        if ( (i > 0) && (i < kCameraPresetCount) ) {
+            _filmBack.lock()->setValue(kCameraPresets[i].width);
+            if (kCameraPresets[i].focal > 0.) {
+                _focal.lock()->setValue(kCameraPresets[i].focal);
+                if (_focalMode.lock()->getValue() == 0) {
+                    _focalMode.lock()->setValue(2); // phone lens known roughly: approximate
+                }
+            }
+        }
+
+        return true;
+    }
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( k == _lineSwap[i].lock().get() ) {
+            KnobDoublePtr l = _lines[i].lock();
+            const double v[4] = { l->getValue(0), l->getValue(1), l->getValue(2), l->getValue(3) };
+            l->setValue(v[2], ViewSpec::all(), 0);
+            l->setValue(v[3], ViewSpec::all(), 1);
+            l->setValue(v[0], ViewSpec::all(), 2);
+            l->setValue(v[1], ViewSpec::all(), 3);
+
+            return true;
+        }
+        if ( k == _lineDel[i].lock().get() ) {
+            _lineOn[i].lock()->setValue(false);
+            if (_selLine == i) {
+                _selLine = -1;
+            }
+            refreshLineRows();
+
+            return true;
+        }
+        if ( (k == _lineType[i].lock().get()) || (k == _lineOn[i].lock().get()) ) {
+            refreshLineRows();
+
+            return true;
+        }
     }
 
     return false;
@@ -704,80 +903,54 @@ Solv3DVanishingCamera::solveFromLines()
 {
     RectD f;
     plateFormat(&f);
-    const int mode = _axes.lock()->getValue();
-    const int axisIdx[3] = { 0, mode == 1 ? 1 : 2, 1 }; // which line pairs: X, then Z (or Y), then Y
-    const int n = (mode == 2) ? 3 : 2;
-    SolvVP::V2 vps[3];
-    SolvVP::Line dirs[3];
-    for (int i = 0; i < n; ++i) {
-        const int a = (i == 2) ? 1 : axisIdx[i];
-        SolvVP::Line l[2];
-        for (int j = 0; j < 2; ++j) {
-            KnobDoublePtr k = _lines[a * 2 + j].lock();
-            l[j].a = SolvVP::V2{ k->getValue(0), k->getValue(1) };
-            l[j].b = SolvVP::V2{ k->getValue(2), k->getValue(3) };
+    SolvAlign::Input in;
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( !_lineOn[i].lock()->getValue() ) {
+            continue;
         }
-        if ( !SolvVP::vanishingPoint(l[0], l[1], &vps[i]) ) {
-            _status.lock()->setValue("The two lines of an axis are parallel in the image: tilt them so they meet.");
-
-            return;
+        const int ty = _lineType[i].lock()->getValue();
+        if (ty == 6) {
+            continue; // off
         }
-        dirs[i] = l[0];
+        KnobDoublePtr k = _lines[i].lock();
+        SolvAlign::Line l;
+        l.x1 = k->getValue(0); l.y1 = k->getValue(1); l.x2 = k->getValue(2); l.y2 = k->getValue(3);
+        l.axis = ty % 3;
+        l.onAxis = ty >= 3;
+        l.length = l.onAxis ? _lineLen[i].lock()->getValue() : 0.;
+        in.lines.push_back(l);
     }
-    const SolvVP::V2 centre{ (f.x1 + f.x2) * 0.5, (f.y1 + f.y2) * 0.5 };
-    SolvVP::Result r = SolvVP::solve(vps, n, centre, dirs);
+    const double fb = std::max(0.01, _filmBack.lock()->getValue() );
+    in.cx = (f.x1 + f.x2) * 0.5;
+    in.cy = (f.y1 + f.y2) * 0.5;
+    in.pxPerMM = f.width() / fb;
+    in.focalMode = _focalMode.lock()->getValue();
+    in.focalMM = _focal.lock()->getValue();
+    in.tolMM = _tolerance.lock()->getValue();
+    in.hasOrigin = _useOrigin.lock()->getValue();
+    in.ox = _origin.lock()->getValue(0);
+    in.oy = _origin.lock()->getValue(1);
+    in.distance = _distance.lock()->getValue();
+    in.flipY = _flipY.lock()->getValue();
+    in.flipZ = _flipZ.lock()->getValue();
+    const SolvAlign::Output r = SolvAlign::solve(in);
     if (!r.ok) {
-        _status.lock()->setValue( std::string("Cannot solve: ") + r.error );
+        _status.lock()->setValue("Cannot solve: " + r.error);
 
         return;
     }
-    // solver frame: x right, y up (image y up), z into the scene -> GL camera frame (looks down -Z)
-    Vec3 cAx[3];
-    for (int i = 0; i < 2; ++i) {
-        cAx[i] = Vec3(r.R[0][i], r.R[1][i], -r.R[2][i]);
-    }
-    // the two solved directions are world X and (Z or Y)
-    Vec3 wx = cAx[0], w2 = cAx[1], wy, wz;
-    if (mode == 1) {
-        wy = w2;
-        wz = normalize( cross(wx, wy) );
-    } else {
-        wz = w2;
-        wy = normalize( cross(wz, wx) );
-    }
-    // camera <- world rotation has the world axes (in camera space) as columns; camera world rotation = transpose
-    Mat4 camFromWorld;
-    const Vec3 cols[3] = { wx, wy, wz };
-    for (int c = 0; c < 3; ++c) {
-        camFromWorld.m[0][c] = cols[c].x;
-        camFromWorld.m[1][c] = cols[c].y;
-        camFromWorld.m[2][c] = cols[c].z;
-    }
-    const Mat4 worldFromCam = camFromWorld.transposed();
-    // position: world origin on the start of the first X line, 'distance' away
-    KnobDoublePtr l0 = _lines[0].lock();
-    const Vec3 d = normalize( Vec3( (l0->getValue(0) - r.principal.x) / r.f, (l0->getValue(1) - r.principal.y) / r.f, -1. ) );
-    const double dist = _distance.lock()->getValue();
-    const Vec3 originCam = d * dist;                       // world origin in camera space
-    const Vec3 camPos = worldFromCam.vector(originCam) * -1.;
-    // euler XYZ (R = Rz * Ry * Rx)
-    const double ry = -std::asin( std::max( -1., std::min(1., worldFromCam.m[2][0]) ) );
-    const double rx = std::atan2(worldFromCam.m[2][1], worldFromCam.m[2][2]);
-    const double rz = std::atan2(worldFromCam.m[1][0], worldFromCam.m[0][0]);
-    const double toDeg = 180. / 3.14159265358979323846;
-    const double ha = _hAperture.lock()->getValue();
-    const double focal = SolvVP::focalMM( r.f, ha, f.width() );
     beginChanges();
     KnobDoublePtr t = _rTranslate.lock(), ro = _rRotate.lock();
-    t->setValue(camPos.x, ViewSpec::all(), 0); t->setValue(camPos.y, ViewSpec::all(), 1); t->setValue(camPos.z, ViewSpec::all(), 2);
-    ro->setValue(rx * toDeg, ViewSpec::all(), 0); ro->setValue(ry * toDeg, ViewSpec::all(), 1); ro->setValue(rz * toDeg, ViewSpec::all(), 2);
-    _rFocal.lock()->setValue(focal);
-    _rVAperture.lock()->setValue( ha * f.height() / std::max(1e-9, f.width()) );
+    t->setValue(r.camPos.x, ViewSpec::all(), 0); t->setValue(r.camPos.y, ViewSpec::all(), 1); t->setValue(r.camPos.z, ViewSpec::all(), 2);
+    ro->setValue(r.rotateXYZ.x, ViewSpec::all(), 0); ro->setValue(r.rotateXYZ.y, ViewSpec::all(), 1); ro->setValue(r.rotateXYZ.z, ViewSpec::all(), 2);
+    _rFocal.lock()->setValue(r.focalMM);
+    _rVAperture.lock()->setValue( fb * f.height() / std::max(1e-9, f.width()) );
     endChanges();
+    const double toDeg = 180. / 3.14159265358979323846;
     std::stringstream ss;
-    ss.precision(3);
-    ss << std::fixed << "solved: focal " << focal << " mm, horizontal field of view "
-       << 2. * std::atan( ha / (2. * focal) ) * toDeg << " deg";
+    ss.precision(2);
+    ss << std::fixed << "solved: focal " << r.focalMM << " mm, field of view " << 2. * std::atan( fb / (2. * r.focalMM) ) * toDeg
+       << " deg, error " << r.rmsPx << " px" << (r.rmsPx > 3. ? " (high: check the lines and their types)" : "");
     _status.lock()->setValue( ss.str() );
 }
 
@@ -813,7 +986,7 @@ Solv3DVanishingCamera::exportCamera()
     struct Pair { const char* camKnob; KnobDoublePtr src; int dims; };
     const Pair pairs[5] = {
         { "translate", _rTranslate.lock(), 3 }, { "rotate", _rRotate.lock(), 3 }, { "focal", _rFocal.lock(), 1 },
-        { "haperture", _hAperture.lock(), 1 }, { "vaperture", _rVAperture.lock(), 1 }
+        { "haperture", _filmBack.lock(), 1 }, { "vaperture", _rVAperture.lock(), 1 }
     };
     for (int i = 0; i < 5; ++i) {
         KnobDoublePtr dst = std::dynamic_pointer_cast<KnobDouble>( cam->getKnobByName(pairs[i].camKnob) );
@@ -830,53 +1003,77 @@ Solv3DVanishingCamera::exportCamera()
     }
 }
 
-static const float kAxisCol[3][3] = { { 0.93f, 0.33f, 0.31f }, { 0.4f, 0.85f, 0.42f }, { 0.36f, 0.55f, 1.f } };
+static const float kAxisCol[4][3] = { { 0.93f, 0.33f, 0.31f }, { 0.4f, 0.85f, 0.42f }, { 0.36f, 0.55f, 1.f }, { 0.6f, 0.6f, 0.6f } };
 
 void
 Solv3DVanishingCamera::drawOverlay(double /*time*/, const RenderScale & /*renderScale*/, ViewIdx /*view*/)
 {
-    // first use: put the lines somewhere sensible
-    KnobDoublePtr l0 = _lines[0].lock();
-    if ( (l0->getValue(0) == 0.) && (l0->getValue(2) == 0.) ) {
-        resetLines();
+    double psx = 1., psy = 1.;
+    OverlaySupport* ov = getCurrentViewportForOverlays();
+    if (ov) {
+        ov->getPixelScale(psx, psy);
     }
     GLProtectAttrib a(GL_ENABLE_BIT | GL_LINE_BIT | GL_COLOR_BUFFER_BIT | GL_POINT_BIT | GL_CURRENT_BIT);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_LINE_SMOOTH);
     glEnable(GL_POINT_SMOOTH);
-    const int mode = _axes.lock()->getValue();
-    for (int i = 0; i < 6; ++i) {
-        const int axis = i / 2;
-        const bool used = (axis == 0) || (mode == 2) || (axis == 1 && mode == 1) || (axis == 2 && mode == 0);
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( !_lineOn[i].lock()->getValue() ) {
+            continue;
+        }
+        const int ty = _lineType[i].lock()->getValue();
+        const int axis = (ty == 6) ? 3 : ty % 3;
+        const bool onAxis = (ty >= 3) && (ty <= 5);
         KnobDoublePtr k = _lines[i].lock();
         const float* c = kAxisCol[axis];
-        const float alpha = used ? 1.f : 0.3f;
         const double x1 = k->getValue(0), y1 = k->getValue(1), x2 = k->getValue(2), y2 = k->getValue(3);
-        // extended guide (dim) so the convergence is visible
         const double dx = x2 - x1, dy = y2 - y1;
+        // extended guide (dim) so the convergence is visible
         glLineWidth(1.f);
-        glColor4f(c[0], c[1], c[2], 0.35f * alpha);
+        glColor4f(c[0], c[1], c[2], 0.3f);
         glBegin(GL_LINES);
         glVertex2d(x1 - dx * 3., y1 - dy * 3.);
         glVertex2d(x2 + dx * 3., y2 + dy * 3.);
         glEnd();
-        glLineWidth(2.f);
-        glColor4f(c[0], c[1], c[2], alpha);
+        const bool sel = (i == _selLine);
+        glLineWidth(onAxis ? 3.f : 2.f);
+        glColor4f(c[0], c[1], c[2], 1.f);
         glBegin(GL_LINES);
         glVertex2d(x1, y1);
         glVertex2d(x2, y2);
         glEnd();
-        glPointSize(8.f);
+        if (onAxis) {
+            // arrow head at the + end
+            const double len = std::sqrt(dx * dx + dy * dy);
+            if (len > 1e-9) {
+                const double ux = dx / len, uy = dy / len, s = 12. * psx;
+                glBegin(GL_TRIANGLES);
+                glVertex2d(x2, y2);
+                glVertex2d(x2 - ux * s - uy * s * 0.5, y2 - uy * s + ux * s * 0.5);
+                glVertex2d(x2 - ux * s + uy * s * 0.5, y2 - uy * s - ux * s * 0.5);
+                glEnd();
+            }
+        }
+        glPointSize(sel ? 9.f : 7.f);
         glBegin(GL_POINTS);
         for (int e = 0; e < 2; ++e) {
-            if (_drag == i * 2 + e) {
+            if ( (_drag == i * 2 + e) || sel ) {
                 glColor4f(1.f, 0.82f, 0.34f, 1.f);
             } else {
-                glColor4f(c[0], c[1], c[2], alpha);
+                glColor4f(c[0], c[1], c[2], 1.f);
             }
             glVertex2d(e ? x2 : x1, e ? y2 : y1);
         }
+        glEnd();
+    }
+    if ( _useOrigin.lock()->getValue() ) {
+        const double ox = _origin.lock()->getValue(0), oy = _origin.lock()->getValue(1), s = 10. * psx;
+        glLineWidth(2.f);
+        glColor4f(1.f, 0.82f, 0.34f, 1.f);
+        glBegin(GL_LINES);
+        glVertex2d(ox - s, oy); glVertex2d(ox + s, oy);
+        glVertex2d(ox, oy - s); glVertex2d(ox, oy + s);
         glEnd();
     }
 }
@@ -890,9 +1087,18 @@ Solv3DVanishingCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, co
         ov->getPixelScale(psx, psy);
     }
     const double tol = 10. * psx;
-    double best = tol;
     _drag = -1;
-    for (int i = 0; i < 6; ++i) {
+    if ( _useOrigin.lock()->getValue() &&
+         (std::hypot( pos.x() - _origin.lock()->getValue(0), pos.y() - _origin.lock()->getValue(1) ) < tol) ) {
+        _drag = -2;
+
+        return true;
+    }
+    double best = tol;
+    for (int i = 0; i < kMaxLines; ++i) {
+        if ( !_lineOn[i].lock()->getValue() ) {
+            continue;
+        }
         KnobDoublePtr k = _lines[i].lock();
         for (int e = 0; e < 2; ++e) {
             const double d = std::hypot( pos.x() - k->getValue(e * 2), pos.y() - k->getValue(e * 2 + 1) );
@@ -902,13 +1108,33 @@ Solv3DVanishingCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, co
             }
         }
     }
+    if (_drag >= 0) {
+        _selLine = _drag / 2;
 
-    return _drag >= 0;
+        return true;
+    }
+    // Ctrl + drag on empty plate: new line
+    if ( QApplication::keyboardModifiers() & Qt::ControlModifier ) {
+        addLine( pos.x(), pos.y(), pos.x(), pos.y() );
+        if (_selLine >= 0) {
+            _drag = _selLine * 2 + 1;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 bool
 Solv3DVanishingCamera::onOverlayPenMotion(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF & pos, double, double)
 {
+    if (_drag == -2) {
+        _origin.lock()->setValue(pos.x(), ViewSpec::all(), 0);
+        _origin.lock()->setValue(pos.y(), ViewSpec::all(), 1);
+
+        return true;
+    }
     if (_drag < 0) {
         return false;
     }
@@ -923,7 +1149,7 @@ Solv3DVanishingCamera::onOverlayPenMotion(double, const RenderScale &, ViewIdx, 
 bool
 Solv3DVanishingCamera::onOverlayPenUp(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF &, double, double)
 {
-    if (_drag < 0) {
+    if (_drag == -1) {
         return false;
     }
     _drag = -1;
@@ -975,6 +1201,51 @@ Solv3DSceneNode::buildScene(double t, Scene* scene)
             scene->merge(s);
         }
     }
+}
+
+void
+Solv3DSceneNode::refreshInputVisibility()
+{
+    NodePtr node = getNode();
+    if (!node) {
+        return;
+    }
+    // connected inputs + the first free one stay visible
+    int lastConnected = -1;
+    for (int i = 0; i < getNInputs(); ++i) {
+        if ( node->getInput(i) ) {
+            lastConnected = i;
+        }
+    }
+    bool freeShown = false;
+    for (int i = 0; i < getNInputs(); ++i) {
+        bool vis = true;
+        if ( !node->getInput(i) ) {
+            vis = !freeShown && (i > lastConnected || i == 0);
+            if (vis) {
+                freeShown = true;
+            }
+            // gaps below the last connected input stay hidden
+        }
+        try {
+            if (node->isInputVisible(i) != vis) {
+                node->setInputVisible(i, vis);
+            }
+        } catch (const std::exception&) {
+        }
+    }
+}
+
+void
+Solv3DSceneNode::onInputChanged(int /*inputNo*/)
+{
+    refreshInputVisibility();
+}
+
+void
+Solv3DSceneNode::onEffectCreated(bool /*mayCreateFileDialog*/, const CreateNodeArgs& /*args*/)
+{
+    refreshInputVisibility();
 }
 
 // ============================================================================ ReadGeo
@@ -1152,7 +1423,7 @@ Solv3DWriteGeo::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double t
         ok = writeAlembic(file, s, &err);
     } else {
         std::ofstream o( file.c_str() );
-        o << s.toUsda();
+        o << s.toUsda(0.01); // Maya scale: 1 unit = 1 cm
         ok = (bool)o;
         if (!ok) {
             err = "cannot write " + file;

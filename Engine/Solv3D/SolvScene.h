@@ -128,7 +128,7 @@ struct Prim
     Mat4 local;
     bool visible = true;
     int display = 4;          // viewer: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
-    int render = 2;           // ScanlineRender: 0 off, 1 solid (no texture), 2 textured
+    int render = 4;           // ScanlineRender: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
     bool selectable = true;   // can be picked in the 3D viewer
     std::string node;         // script name of the node that made the prim (viewer selection / highlight)
     std::shared_ptr<Mesh> mesh;

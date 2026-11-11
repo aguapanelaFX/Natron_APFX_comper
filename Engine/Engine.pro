@@ -251,6 +251,8 @@ HEADERS += \
     SolvRotoTrack.h \
     Solv3D/SolvScene.h \
     Solv3D/SolvScanline.h \
+    Solv3D/SolvCameraPresets.h \
+    Solv3D/SolvLineAlign.h \
     Solv3D/SolvAlembic.h \
     Solv3D/SolvVanishingCamera.h \
     Solv3D/Solv3DNodes.h \

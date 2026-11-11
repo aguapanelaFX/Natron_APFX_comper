@@ -1124,6 +1124,12 @@ Settings::initializeKnobsViewers()
                                   "when the mouse is hovering the viewer and changing an input of a viewer." ) );
     _viewersTab->addKnob(_autoWipe);
 
+    _solvfx3DInvertDolly = AppManager::createKnob<KnobBool>( this, tr("3D viewer: invert dolly") );
+    _solvfx3DInvertDolly->setName("solvfx3DInvertDolly");
+    _solvfx3DInvertDolly->setHintToolTip( tr("3D viewer, Alt + right drag: by default dragging right or up moves closer. "
+                                             "Checked: dragging right or up moves away.") );
+    _viewersTab->addKnob(_solvfx3DInvertDolly);
+
 
     _autoProxyWhenScrubbingTimeline = AppManager::createKnob<KnobBool>( this, tr("Automatically enable proxy when scrubbing the timeline") );
     _autoProxyWhenScrubbingTimeline->setName("autoProxyScrubbing");
@@ -1594,6 +1600,7 @@ Settings::setDefaultValues()
     _checkerboardColor2->setDefaultValue(0., 2);
     _checkerboardColor2->setDefaultValue(0., 3);
     _autoWipe->setDefaultValue(true);
+    _solvfx3DInvertDolly->setDefaultValue(false);
     _autoProxyWhenScrubbingTimeline->setDefaultValue(true);
     _autoProxyLevel->setDefaultValue(1);
     _maximumNodeViewerUIOpened->setDefaultValue(2);
@@ -2525,6 +2532,12 @@ bool
 Settings::isAutoWipeEnabled() const
 {
     return _autoWipe->getValue();
+}
+
+bool
+Settings::solvfx3DInvertDolly() const
+{
+    return _solvfx3DInvertDolly->getValue();
 }
 
 bool
