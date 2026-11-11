@@ -72,7 +72,7 @@ jobs:
       - name: Restore OpenUSD build
         if: steps.check.outputs.build == 'true'
         id: usd-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: C:\usd
           key: openusd-msvc-${{ env.USD_TAG }}-core-monolithic-v1
@@ -84,6 +84,13 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           git clone --depth 1 --branch %USD_TAG% https://github.com/PixarAnimationStudios/OpenUSD.git C:\usdsrc || exit /b 1
           python C:\usdsrc\build_scripts\build_usd.py --no-python --no-imaging --no-examples --no-tutorials --no-tools --no-docs --no-tests --no-materialx --build-monolithic -j %NUMBER_OF_PROCESSORS% C:\usd || exit /b 1
+
+      - name: Save OpenUSD build (cache, so a later failure does not rebuild USD)
+        if: steps.check.outputs.build == 'true' && steps.usd-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\usd
+          key: openusd-msvc-${{ env.USD_TAG }}-core-monolithic-v1
 
       - name: Build bridge
         if: steps.check.outputs.build == 'true'
@@ -104,8 +111,9 @@ jobs:
           # USD plugins (file formats, schemas): next to usd_ms.dll, in "usd"
           Copy-Item -Recurse C:\usd\lib\usd "$d\usd"
           # MSVC runtime
-          $vc = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-          Get-ChildItem "$($vc.FullName)\x64\Microsoft.VC143.CRT\*.dll" | Copy-Item -Destination $d
+          $crt = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Recurse -Directory -Filter "Microsoft.VC14*.CRT" |
+                 Where-Object { $_.Parent.Name -eq "x64" -and $_.FullName -notmatch "onecore|debug" } | Select-Object -First 1
+          if ($crt) { Get-ChildItem "$($crt.FullName)\*.dll" | Copy-Item -Destination $d } else { Write-Host "MSVC runtime folder not found" }
           Get-ChildItem $d
           Compress-Archive -Path $d -DestinationPath "$env:RUNNER_TEMP\$env:BRIDGE_ZIP" -Force
 
