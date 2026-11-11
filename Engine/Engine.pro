@@ -85,6 +85,10 @@ SOURCES += \
     Dot.cpp \
     SolvfxViewerOcio.cpp \
     SolvRotoTrack.cpp \
+    Solv3D/SolvScene.cpp \
+    Solv3D/SolvScanline.cpp \
+    Solv3D/SolvAlembic.cpp \
+    Solv3D/Solv3DNodes.cpp \
     SolvfxPathVars.cpp \
     EffectInstance.cpp \
     EffectInstancePrivate.cpp \
@@ -245,6 +249,11 @@ HEADERS += \
     SolvfxStamp.h \
     SolvfxViewerOcio.h \
     SolvRotoTrack.h \
+    Solv3D/SolvScene.h \
+    Solv3D/SolvScanline.h \
+    Solv3D/SolvAlembic.h \
+    Solv3D/SolvVanishingCamera.h \
+    Solv3D/Solv3DNodes.h \
     SolvfxPathVars.h \
     SolvfxPerf.h \
     EffectInstance.h \

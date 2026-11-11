@@ -131,6 +131,7 @@ Gui::setupUi()
     _imp->createDopeSheetGui();
     _imp->createScriptEditorGui();
     _imp->createProgressPanelGui();
+    _imp->createSolv3DViewerGui(); // SOLVFX 3D
     ///Must be absolutely called once _nodeGraphArea has been initialized.
     _imp->createPropertiesBinGui();
 

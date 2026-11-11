@@ -245,6 +245,7 @@ public:
     bool _aboutToClose;
     bool leftToolBarDisplayedOnHoverOnly;
     ScriptEditor* _scriptEditor;
+    Solv3DViewerPanel* _solv3DViewer = nullptr; // SOLVFX 3D
     TabWidget* _lastEnteredTabWidget;
 
     ///Menu entries added by the user
@@ -284,6 +285,7 @@ public:
     void createScriptEditorGui();
 
     void createProgressPanelGui();
+    void createSolv3DViewerGui(); // SOLVFX 3D
 
     ///If there's only 1 non-floating pane in the main window, return it, otherwise returns NULL
     TabWidget* getOnly1NonFloatingPane(int & count) const;

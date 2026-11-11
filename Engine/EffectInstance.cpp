@@ -711,6 +711,15 @@ EffectInstance::getThreadLocalOpenGLContext() const
     return tls->frameArgs.back()->openGLContext.lock();
 }
 
+// SOLVFX 3D: per-thread input override for getImage (texture fetch from any upstream node)
+static thread_local EffectInstancePtr t_solvfxInputOverride;
+
+void
+EffectInstance::solvfxSetInputOverride(const EffectInstancePtr& effect)
+{
+    t_solvfxInputOverride = effect;
+}
+
 ImagePtr
 EffectInstance::getImage(int inputNb,
                          const double time,
@@ -751,6 +760,10 @@ EffectInstance::getImage(int inputNb,
 
     NodePtr node = getNode();
 
+    // SOLVFX 3D: ScanlineRender fetches textures from nodes upstream of its 3D inputs
+    if (t_solvfxInputOverride) {
+        inputEffect = t_solvfxInputOverride;
+    }
     if (!inputEffect) {
         inputEffect = getInput(inputNb);
     }

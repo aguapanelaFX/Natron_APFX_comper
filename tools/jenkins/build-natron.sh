@@ -232,6 +232,12 @@ else
     QMAKE_FLAGS_EXTRA+=(CONFIG+=enable-breakpad)
 fi
 
+# SOLVFX 3D: Alembic support when the MSYS2 package is installed
+if [ -f "${SDK_HOME}/lib/libAlembic.dll.a" ] || [ -f "${SDK_HOME}/lib/libAlembic.a" ]; then
+    echo "*** SOLVFX: building with Alembic"
+    QMAKE_FLAGS_EXTRA+=(CONFIG+=alembic)
+fi
+
 if [ "$COMPILER" = "clang" ]; then
     QMAKE_FLAGS_EXTRA+=(CONFIG-=openmp)
 else

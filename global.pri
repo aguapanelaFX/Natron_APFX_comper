@@ -389,6 +389,12 @@ win32-g++ {
     # SOLVFX: OpenColorIO for the color panel hex field
     ocio:      PKGCONFIG += OpenColorIO
     ocio:      DEFINES += SOLVFX_HAS_OCIO
+    # SOLVFX 3D: Alembic (MSYS2 package, enabled by build-natron.sh when installed)
+    alembic {
+        LIBS += -lAlembic
+        PKGCONFIG += Imath
+        DEFINES += SOLVFX_HAS_ALEMBIC
+    }
     equals(QT_MAJOR_VERSION, 5) {
       shiboken:  INCLUDEPATH += $$system(pkg-config --variable=includedir shiboken2)
       PYSIDE_INCLUDEDIR = $$system(pkg-config --variable=includedir pyside2)

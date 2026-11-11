@@ -116,6 +116,7 @@
 #include "Engine/DiskCacheNode.h"
 #include "Engine/Dot.h"
 #include "Engine/SolvfxStamp.h"
+#include "Engine/Solv3D/Solv3DNodes.h"
 #include "Engine/ExistenceCheckThread.h"
 #include "Engine/FileSystemModel.h"
 #include "Engine/GroupInput.h"
@@ -1574,6 +1575,19 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<RotoPaint>(QString::fromUtf8(NATRON_IMAGES_PATH "GroupingIcons/Set2/paint_grouping_2.png"), false, false);
     registerBuiltInPlugin<RotoNode>(QString::fromUtf8(NATRON_IMAGES_PATH "rotoNodeIcon.png"), false, false);
     registerBuiltInPlugin<SolvRotoNode>(QString::fromUtf8(NATRON_IMAGES_PATH "rotoNodeIcon.png"), false, false); // SOLVFX SolvRoto
+    // SOLVFX 3D
+    registerBuiltInPlugin<Solv3DCard>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DCube>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DSphere>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DCylinder>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DCamera>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DTransformGeo>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DSceneNode>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DReadGeo>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DWriteGeo>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DProject3D>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DMaterial>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DScanline>(QString(), false, false);
     registerBuiltInPlugin<RotoSmear>(QString::fromUtf8(""), false, true);
     registerBuiltInPlugin<PrecompNode>(QString::fromUtf8(NATRON_IMAGES_PATH "precompNodeIcon.png"), false, false);
     registerBuiltInPlugin<TrackerNode>(QString::fromUtf8(NATRON_IMAGES_PATH "trackerNodeIcon.png"), false, false);

@@ -200,6 +200,7 @@ SOURCES += \
     RotoPanel.cpp \
     ScaleSliderQWidget.cpp \
     ScriptEditor.cpp \
+    Solv3D/Solv3DViewer.cpp \
     ScriptTextEdit.cpp \
     SequenceFileDialog.cpp \
     SerializableWindow.cpp \
@@ -345,6 +346,7 @@ HEADERS += \
     RotoPanel.h \
     ScaleSliderQWidget.h \
     ScriptEditor.h \
+    Solv3D/Solv3DViewer.h \
     ScriptTextEdit.h \
     SequenceFileDialog.h \
     SerializableWindow.h \

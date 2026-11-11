@@ -948,6 +948,10 @@ public:
     typedef std::map<OSGLContextWPtr, OpenGLContextEffectDataPtr, std::owner_less<OSGLContextWPtr>> OpenGLContextEffectsMap;
 
 
+    // SOLVFX 3D: while set (this thread only), getImage() fetches from 'effect' instead of the input.
+    // Used by ScanlineRender to fetch the textures of the 3D nodes (pass an empty pointer to clear).
+    static void solvfxSetInputOverride(const EffectInstancePtr& effect);
+
     struct RenderActionArgs
     {
         double time;
