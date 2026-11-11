@@ -157,11 +157,26 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
     QColor tint;
     tint.setRgbF(tr, tg, tb);
     const bool hasTint = (tint != raised);
-    QColor onColor = hasTint ? tint : QColor(0xe0, 0x74, 0x3a);
+    // SOLVFX (Nuke-style panel, Nov 11): muted checked colours, not "radioactive"
+    if (hasTint) {
+        const int h = tint.hsvHue();
+        if ( (tint.hsvSaturation() < 40) || (h < 0) ) {
+            tint = QColor(0x8c, 0x8c, 0x8c);            // alpha / neutral
+        } else if ( (h < 30) || (h >= 330) ) {
+            tint = QColor(0x86, 0x40, 0x3d);            // red
+        } else if ( (h >= 75) && (h < 170) ) {
+            tint = QColor(0x3f, 0x6e, 0x48);            // green
+        } else if ( (h >= 190) && (h < 270) ) {
+            tint = QColor(0x48, 0x59, 0x8b);            // blue
+        } else {
+            tint = QColor::fromHsv( h, std::min(tint.hsvSaturation(), 110), std::min(tint.value(), 140) );
+        }
+    }
+    QColor onColor = hasTint ? tint : QColor(0x91, 0x5f, 0x3f);
 
     // field states: animated / keyframe / expression / linked
     QColor fill(0x26, 0x26, 0x26);
-    QColor border = hasTint ? tint : QColor(0x14, 0x14, 0x14);
+    QColor border( 0x14, 0x14, 0x14 );
     if (animation == 1) {
         fill = QColor(0x6b, 0x4a, 0x2a);
         onColor = QColor(0xe0, 0x74, 0x3a);
@@ -184,13 +199,13 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
     }
 
     QPen pen(border);
-    pen.setWidthF( hasTint ? 1.5 : 1. );
+    pen.setWidthF(1.);
     p.setPen(pen);
     p.setBrush(fill);
     p.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 1., 1.);
 
     if (checked) {
-        QPen check( QColor(0x14, 0x14, 0x14) );
+        QPen check( QColor(0xbd, 0xbd, 0xbd) );
         check.setWidthF( std::max(1.5, side / 8.) );
         check.setCapStyle(Qt::RoundCap);
         check.setJoinStyle(Qt::RoundJoin);

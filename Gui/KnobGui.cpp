@@ -26,6 +26,10 @@
 
 #include "KnobGui.h"
 
+#include <QPainterPath>
+
+#include <QPainter>
+
 #include <cassert>
 #include <stdexcept>
 
@@ -268,15 +272,31 @@ KnobGui::createGUI(QWidget* fieldContainer,
         const bool animatableType = ( dynamic_cast<KnobDoubleBase*>( knob.get() ) || dynamic_cast<KnobIntBase*>( knob.get() ) ) &&
                                     !dynamic_cast<KnobChoice*>( knob.get() );
         if ( animatableType && knob->isAnimationEnabled() && !_imp->isInViewerUIKnob && knob->getHolder() && knob->getHolder()->getApp() ) {
-            QPixmap pix( QString::fromUtf8(":/Resources/Images/solvfx_anim.png") );
+            // SOLVFX (Nov 11): painted curve icon, Nuke-style
+            QPixmap pix( TO_DPIX(28), TO_DPIY(28) );
+            pix.fill(Qt::transparent);
+            {
+                QPainter cp(&pix);
+                cp.setRenderHint(QPainter::Antialiasing, true);
+                cp.setPen( QPen(QColor(0xd0, 0xd0, 0xd0), pix.width() / 11.) );
+                QPainterPath cpath;
+                const double W = pix.width();
+                cpath.moveTo(W * 0.15, W * 0.82);
+                cpath.cubicTo(W * 0.55, W * 0.82, W * 0.45, W * 0.18, W * 0.85, W * 0.18);
+                cp.drawPath(cpath);
+            }
             _imp->solvfxAnimButton = new Button( QIcon(pix), QString(), fieldContainer );
             _imp->solvfxAnimButton->setObjectName( QString::fromUtf8("SolvfxAnimButton") );
-            _imp->solvfxAnimButton->setFixedSize( TO_DPIX(22), TO_DPIY(20) );
+            _imp->solvfxAnimButton->setFixedSize( TO_DPIX(18), TO_DPIY(18) );
             _imp->solvfxAnimButton->setIconSize( QSize( TO_DPIX(14), TO_DPIY(14) ) );
             _imp->solvfxAnimButton->setFocusPolicy(Qt::NoFocus);
             _imp->solvfxAnimButton->setToolTip( tr("Animation menu: keys, curve editor, interpolation, expression, link, copy/paste.") );
             QObject::connect( _imp->solvfxAnimButton, SIGNAL(clicked()), this, SLOT(onSolvfxAnimButtonClicked()) );
-            layout->addSpacing( TO_DPIX(3) );
+            // SOLVFX: alone on its row -> the curve button sits at the right edge (Nuke column)
+            if ( isOnNewLine && knobsOnSameLine.empty() ) {
+                layout->addStretch(1);
+            }
+            layout->addSpacing( TO_DPIX(2) );
             layout->addWidget(_imp->solvfxAnimButton);
         }
     }

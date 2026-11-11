@@ -36,6 +36,7 @@
 #include <QFontMetrics>
 #include <QDebug>
 #include <QPainter>
+#include <QLinearGradient>
 #include <QPainterPath>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 // clang-format off
@@ -317,9 +318,17 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         pen.setColor( hasFocus() ? QColor(0xe0, 0x74, 0x3a) : QColor(0x14, 0x14, 0x14) );
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setPen(pen);
-        p.setBrush(fillColor);
         QRectF roundedRect = bRect.adjusted(0.5, 0.5, -0.5, -0.5);
-        const double roundPixels = TO_DPIX(1); // SOLVFX: corners option C (fields 1 px)
+        if ( (_animation == 0) && !_clicked && !_dirty ) {
+            // SOLVFX (Nuke-style panel, Nov 11): menus are raised gray buttons, not dark fields
+            QLinearGradient grad( roundedRect.topLeft(), roundedRect.bottomLeft() );
+            grad.setColorAt( 0., QColor(0x4a, 0x4a, 0x4a) );
+            grad.setColorAt( 1., QColor(0x3c, 0x3c, 0x3c) );
+            p.setBrush(grad);
+        } else {
+            p.setBrush(fillColor);
+        }
+        const double roundPixels = TO_DPIX(2); // SOLVFX: 2 px corners
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
         p.drawPath(path);

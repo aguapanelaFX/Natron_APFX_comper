@@ -165,8 +165,9 @@ TrackerTableItemDelegate::paint(QPainter * painter,
 
     bool fillRect = true;
     QBrush brush;
-    if (option.state & QStyle::State_Selected) {
-        brush = option.palette.highlight();
+    const bool solvfxSelected = (option.state & QStyle::State_Selected);
+    if (solvfxSelected) {
+        brush = QColor(0x4a, 0x43, 0x34); // SOLVFX (Nov 11): muted row highlight, text stays light
     } else if (level == eAnimationLevelInterpolatedValue) {
         double r, g, b;
         appPTR->getCurrentSettings()->getInterpolatedColor(&r, &g, &b);
@@ -187,8 +188,10 @@ TrackerTableItemDelegate::paint(QPainter * painter,
     }
 
     QPen pen = painter->pen();
-    if ( !item->flags().testFlag(Qt::ItemIsEditable) ) {
-        pen.setColor(Qt::black);
+    if (solvfxSelected) {
+        pen.setColor( QColor(0xe6, 0xe6, 0xe6) );
+    } else if ( !item->flags().testFlag(Qt::ItemIsEditable) ) {
+        pen.setColor( QColor(0xa0, 0xa0, 0xa0) ); // SOLVFX: read-only cells readable on the dark table
     } else {
         double r, g, b;
         appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);

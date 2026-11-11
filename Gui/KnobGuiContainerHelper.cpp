@@ -789,6 +789,27 @@ KnobGuiContainerHelper::findKnobGuiOrCreate(const KnobIPtr & knob,
             }
             if (!pixmapSet) {
                 QString labelStr( QString::fromUtf8( descriptionLabel.c_str() ) );
+                // SOLVFX (Nuke-style panel): lowercase parameter labels ("Black Point" -> "black point").
+                // Only plain Capitalized words change; acronyms (RGB, OCIO) and single letters (X, A) stay.
+                {
+                    QStringList words = labelStr.split( QLatin1Char(' ') );
+                    for (int w = 0; w < words.size(); ++w) {
+                        const QString& word = words[w];
+                        if ( (word.size() >= 2) && word[0].isUpper() && word[1].isLower() ) {
+                            bool rest = true;
+                            for (int c = 1; c < word.size(); ++c) {
+                                if ( word[c].isUpper() ) {
+                                    rest = false;
+                                    break;
+                                }
+                            }
+                            if (rest) {
+                                words[w] = word.toLower();
+                            }
+                        }
+                    }
+                    labelStr = words.join( QLatin1Char(' ') );
+                }
                 /*labelStr += ":";*/
                 if ( ret->isLabelBold() ) {
                     label->setBold(true);

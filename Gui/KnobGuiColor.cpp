@@ -25,6 +25,10 @@
 
 #include "KnobGuiColor.h"
 
+#include <QConicalGradient>
+
+#include <QPainter>
+
 #include <cfloat>
 #include <algorithm> // min, max
 #include <stdexcept>
@@ -288,7 +292,7 @@ KnobGuiColor::getDecimals(std::vector<int>* decimals) const
 void
 KnobGuiColor::addExtraWidgets(QHBoxLayout* containerLayout)
 {
-    containerLayout->addSpacing( TO_DPIX(10) );
+    containerLayout->addSpacing( TO_DPIX(6) );
     KnobColorPtr knob = _knob.lock();
     _colorLabel = new ColorPickerLabel( _useSimplifiedUI ? NULL : this, containerLayout->widget() );
     if (!_useSimplifiedUI) {
@@ -306,24 +310,34 @@ KnobGuiColor::addExtraWidgets(QHBoxLayout* containerLayout)
     _colorLabel->setFixedSize(medSize);
     QObject::connect( _colorLabel, SIGNAL(pickingEnabled(bool)), this, SLOT(onPickingEnabled(bool)) );
     containerLayout->addWidget(_colorLabel);
+    containerLayout->addSpacing( TO_DPIX(2) );
 
     if (_useSimplifiedUI) {
         containerLayout->addSpacing( TO_DPIX(5) );
     }
 
     // add color selector popup
+    // SOLVFX (Nov 11): painted colour wheel, saturation -30% (not "radioactive")
     QPixmap colorSelectorPix;
-    appPTR->getIcon(NATRON_PIXMAP_COLORWHEEL, NATRON_MEDIUM_BUTTON_ICON_SIZE, &colorSelectorPix);
-    // SOLVFX: neutral, dimmed wheel icon (no rainbow)
     {
-        QImage img = colorSelectorPix.toImage().convertToFormat(QImage::Format_ARGB32);
-        for (int y = 0; y < img.height(); ++y) {
-            QRgb* line = (QRgb*)img.scanLine(y);
-            for (int x = 0; x < img.width(); ++x) {
-                const int g = (int)(qGray(line[x]) * 0.75);
-                line[x] = qRgba( g, g, g, (int)(qAlpha(line[x]) * 0.85) );
-            }
+        const int sz = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE) * 2;
+        QImage img(sz, sz, QImage::Format_ARGB32_Premultiplied);
+        img.fill(Qt::transparent);
+        QPainter wp(&img);
+        wp.setRenderHint(QPainter::Antialiasing, true);
+        QConicalGradient cg(sz / 2., sz / 2., 0.);
+        for (int i = 0; i <= 6; ++i) {
+            cg.setColorAt( i / 6., QColor::fromHsvF( (i % 6) / 6., 0.81 * 0.7, 0.9 ) );
         }
+        const double m = sz * 0.12;
+        wp.setPen( QPen(QColor(0x1a, 0x1a, 0x1a), sz / 18.) );
+        wp.setBrush(cg);
+        wp.drawEllipse( QRectF(m, m, sz - 2 * m, sz - 2 * m) );
+        wp.setPen(Qt::NoPen);
+        wp.setBrush( QColor(255, 255, 255, 120) );
+        const double c = sz * 0.2;
+        wp.drawEllipse( QRectF(sz / 2. - c, sz / 2. - c, 2 * c, 2 * c) );
+        wp.end();
         colorSelectorPix = QPixmap::fromImage(img);
     }
 

@@ -410,10 +410,15 @@ DockablePanel::DockablePanel(Gui* gui,
                 QFont nf = _imp->_nameLineEdit->font();
                 nf.setPointSizeF( std::max( 6., nf.pointSizeF() * 0.85 ) );
                 _imp->_nameLineEdit->setFont(nf);
-                _imp->_nameLineEdit->setFixedHeight( TO_DPIY(17) );
+                _imp->_nameLineEdit->setFixedHeight( TO_DPIY(18) );
             }
             QObject::connect( _imp->_nameLineEdit, SIGNAL(returnPressed()), this, SLOT(onLineEditNameEditingFinished()) );
-            _imp->_headerLayout->addWidget(_imp->_nameLineEdit);
+            // SOLVFX (Nuke-style header, Nov 11): the name field fills the header
+            _imp->_nameLineEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            _imp->_nameLineEdit->setMaximumWidth(QWIDGETSIZE_MAX);
+            _imp->_headerLayout->addSpacing( TO_DPIX(4) );
+            _imp->_headerLayout->addWidget(_imp->_nameLineEdit, 1);
+            _imp->_headerLayout->addSpacing( TO_DPIX(4) );
         } else {
             _imp->_nameLabel = new Label(initialName, _imp->_headerWidget);
             if (isEffect) {
@@ -422,7 +427,9 @@ DockablePanel::DockablePanel(Gui* gui,
             _imp->_headerLayout->addWidget(_imp->_nameLabel);
         }
 
-        _imp->_headerLayout->addStretch();
+        if (headerMode == eHeaderModeReadOnlyName) {
+            _imp->_headerLayout->addStretch();
+        }
 
         if ( (headerMode != eHeaderModeReadOnlyName) && _imp->_colorButton ) {
             _imp->_headerLayout->addWidget(_imp->_colorButton);
@@ -434,7 +441,7 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_headerLayout->addWidget(_imp->_redoButton);
         _imp->_headerLayout->addWidget(_imp->_restoreDefaultsButton);
 
-        _imp->_headerLayout->addStretch();
+        _imp->_headerLayout->addSpacing( TO_DPIX(6) );
         if (_imp->_enterInGroupButton) {
             _imp->_headerLayout->addWidget(_imp->_enterInGroupButton);
         }

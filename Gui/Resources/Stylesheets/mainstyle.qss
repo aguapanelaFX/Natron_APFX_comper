@@ -1170,3 +1170,82 @@ QMessageBox QPushButton {
     min-height: 18px;
     padding: 2px 12px;
 }
+
+/* ===================================================================
+   SOLVFX Nov 11: Nuke-style properties panel (approved Qt preview)
+   =================================================================== */
+QPushButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4c4c4c, stop:1 #3a3a3a);
+    border: 1px solid #161616;
+    border-radius: 3px;
+}
+QPushButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #565656, stop:1 #444444);
+}
+QPushButton:pressed { background-color: #2c2c2c; }
+QPushButton:checked { background-color: #915f3f; color: #e6e6e6; }
+QPushButton:checked:hover { background-color: #a06a47; }
+QDialogButtonBox QPushButton:default { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4c4c4c, stop:1 #3a3a3a); color: #dcdcdc; }
+
+QLineEdit,
+SpinBox[animation="0"], Natron--SpinBox[animation="0"],
+LineEdit[animation="0"], Natron--LineEdit[animation="0"] {
+    background-color: #2a2a2a;
+    border-radius: 2px;
+}
+QLineEdit { border: 1px solid #161616; padding: 0px 3px; }
+
+QTabBar::tab {
+    background: #2a2a2a;
+    color: #8c8c8c;
+    border: 1px solid #161616;
+    border-bottom-style: none;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    padding: 1px 10px;
+    margin-right: 1px;
+    font-size: 11px;
+}
+QTabBar::tab:selected { background: #323232; color: #c8c8c8; }
+QTabWidget::pane { border: 1px solid #161616; }
+
+/* header: square raised icon buttons, full-width name field */
+QFrame#SolvfxPanelHeader { background-color: #3a3a3a; border-bottom: 1px solid #161616; }
+QFrame#SolvfxPanelHeader QPushButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #505050, stop:1 #3a3a3a);
+    border: 1px solid #161616;
+    border-radius: 2px;
+}
+QFrame#SolvfxPanelHeader QPushButton:hover { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5a5a5a, stop:1 #444444); }
+QFrame#SolvfxPanelHeader QPushButton:checked { background-color: #5a5a5a; }
+
+/* row buttons: [swatch][wheel][4][curve], 18 px squares */
+QPushButton#SolvfxAnimButton, QPushButton#SolvfxDimButton, QToolButton#ColorSelectorButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #505050, stop:1 #3a3a3a);
+    border: 1px solid #161616;
+    border-radius: 2px;
+    padding: 0px;
+}
+QPushButton#SolvfxDimButton { color: #d0d0d0; font-size: 11px; font-weight: normal; }
+QPushButton#SolvfxDimButton:checked { background-color: #915f3f; color: #e6e6e6; }
+
+/* tables / lists (tracker): selection = muted background, text stays white */
+QTreeView, QListView, QTableView {
+    background-color: #262626;
+    gridline-color: #1a1a1a;
+    selection-background-color: #4a4334;
+    selection-color: #e6e6e6;
+}
+QTreeWidget::item:selected, QTreeWidget::branch:selected,
+QTableView::item:selected, QTreeView::item:selected {
+    background: #4a4334;
+    color: #e6e6e6;
+}
+QHeaderView::section {
+    background-color: #3a3a3a;
+    color: #c8c8c8;
+    border: none;
+    border-right: 1px solid #161616;
+    border-bottom: 1px solid #161616;
+    padding: 1px 4px;
+}

@@ -467,7 +467,7 @@ KnobGuiValue::createWidget(QHBoxLayout* layout)
         _imp->dimensionSwitchButton = new Button(QIcon(), QString::number(nDims), _imp->container);
         _imp->dimensionSwitchButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Switch between a single value for all dimensions and multiple values."), NATRON_NAMESPACE::WhiteSpaceNormal) );
         _imp->dimensionSwitchButton->setObjectName( QString::fromUtf8("SolvfxDimButton") );
-        _imp->dimensionSwitchButton->setFixedSize( TO_DPIX(14), TO_DPIY(14) );
+        _imp->dimensionSwitchButton->setFixedSize( TO_DPIX(18), TO_DPIY(18) ); // SOLVFX: same square as the other row buttons
         _imp->dimensionSwitchButton->setIconSize(medIconSize);
         _imp->dimensionSwitchButton->setFocusPolicy(Qt::NoFocus);
         _imp->dimensionSwitchButton->setCheckable(true);
@@ -506,6 +506,12 @@ KnobGuiValue::createWidget(QHBoxLayout* layout)
     }
 
     addExtraWidgets(containerLayout);
+    // SOLVFX (Nuke row): [field][slider] ... [swatch][wheel][4][curve] -> the "4" goes after the colour buttons
+    if (_imp->dimensionSwitchButton) {
+        containerLayout->removeWidget(_imp->dimensionSwitchButton);
+        containerLayout->addSpacing( TO_DPIX(2) );
+        containerLayout->addWidget(_imp->dimensionSwitchButton);
+    }
 } // createWidget
 
 void

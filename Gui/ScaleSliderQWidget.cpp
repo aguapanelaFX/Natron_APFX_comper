@@ -670,7 +670,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
 
     SettingsPtr settings = appPTR->getCurrentSettings();
     if (!_imp->useSliderColor) {
-        _imp->sliderColor = QColor(0x9a, 0x9a, 0x9a); // SOLVFX gray handle
+        _imp->sliderColor = QColor(0xa8, 0x90, 0x70); // SOLVFX muted tan handle (Nov 11)
     } else {
         _imp->sliderColor = _imp->customSliderColor;
     }
