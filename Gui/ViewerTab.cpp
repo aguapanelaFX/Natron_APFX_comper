@@ -38,6 +38,7 @@
 #include <QVBoxLayout>
 #include <QCheckBox>
 #include <QPalette>
+#include <QPainter>
 
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h"
@@ -608,7 +609,28 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     {
         QString satTt = NATRON_NAMESPACE::convertFromPlainText(tr("Viewer saturation: 0 is black and white, 1 is unchanged, 2 is double. "
                                                                    "Only affects the viewer display, never the render."), NATRON_NAMESPACE::WhiteSpaceNormal);
-        _imp->toggleSaturationButton = new Button(QString::fromUtf8("S"), _imp->secondSettingsRow);
+        // SOLVFX: "S" drawn as an icon (a text button gets clipped by the style padding)
+        QIcon satIc;
+        {
+            const int px = TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE) * 2;
+            for (int on = 0; on < 2; ++on) {
+                QPixmap pm(px, px);
+                pm.fill(Qt::transparent);
+                QPainter p(&pm);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                p.setRenderHint(QPainter::TextAntialiasing, true);
+                QFont f = p.font();
+                f.setBold(true);
+                f.setPixelSize( (int)(px * 0.62) );
+                p.setFont(f);
+                p.setPen( on ? QColor(0xe0, 0x74, 0x3a) : QColor(0xc8, 0xc8, 0xc8) );
+                p.drawText(QRect(0, 0, px, px), Qt::AlignCenter, QString::fromUtf8("S"));
+                p.end();
+                satIc.addPixmap(pm, QIcon::Normal, on ? QIcon::On : QIcon::Off);
+            }
+        }
+        _imp->toggleSaturationButton = new Button(satIc, QString(), _imp->secondSettingsRow);
+        _imp->toggleSaturationButton->setIconSize(buttonIconSize);
         _imp->toggleSaturationButton->setCheckable(true);
         _imp->toggleSaturationButton->setChecked(false);
         _imp->toggleSaturationButton->setDown(false);
