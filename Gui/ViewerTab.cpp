@@ -414,7 +414,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->secondRowLayout = new QHBoxLayout(_imp->secondSettingsRow);
     _imp->secondSettingsRow->setLayout(_imp->secondRowLayout);
     _imp->secondRowLayout->setSpacing(0);
-    _imp->secondRowLayout->setContentsMargins(0, 0, 0, 0);
+    _imp->secondRowLayout->setContentsMargins( 0, TO_DPIY(4), 0, TO_DPIY(1) ); // SOLVFX: air between the colorspace row and the exposure / gamma / saturation row
     _imp->mainLayout->addWidget(_imp->secondSettingsRow);
 
     QPixmap gainEnabled, gainDisabled;

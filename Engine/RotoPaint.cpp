@@ -183,7 +183,9 @@ RotoPaint::solvfxDragFeather(double time,
         }
         dx = dx / len * amount;
         dy = dy / len * amount;
-        pushUndoCommand( new MoveFeatherBarUndoCommand(_imp->ui, dx, dy, *it, time) );
+        MoveFeatherBarUndoCommand* cmd = new MoveFeatherBarUndoCommand(_imp->ui, dx, dy, *it, time);
+        cmd->solvfxKeepSelection = true; // SOLVFX: act on ALL selected points (redo used to select only this one)
+        pushUndoCommand(cmd);
     }
     redrawOverlayInteract();
 }

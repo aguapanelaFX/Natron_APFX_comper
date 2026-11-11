@@ -1006,7 +1006,9 @@ MoveFeatherBarUndoCommand::undo()
     _newPoint.second->clone(*_oldPoint.second);
     _newPoint.first->getBezier()->incrementNodesAge();
     roto->evaluate(true);
-    roto->setSelection(_curve, _newPoint);
+    if (!solvfxKeepSelection) {
+        roto->setSelection(_curve, _newPoint);
+    }
 }
 
 void
@@ -1103,7 +1105,9 @@ MoveFeatherBarUndoCommand::redo()
         roto->evaluate(true);
     }
 
-    roto->setSelection(_curve, _newPoint);
+    if (!solvfxKeepSelection) {
+        roto->setSelection(_curve, _newPoint);
+    }
 
     _firstRedoCalled = true;
 } // redo

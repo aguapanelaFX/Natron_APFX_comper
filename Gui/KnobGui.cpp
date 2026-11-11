@@ -262,6 +262,8 @@ KnobGui::createGUI(QWidget* fieldContainer,
             }
             layout->addSpacing( TO_DPIX(2) );
             layout->addWidget(label);
+            // SOLVFX: never clip checkbox text ("rev", "bla") when the panel is narrow
+            label->setMinimumWidth( label->sizeHint().width() );
         }
         onHasModificationsChanged();
         updateToolTip();
@@ -293,7 +295,14 @@ KnobGui::createGUI(QWidget* fieldContainer,
             _imp->solvfxAnimButton->setToolTip( tr("Animation menu: keys, curve editor, interpolation, expression, link, copy/paste.") );
             QObject::connect( _imp->solvfxAnimButton, SIGNAL(clicked()), this, SLOT(onSolvfxAnimButtonClicked()) );
             // SOLVFX: alone on its row -> the curve button sits at the right edge (Nuke column)
-            if ( isOnNewLine && knobsOnSameLine.empty() ) {
+            bool solvfxRowStretches = false; // the slider row already takes the extra width
+            for (int si = 0; si < layout->count(); ++si) {
+                if (layout->stretch(si) > 0) {
+                    solvfxRowStretches = true;
+                    break;
+                }
+            }
+            if ( isOnNewLine && knobsOnSameLine.empty() && !solvfxRowStretches ) {
                 layout->addStretch(1);
             }
             layout->addSpacing( TO_DPIX(2) );

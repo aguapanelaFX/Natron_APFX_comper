@@ -1302,6 +1302,7 @@ ViewerTab ViewerToolButton, Natron--ViewerTab Natron--ViewerToolButton {
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 3px;
+    padding: 0px; /* text buttons ("S") are not clipped */
 }
 ViewerTab Button:hover, Natron--ViewerTab Natron--Button:hover,
 ViewerTab ViewerToolButton:hover, Natron--ViewerTab Natron--ViewerToolButton:hover {

@@ -342,6 +342,9 @@ public:
     virtual void redo() OVERRIDE FINAL;
     virtual bool mergeWith(const UndoCommandPtr& other) OVERRIDE FINAL;
 
+    // SOLVFX: E / hold-E feather step on several points must not reduce the selection to one point
+    bool solvfxKeepSelection = false;
+
 private:
 
     RotoPaintInteractWPtr _roto;

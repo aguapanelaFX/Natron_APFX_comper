@@ -298,7 +298,10 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     {
         const std::string& n = knob->getName();
         if ( (n.compare(0, 11, "maskChannel") == 0) || (n.compare(0, 12, "inputChannel") == 0) ) {
-            _comboBox->setFixedWidth( TO_DPIX(150) );
+            // SOLVFX (Nov 11): same minimum width so the rows line up, but they stretch with the panel (Nuke)
+            _comboBox->setMinimumWidth( TO_DPIX(150) );
+            _comboBox->setMaximumWidth(QWIDGETSIZE_MAX);
+            _comboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         }
     }
 
@@ -331,6 +334,9 @@ KnobGuiChoice::createWidget(QHBoxLayout* layout)
     }
 
     layout->addWidget(_comboBox);
+    if ( _comboBox->sizePolicy().horizontalPolicy() == QSizePolicy::Expanding ) {
+        layout->setStretchFactor(_comboBox, 10); // SOLVFX: mask / (un)premult menus stretch with the panel
+    }
 }
 
 bool

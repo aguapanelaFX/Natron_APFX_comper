@@ -506,6 +506,11 @@ KnobGuiValue::createWidget(QHBoxLayout* layout)
     }
 
     addExtraWidgets(containerLayout);
+    // SOLVFX (Nov 11): a row with a slider stretches with the panel (the slider takes the extra width)
+    if ( _imp->slider && sliderVisible && (getKnobsCountOnSameLine() <= 1) ) {
+        _imp->container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        layout->setStretchFactor(_imp->container, 10);
+    }
     // SOLVFX (Nuke row): [field][slider] ... [swatch][wheel][4][curve] -> the "4" goes after the colour buttons
     if (_imp->dimensionSwitchButton) {
         containerLayout->removeWidget(_imp->dimensionSwitchButton);
