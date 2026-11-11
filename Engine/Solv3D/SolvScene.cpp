@@ -359,6 +359,39 @@ Scene::pathsOfType(PrimType t) const
     return r;
 }
 
+std::string
+Scene::firstCamera() const
+{
+    std::vector<std::string> c = pathsOfType(PrimType::Camera);
+
+    return c.empty() ? std::string() : c.front();
+}
+
+bool
+Scene::bounds(Vec3* lo, Vec3* hi) const
+{
+    bool any = false;
+    for (std::map<std::string, Prim>::const_iterator it = _prims.begin(); it != _prims.end(); ++it) {
+        const Prim& p = it->second;
+        if ( (p.type != PrimType::Mesh) || !p.mesh || !p.visible ) {
+            continue;
+        }
+        const Mat4 w = worldMatrix(it->first);
+        for (const Vec3& q : p.mesh->points) {
+            const Vec3 v = w.point(q);
+            if (!any) {
+                *lo = *hi = v;
+                any = true;
+            } else {
+                lo->x = std::min(lo->x, v.x); lo->y = std::min(lo->y, v.y); lo->z = std::min(lo->z, v.z);
+                hi->x = std::max(hi->x, v.x); hi->y = std::max(hi->y, v.y); hi->z = std::max(hi->z, v.z);
+            }
+        }
+    }
+
+    return any;
+}
+
 static const char*
 usdTypeName(PrimType t)
 {

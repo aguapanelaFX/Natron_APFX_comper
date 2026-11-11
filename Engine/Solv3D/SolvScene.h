@@ -56,6 +56,25 @@ struct Mat4
 
 enum class PrimType { Xform, Mesh, Camera, Light };
 
+// surface look used by ScanlineRender (MaterialX-shaped subset: OpenPBR base / specular / metalness)
+struct Material
+{
+    Vec3 baseColor = Vec3(1, 1, 1);  // multiplies the texture (or is the colour without texture)
+    double emission = 1.;            // unlit amount: 1 = texture shown as is (cards), 0 = fully lit
+    double metalness = 0.;
+    double specular = 0.;            // reflection weight (dielectric)
+    double roughness = 0.2;
+    double ior = 1.5;
+};
+
+// image projected through a camera (Project3D): texture coordinates from world positions
+struct Projection
+{
+    Mat4 viewProj;                    // world -> clip space of the projector camera
+    std::shared_ptr<void> texture;    // opaque handle resolved by the renderer
+    bool crop = true;                 // outside the projector frame = transparent
+};
+
 struct Mesh
 {
     std::vector<Vec3> points;
@@ -64,8 +83,9 @@ struct Mesh
     std::vector<Vec3> normals;   // faceVarying (one per face vertex) or empty
     std::vector<Vec2> st;        // faceVarying uvs or empty
     Vec3 displayColor = Vec3(0.18, 0.18, 0.18);
-    int textureInput = -1;       // image input used as texture (ScanlineRender / Project3D), -1 = none
-    std::string material;        // material prim path (later: MaterialX)
+    std::shared_ptr<void> texture; // opaque image handle (resolved by the renderer), null = none
+    Material material;
+    std::vector<Projection> projections;
 
     void computeFlatNormals();
     void triangulate(std::vector<std::array<int, 3> >* tris, std::vector<std::array<int, 3> >* faceVaryingIdx) const;
@@ -88,7 +108,7 @@ struct Light
     std::string kind = "distant"; // distant, point, dome
     Vec3 color = Vec3(1, 1, 1);
     double intensity = 1.;
-    int textureInput = -1;        // dome: environment image input
+    std::shared_ptr<void> texture; // dome: environment image handle
 };
 
 struct Prim
@@ -127,6 +147,10 @@ public:
 
     Mat4 worldMatrix(const std::string& path) const;
     std::vector<std::string> pathsOfType(PrimType t) const;
+    // first visible camera (path) or empty
+    std::string firstCamera() const;
+    // world bounding box of the meshes; false when empty
+    bool bounds(Vec3* lo, Vec3* hi) const;
     bool empty() const { return _prims.empty(); }
 
     // USD text (.usda); frame is written as the time sample when animated == true
