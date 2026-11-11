@@ -17,7 +17,6 @@
 #include <sstream>
 #include <cstring>
 
-#include <QApplication>
 
 #include "Global/GLIncludes.h"
 
@@ -1237,7 +1236,7 @@ Solv3DVanishingCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, co
         return true;
     }
     // draw mode, or Ctrl + drag on empty plate: new line
-    if ( _drawMode.lock()->getValue() || (QApplication::keyboardModifiers() & Qt::ControlModifier) ) {
+    if ( _drawMode.lock()->getValue() || _ctrl ) {
         addLine( pos.x(), pos.y(), pos.x(), pos.y() );
         if (_selLine >= 0) {
             _drag = _selLine * 2 + 1;

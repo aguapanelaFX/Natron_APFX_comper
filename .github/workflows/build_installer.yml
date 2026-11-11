@@ -7,6 +7,14 @@ on:
         description: 'Fast test build: reuse plugins from the last full build, skip Breakpad job, unit tests and docs'
         type: boolean
         default: false
+      rebuild_usd_bridge:
+        description: 'Rebuild the USD bridge (OpenUSD with MSVC) even if the release already has it'
+        type: boolean
+        default: false
+      usd_tag:
+        description: 'OpenUSD version for the bridge (git tag)'
+        type: string
+        default: 'v25.05'
   push:
     paths-ignore:
       - 'tools/MINGW-packages/**'
@@ -28,8 +36,123 @@ env:
   TEST_BUILD: ${{ inputs.test_build && '1' || '0' }}
 
 jobs:
+  # USD bridge: OpenUSD built with Microsoft's compiler + solvusd. Built only when the release
+  # 'windows-usd-bridge' does not have it yet (or on request): the installer just downloads it.
+  usd-bridge:
+    name: USD bridge (MSVC, only when missing)
+    runs-on: windows-2022
+    env:
+      USD_TAG: ${{ inputs.usd_tag || 'v25.05' }}
+      BRIDGE_RELEASE_TAG: 'windows-usd-bridge'
+      BRIDGE_ZIP: 'solvfx_usd_bridge.zip'
+    steps:
+      - name: Is the bridge already published?
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ inputs.rebuild_usd_bridge }}" != "true" ] && gh release view "${BRIDGE_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "${BRIDGE_ZIP}"; then
+            echo "USD bridge already published: nothing to build."
+            echo "build=false" >> $GITHUB_OUTPUT
+          else
+            echo "build=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout branch
+        if: steps.check.outputs.build == 'true'
+        uses: actions/checkout@v4.1.1
+
+      - name: Set up Python
+        if: steps.check.outputs.build == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Restore OpenUSD build
+        if: steps.check.outputs.build == 'true'
+        id: usd-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\usd
+          key: openusd-msvc-${{ env.USD_TAG }}-core-monolithic-v1
+
+      - name: Build OpenUSD (core, monolithic, no imaging / python)
+        if: steps.check.outputs.build == 'true' && steps.usd-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          git clone --depth 1 --branch %USD_TAG% https://github.com/PixarAnimationStudios/OpenUSD.git C:\usdsrc || exit /b 1
+          python C:\usdsrc\build_scripts\build_usd.py --no-python --no-imaging --no-examples --no-tutorials --no-tools --no-docs --no-tests --no-materialx --build-monolithic -j %NUMBER_OF_PROCESSORS% C:\usd || exit /b 1
+
+      - name: Build bridge
+        if: steps.check.outputs.build == 'true'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -S tools\usdbridge -B C:\bb -G "Visual Studio 17 2022" -A x64 -Dpxr_DIR=C:\usd || exit /b 1
+          cmake --build C:\bb --config Release || exit /b 1
+
+      - name: Package
+        if: steps.check.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          $d = "C:\pkg\usdbridge"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item C:\bb\Release\solvusd.dll $d
+          Get-ChildItem C:\usd\lib\*.dll, C:\usd\bin\*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination $d
+          # USD plugins (file formats, schemas): next to usd_ms.dll, in "usd"
+          Copy-Item -Recurse C:\usd\lib\usd "$d\usd"
+          # MSVC runtime
+          $vc = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          Get-ChildItem "$($vc.FullName)\x64\Microsoft.VC143.CRT\*.dll" | Copy-Item -Destination $d
+          Get-ChildItem $d
+          Compress-Archive -Path $d -DestinationPath "$env:RUNNER_TEMP\$env:BRIDGE_ZIP" -Force
+
+      - name: Smoke test (write + read a file)
+        if: steps.check.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          $src = @"
+          #include <cstdio>
+          #include <windows.h>
+          typedef void* (*Open)(const char*, char*, int);
+          typedef int (*Eval)(void*, double);
+          typedef void* (*WB)(const char*, double, double, double, double, char*, int);
+          typedef int (*WE)(void*, char*, int);
+          int main() {
+            HMODULE h = LoadLibraryExA("C:\\pkg\\usdbridge\\solvusd.dll", 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (!h) { printf("load failed %lu\n", GetLastError()); return 1; }
+            char e[512] = {0};
+            WB wb = (WB)GetProcAddress(h, "solvusd_write_begin"); WE we = (WE)GetProcAddress(h, "solvusd_write_end");
+            void* w = wb("C:\\pkg\\t.usdc", 1, 1, 24, 0.01, e, 512); if (!w) { printf("write: %s\n", e); return 2; }
+            if (!we(w, e, 512)) { printf("end: %s\n", e); return 3; }
+            Open op = (Open)GetProcAddress(h, "solvusd_open"); void* s = op("C:\\pkg\\t.usdc", e, 512);
+            if (!s) { printf("open: %s\n", e); return 4; }
+            printf("USD bridge OK\n"); return 0; }
+          "@
+          Set-Content -Path C:\pkg\smoke.cpp -Value $src
+          cmd /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /EHsc C:\pkg\smoke.cpp /Fe:C:\pkg\smoke.exe && C:\pkg\smoke.exe"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Publish to the release
+        if: steps.check.outputs.build == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${BRIDGE_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            gh release create "${BRIDGE_RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" --prerelease \
+              --title "SOLVFX USD bridge (Windows, MSVC)" \
+              --notes "OpenUSD ${USD_TAG} (core, monolithic) + solvusd bridge, added to every installer build (bin/usdbridge). Built by the 'Build USD Bridge' workflow. Do not delete."
+          fi
+          gh release upload "${BRIDGE_RELEASE_TAG}" "${RUNNER_TEMP}/${BRIDGE_ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
+
   win-installer:
     name: Windows Installer
+    needs: usd-bridge
+    if: ${{ !cancelled() }}
     runs-on: windows-2022
     defaults:
       run:
@@ -141,14 +264,14 @@ jobs:
           echo "TEST_FAILURES_NAME=${TEST_FAILURES_NAME}" >> $GITHUB_OUTPUT
           echo "TEST_FAILURES_DIR=$(cygpath -m ${TEST_FAILURES_DIR})" >> $GITHUB_OUTPUT
 
-      - name: Add the USD bridge (prebuilt with MSVC by the 'Build USD Bridge' workflow)
+      - name: Add the USD bridge (prebuilt with MSVC by the usd-bridge job)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ZIP="${RUNNER_TEMP}/solvfx_usd_bridge.zip"
           if ! gh release download windows-usd-bridge --repo "${GITHUB_REPOSITORY}" --pattern solvfx_usd_bridge.zip --dir "${RUNNER_TEMP}" --clobber; then
-            echo "SOLVFX: no USD bridge release yet: building without USD (run 'Build USD Bridge' once)."
+            echo "SOLVFX: no USD bridge release yet: building without USD."
             exit 0
           fi
           NAME="${{ steps.build.outputs.INSTALLER_NAME }}"

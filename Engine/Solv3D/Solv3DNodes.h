@@ -222,7 +222,7 @@ class Solv3DVanishingCamera
     : public Solv3DNode
 {
 public:
-    explicit Solv3DVanishingCamera(NodePtr n) : Solv3DNode(n), _drag(-1), _selLine(-1) {}
+    explicit Solv3DVanishingCamera(NodePtr n) : Solv3DNode(n), _drag(-1), _selLine(-1), _ctrl(false) {}
 
     static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DVanishingCamera(n); }
 
@@ -274,6 +274,7 @@ private:
     KnobButtonWPtr _export;
     int _drag;                  // line * 2 + end, -2 = origin, -3 = drawing a new line
     int _selLine;
+    bool _ctrl;
 };
 
 class Solv3DTransformGeo
