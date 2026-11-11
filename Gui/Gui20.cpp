@@ -25,6 +25,10 @@
 
 #include "Gui.h"
 
+#include <QEvent>
+
+#include <QMenu>
+
 #include <cassert>
 #include <sstream> // stringstream
 #include <algorithm> // min, max
@@ -272,6 +276,15 @@ Gui::loadStyleSheet()
         qApp->setPalette( p );
     }
 
+    // SOLVFX (Nov 11): menus get real rounded corners (translucent, frameless popups)
+    {
+        static bool solvfxMenuPolisherInstalled = false;
+        if (!solvfxMenuPolisherInstalled) {
+            solvfxMenuPolisherInstalled = true;
+            qApp->installEventFilter( new SolvfxMenuPolisher(qApp) );
+        }
+    }
+
     QFile qss;
     std::string userQss = settings->getUserStyleSheetFilePath();
     if ( !userQss.empty() ) {
@@ -308,6 +321,28 @@ Gui::loadStyleSheet()
         Dialogs::errorDialog( tr("Stylesheet").toStdString(), tr("Failure to load stylesheet file ").toStdString() + qss.fileName().toStdString() );
     }
 } // Gui::loadStyleSheet
+
+// SOLVFX: rounded popup menus. A QMenu needs a translucent frameless window so the
+// 8 px stylesheet corners are not drawn on a square background.
+SolvfxMenuPolisher::SolvfxMenuPolisher(QObject* parent)
+    : QObject(parent)
+{
+}
+
+bool
+SolvfxMenuPolisher::eventFilter(QObject* o,
+                                QEvent* e)
+{
+    if ( e && (e->type() == QEvent::Polish) ) {
+        QMenu* m = qobject_cast<QMenu*>(o);
+        if ( m && !m->testAttribute(Qt::WA_TranslucentBackground) ) {
+            m->setAttribute(Qt::WA_TranslucentBackground, true);
+            m->setWindowFlags( m->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint );
+        }
+    }
+
+    return false;
+}
 
 void
 Gui::maximize(TabWidget* what)

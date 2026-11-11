@@ -3653,9 +3653,10 @@ Settings::getCurveEditorBGColor(double* r,
                                 double* g,
                                 double* b) const
 {
-    *r = _curveEditorBGColor->getValue(0);
-    *g = _curveEditorBGColor->getValue(1);
-    *b = _curveEditorBGColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 43/255.;
+    *g = 43/255.;
+    *b = 43/255.;
 }
 
 void
@@ -3663,9 +3664,10 @@ Settings::getCurveEditorGridColor(double* r,
                                   double* g,
                                   double* b) const
 {
-    *r = _gridColor->getValue(0);
-    *g = _gridColor->getValue(1);
-    *b = _gridColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 53/255.;
+    *g = 53/255.;
+    *b = 53/255.;
 }
 
 void
@@ -3673,9 +3675,10 @@ Settings::getCurveEditorScaleColor(double* r,
                                    double* g,
                                    double* b) const
 {
-    *r = _curveEditorScaleColor->getValue(0);
-    *g = _curveEditorScaleColor->getValue(1);
-    *b = _curveEditorScaleColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 122/255.;
+    *g = 122/255.;
+    *b = 122/255.;
 }
 
 void
@@ -3683,9 +3686,10 @@ Settings::getDopeSheetEditorBackgroundColor(double *r,
                                             double *g,
                                             double *b) const
 {
-    *r = _dopeSheetEditorBackgroundColor->getValue(0);
-    *g = _dopeSheetEditorBackgroundColor->getValue(1);
-    *b = _dopeSheetEditorBackgroundColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 43/255.;
+    *g = 43/255.;
+    *b = 43/255.;
 }
 
 void
@@ -3694,10 +3698,11 @@ Settings::getDopeSheetEditorRootRowBackgroundColor(double *r,
                                                    double *b,
                                                    double *a) const
 {
-    *r = _dopeSheetEditorRootSectionBackgroundColor->getValue(0);
-    *g = _dopeSheetEditorRootSectionBackgroundColor->getValue(1);
-    *b = _dopeSheetEditorRootSectionBackgroundColor->getValue(2);
-    *a = _dopeSheetEditorRootSectionBackgroundColor->getValue(3);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 53/255.;
+    *g = 53/255.;
+    *b = 53/255.;
+    *a = 1.0;
 }
 
 void
@@ -3706,10 +3711,11 @@ Settings::getDopeSheetEditorKnobRowBackgroundColor(double *r,
                                                    double *b,
                                                    double *a) const
 {
-    *r = _dopeSheetEditorKnobSectionBackgroundColor->getValue(0);
-    *g = _dopeSheetEditorKnobSectionBackgroundColor->getValue(1);
-    *b = _dopeSheetEditorKnobSectionBackgroundColor->getValue(2);
-    *a = _dopeSheetEditorKnobSectionBackgroundColor->getValue(3);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 47/255.;
+    *g = 47/255.;
+    *b = 47/255.;
+    *a = 1.0;
 }
 
 void
@@ -3717,9 +3723,10 @@ Settings::getDopeSheetEditorScaleColor(double *r,
                                        double *g,
                                        double *b) const
 {
-    *r = _dopeSheetEditorScaleColor->getValue(0);
-    *g = _dopeSheetEditorScaleColor->getValue(1);
-    *b = _dopeSheetEditorScaleColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 140/255.;
+    *g = 140/255.;
+    *b = 140/255.;
 }
 
 void
@@ -3727,9 +3734,10 @@ Settings::getDopeSheetEditorGridColor(double *r,
                                       double *g,
                                       double *b) const
 {
-    *r = _dopeSheetEditorGridColor->getValue(0);
-    *g = _dopeSheetEditorGridColor->getValue(1);
-    *b = _dopeSheetEditorGridColor->getValue(2);
+    // SOLVFX (Nov 11): locked editor look (approved preview)
+    *r = 58/255.;
+    *g = 58/255.;
+    *b = 58/255.;
 }
 
 void

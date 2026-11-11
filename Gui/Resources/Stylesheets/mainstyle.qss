@@ -1249,3 +1249,67 @@ QHeaderView::section {
     border-bottom: 1px solid #161616;
     padding: 1px 4px;
 }
+
+/* ===================================================================
+   SOLVFX Nov 11 b: main window look (approved Qt preview)
+   =================================================================== */
+/* pane tabs: a bit taller and longer so the faint close X has room */
+QTabBar::tab {
+    padding: 3px 6px 3px 10px;
+    min-height: 16px;
+    font-size: 11px;
+}
+QTabBar::close-button {
+    image: url(:/Resources/Images/closeTab.png);
+    subcontrol-origin: padding;
+    subcontrol-position: right;
+    width: 12px;
+    height: 12px;
+    margin-left: 8px;
+    margin-right: 2px;
+}
+QTabBar::close-button:hover { image: url(:/Resources/Images/closeTab_hovered.png); }
+
+/* menus: 8 px corners, dim right-aligned shortcuts, muted orange highlight */
+QMenu {
+    background-color: #2b2b2b;
+    border: 1px solid #161616;
+    border-radius: 8px;
+    padding: 4px;
+}
+QMenu::item { padding: 3px 24px 3px 20px; border-radius: 4px; background: transparent; }
+QMenu::item:selected { background-color: #8a5a3b; color: #f0f0f0; }
+QMenu::separator { height: 1px; background: #3e3e3e; margin: 4px 8px; }
+QMenuBar::item:selected { background: #8a5a3b; color: #f0f0f0; border-radius: 3px; }
+
+/* tool buttons (viewer, timeline, toolbar): flat icons, box only on hover / when on */
+QToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+QToolButton:hover { background-color: #3c3c3c; border: 1px solid #1e1e1e; }
+QToolButton:pressed { background-color: #2a2a2a; }
+QToolButton:checked { background-color: #4a4334; border: 1px solid #1e1e1e; }
+
+/* dialogs: rounded, neutral buttons, orange default */
+QDialogButtonBox QPushButton:default,
+QMessageBox QPushButton:default { background-color: #c86a38; color: #141414; font-weight: 600; }
+
+/* viewer + timeline + transport buttons: flat icons (no box), hover box only */
+ViewerTab Button, Natron--ViewerTab Natron--Button,
+ViewerTab ViewerToolButton, Natron--ViewerTab Natron--ViewerToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+ViewerTab Button:hover, Natron--ViewerTab Natron--Button:hover,
+ViewerTab ViewerToolButton:hover, Natron--ViewerTab Natron--ViewerToolButton:hover {
+    background-color: #3c3c3c;
+    border: 1px solid #1e1e1e;
+}
+ViewerTab Button:checked, Natron--ViewerTab Natron--Button:checked,
+ViewerTab ViewerToolButton:checked, Natron--ViewerTab Natron--ViewerToolButton:checked {
+    background-color: #4a4334;
+    border: 1px solid #1e1e1e;
+}

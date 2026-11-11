@@ -717,6 +717,16 @@ private:
     std::unique_ptr<GuiPrivate> _imp;
 };
 
+// SOLVFX: makes every QMenu a translucent frameless popup (rounded corners from the stylesheet)
+class SolvfxMenuPolisher
+    : public QObject
+{
+public:
+    explicit SolvfxMenuPolisher(QObject* parent);
+    virtual bool eventFilter(QObject* o, QEvent* e) OVERRIDE FINAL;
+};
+
+
 NATRON_NAMESPACE_EXIT
 
 #endif // Gui_Gui_h
