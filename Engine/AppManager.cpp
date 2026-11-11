@@ -1581,6 +1581,7 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<Solv3DSphere>(QString(), false, false);
     registerBuiltInPlugin<Solv3DCylinder>(QString(), false, false);
     registerBuiltInPlugin<Solv3DCamera>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DVanishingCamera>(QString(), false, false);
     registerBuiltInPlugin<Solv3DTransformGeo>(QString(), false, false);
     registerBuiltInPlugin<Solv3DSceneNode>(QString(), false, false);
     registerBuiltInPlugin<Solv3DReadGeo>(QString(), false, false);

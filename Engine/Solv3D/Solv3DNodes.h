@@ -32,6 +32,7 @@
 #define PLUGINID_SOLV3D_PROJECT3D      "com.aguapanelafx.solv3d.Project3D"
 #define PLUGINID_SOLV3D_MATERIAL       "com.aguapanelafx.solv3d.Material"
 #define PLUGINID_SOLV3D_SCANLINE       "com.aguapanelafx.solv3d.ScanlineRender"
+#define PLUGINID_SOLV3D_VANISHINGCAM   "com.aguapanelafx.solv3d.VanishingCamera"
 
 NATRON_NAMESPACE_ENTER
 
@@ -41,13 +42,26 @@ struct Solv3DTexRef
     EffectInstanceWPtr effect;
 };
 
-// transform knobs shared by the 3D nodes (translate / rotate / scale / uniform scale / pivot)
+// transform knobs shared by the 3D nodes: transform order, rotation order, translate / rotate / scale /
+// uniform scale / pivot translate / pivot rotate
 struct Solv3DXformKnobs
 {
-    KnobDoubleWPtr translate, rotate, scale, uniform, pivot;
+    KnobChoiceWPtr order, rotOrder;
+    KnobDoubleWPtr translate, rotate, scale, uniform, pivot, pivotRotate;
+
+    void create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder = 4 /* ZXY */);
+    Solv3D::Mat4 matrix(double time) const;
+};
+
+// display / render / selectable knobs of the geometry nodes
+struct Solv3DGeoKnobs
+{
+    KnobChoiceWPtr display, render;
+    KnobBoolWPtr selectable;
 
     void create(EffectInstance* fx, const KnobPagePtr& page);
-    Solv3D::Mat4 matrix(double time) const;
+    // stamps the settings and the owner node on every prim of the scene under 'root' ("" = all)
+    void apply(Solv3D::Scene* scene, double time, const std::string& nodeName, const std::string& root) const;
 };
 
 class Solv3DNode
@@ -59,6 +73,8 @@ public:
 
     // the scene this node outputs at 'time'
     virtual void buildScene(double time, Solv3D::Scene* scene) = 0;
+    // false for image nodes that share the 3D helpers (VanishingCamera)
+    virtual bool is3D() const { return true; }
 
     // scene of input 'inputNb' (walks through Dots / Stamps); false when not a 3D input
     static bool inputScene(EffectInstance* fx, int inputNb, double time, Solv3D::Scene* scene);
@@ -66,6 +82,7 @@ public:
 
     // prim path of this node ("/<script name>")
     std::string primPath() const;
+    std::string nodeName() const;
 
     // ---- EffectInstance boilerplate
     virtual int getMajorVersion() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
@@ -112,6 +129,8 @@ public:
 private:
     Kind _kind;
     Solv3DXformKnobs _xf;
+    Solv3DGeoKnobs _geo;
+    KnobChoiceWPtr _orientation;
     KnobBoolWPtr _imageAspect;
     KnobDoubleWPtr _size;
     KnobIntWPtr _rows, _cols;
@@ -135,41 +154,70 @@ class Solv3DCamera
     : public Solv3DNode
 {
 public:
-    explicit Solv3DCamera(NodePtr n) : Solv3DNode(n), _drag(-1) {}
+    explicit Solv3DCamera(NodePtr n) : Solv3DNode(n) {}
 
     static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DCamera(n); }
 
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_CAMERA; }
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Camera"; }
     virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
-    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "bg"; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 0; }
+    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return std::string(); }
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
-    // the camera passes its bg image through so the plate is visible while drawing lines
+
+
+private:
+    Solv3DXformKnobs _xf;
+    KnobChoiceWPtr _display, _projection;
+    KnobDoubleWPtr _focal, _hAperture, _vAperture, _near, _far;
+    KnobDoubleWPtr _winTranslate, _winScale, _winRoll, _focusDist, _fStop;
+};
+
+// 2D node: solves a camera from vanishing lines drawn on the plate; "export" creates a Camera
+class Solv3DVanishingCamera
+    : public Solv3DNode
+{
+public:
+    explicit Solv3DVanishingCamera(NodePtr n) : Solv3DNode(n), _drag(-1) {}
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DVanishingCamera(n); }
+
+    virtual bool is3D() const OVERRIDE FINAL { return false; }
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_VANISHINGCAM; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "VanishingCamera"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
+    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "img"; }
+    virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double, Solv3D::Scene*) OVERRIDE FINAL {}
+    virtual bool isIdentity(double time, const RenderScale & scale, const RectI & roi, ViewIdx view, double* inputTime, ViewIdx* inputView, int* inputNb) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual StatusEnum getRegionOfDefinition(U64 hash, double time, const RenderScale & scale, ViewIdx view, RectD* rod) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual void getRegionsOfInterest(double time, const RenderScale & scale, const RectD & outputRoD, const RectD & renderWindow, ViewIdx view, RoIMap* ret) OVERRIDE FINAL;
-    virtual StatusEnum render(const RenderActionArgs& args) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
 
-    // vanishing lines overlay
+    virtual bool hasOverlay() const OVERRIDE FINAL { return true; }
     virtual void drawOverlay(double time, const RenderScale & renderScale, ViewIdx view) OVERRIDE FINAL;
     virtual bool onOverlayPenDown(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp, PenType pen) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool onOverlayPenMotion(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool onOverlayPenUp(double time, const RenderScale & renderScale, ViewIdx view, const QPointF & viewportPos, const QPointF & pos, double pressure, double timestamp) OVERRIDE FINAL WARN_UNUSED_RETURN;
 
 private:
+    void plateFormat(RectD* f);
     void solveFromLines();
     void resetLines();
+    void exportCamera();
 
-    Solv3DXformKnobs _xf;
-    KnobDoubleWPtr _focal, _hAperture, _vAperture, _near, _far;
-    KnobBoolWPtr _editLines;
     KnobChoiceWPtr _axes;
     KnobDoubleWPtr _lines[6];   // x1 y1 x2 y2 (canonical) : X1 X2 Y1 Y2 Z1 Z2
-    KnobDoubleWPtr _distance;
+    KnobDoubleWPtr _distance, _hAperture;
     KnobButtonWPtr _solve, _reset;
+    KnobDoubleWPtr _rFocal, _rVAperture, _rTranslate, _rRotate; // results
+    KnobStringWPtr _status;
+    KnobChoiceWPtr _exportMode;
+    KnobButtonWPtr _export;
     int _drag;                  // line * 2 + end
 };
 
@@ -234,6 +282,7 @@ private:
     struct Cache;
     std::shared_ptr<Cache> _cache;
     Solv3DXformKnobs _xf;
+    Solv3DGeoKnobs _geo;
     KnobFileWPtr _file;
     KnobIntWPtr _frameOffset;
     KnobBoolWPtr _lit;
@@ -281,6 +330,7 @@ public:
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
 
 private:
+    KnobChoiceWPtr _projectOn, _occlusion;
     KnobBoolWPtr _crop;
     KnobIntWPtr _frameHold;
     KnobBoolWPtr _useHold;
@@ -330,9 +380,10 @@ public:
     virtual void getPluginGrouping(std::list<std::string>* grouping) const OVERRIDE FINAL;
 
 private:
-    KnobChoiceWPtr _samples, _filter, _output;
+    KnobChoiceWPtr _samples, _filter, _output, _projMode;
     KnobDoubleWPtr _filterWidth, _ambient;
-    KnobBoolWPtr _texFilter;
+    KnobIntWPtr _overscan;
+    KnobBoolWPtr _texFilter, _transparency, _zBuffer;
 };
 
 NATRON_NAMESPACE_EXIT

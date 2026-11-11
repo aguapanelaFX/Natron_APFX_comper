@@ -39,6 +39,8 @@
 #include <QCheckBox>
 #include <QPalette>
 #include <QPainter>
+#include <QShortcut>
+#include <QKeySequence>
 
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h"
@@ -63,6 +65,7 @@
 #include "Gui/SpinBox.h"
 #include "Gui/TimeLineGui.h"
 #include "Gui/ViewerGL.h"
+#include "Gui/Solv3D/Solv3DViewer.h"
 
 
 NATRON_NAMESPACE_ENTER
@@ -724,6 +727,27 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
         l->addStretch();
         l->addWidget(_imp->zoomCombobox);
         l->addWidget(_imp->centerViewerButton);
+        // SOLVFX 3D: 2D / 3D switch (top right, like the view menu of other compositors); Tab toggles 2D / 3D
+        _imp->solvViewMode = new ComboBox(_imp->firstSettingsRow);
+        {
+            const char* modes[8] = { "2D", "3D", "top", "bottom", "front", "back", "right", "left" };
+            for (int i = 0; i < 8; ++i) {
+                _imp->solvViewMode->addItem( QString::fromUtf8(modes[i]) );
+            }
+        }
+        _imp->solvViewMode->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("2D image or 3D scene view (Tab toggles). In 3D: "
+                                                                                  "X / Shift+X right / left, C / Shift+C top / bottom, "
+                                                                                  "Z / Shift+Z front / back, V perspective, F frame, "
+                                                                                  "H look through the selected camera."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->solvViewMode->setFocusPolicy(Qt::NoFocus);
+        QObject::connect( _imp->solvViewMode, SIGNAL(currentIndexChanged(int)), this, SLOT(onSolvViewModeChanged(int)) );
+        l->addSpacing( TO_DPIX(4) );
+        l->addWidget(_imp->solvViewMode);
+        {
+            QShortcut* tab = new QShortcut(QKeySequence(Qt::Key_Tab), this);
+            tab->setContext(Qt::WidgetWithChildrenShortcut);
+            QObject::connect( tab, SIGNAL(activated()), this, SLOT(toggleSolv3D()) );
+        }
 
         // SOLVFX: the exposure / gamma / saturation sliders share all the free width
         // up to the right-side buttons (exposure gets the biggest share)
@@ -1477,6 +1501,43 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
             _imp->syncViewerButton->setChecked(true);
         }
     }
+}
+
+// SOLVFX 3D: the 3D view replaces the image in the same pane
+void
+ViewerTab::onSolvViewModeChanged(int index)
+{
+    if (index <= 0) {
+        if (_imp->solv3D) {
+            _imp->solv3D->hide();
+        }
+        _imp->viewerSubContainer->show();
+
+        return;
+    }
+    if (!_imp->solv3D) {
+        _imp->solv3D = new Solv3DView( this, getGui() );
+        _imp->solv3D->onPresetChanged = [this](int p) {
+            // keys in the 3D view changed the view: keep the menu in sync (3D = perspective)
+            if (_imp->solvViewMode) {
+                _imp->solvViewMode->setCurrentIndex_no_emit(p + 1);
+            }
+        };
+        _imp->viewerLayout->addWidget(_imp->solv3D);
+    }
+    _imp->viewerSubContainer->hide();
+    _imp->solv3D->show();
+    _imp->solv3D->setPreset(index - 1);
+}
+
+void
+ViewerTab::toggleSolv3D()
+{
+    if (!_imp->solvViewMode) {
+        return;
+    }
+    const bool is3D = _imp->solvViewMode->activeIndex() > 0;
+    _imp->solvViewMode->setCurrentIndex(is3D ? 0 : 1);
 }
 
 NATRON_NAMESPACE_EXIT

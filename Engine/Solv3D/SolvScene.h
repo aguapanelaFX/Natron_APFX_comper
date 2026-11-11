@@ -73,6 +73,11 @@ struct Projection
     Mat4 viewProj;                    // world -> clip space of the projector camera
     std::shared_ptr<void> texture;    // opaque handle resolved by the renderer
     bool crop = true;                 // outside the projector frame = transparent
+    int projectOn = 0;                // 0 both sides, 1 front faces only, 2 back faces only (seen from the projector)
+    bool occlusion = false;           // self occlusion: surfaces hidden from the projector get nothing
+    Vec3 origin;                      // projector position (world)
+    Vec3 forward = Vec3(0, 0, -1);    // projector view direction (world), used when orthographic
+    bool orthographic = false;
 };
 
 struct Mesh
@@ -98,6 +103,11 @@ struct Camera
     double verticalAperture = 24.;     // mm
     double horizontalApertureOffset = 0., verticalApertureOffset = 0.;
     double nearClip = 0.1, farClip = 10000.;
+    int projectionMode = 0;            // 0 perspective, 1 orthographic (aperture = view size in tenths of a unit, like USD)
+    double winTranslate[2] = { 0., 0. }; // window: shift of the image (-1..1 = half the frame)
+    double winScale[2] = { 1., 1. };     // window: zoom of the image
+    double winRoll = 0.;                 // window: roll (degrees)
+    double focusDistance = 2., fStop = 16.; // depth of field (stored, used by the renderer later)
 
     // projection to normalised device coordinates (x, y in -1..1), aspect = image width / height
     Mat4 projection(double aspect) const;
@@ -117,6 +127,10 @@ struct Prim
     PrimType type = PrimType::Xform;
     Mat4 local;
     bool visible = true;
+    int display = 4;          // viewer: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
+    int render = 2;           // ScanlineRender: 0 off, 1 solid (no texture), 2 textured
+    bool selectable = true;   // can be picked in the 3D viewer
+    std::string node;         // script name of the node that made the prim (viewer selection / highlight)
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Camera> camera;
     std::shared_ptr<Light> light;

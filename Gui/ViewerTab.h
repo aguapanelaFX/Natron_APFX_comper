@@ -469,6 +469,9 @@ public Q_SLOTS:
 
     // SOLVFX: viewer saturation and f-stop steps
     void onSaturationToggled(bool clicked);
+    // SOLVFX 3D: viewer 2D / 3D switch (Tab toggles)
+    void onSolvViewModeChanged(int index);
+    void toggleSolv3D();
     void onSaturationSliderValueChanged(double value);
     void onSaturationSpinBoxValueChanged(double value);
     void onGainStepDown();

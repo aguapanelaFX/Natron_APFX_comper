@@ -14,11 +14,14 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <sstream>
 
 #include "Global/GLIncludes.h"
 
 #include "Engine/AppInstance.h"
 #include "Engine/AppManager.h"
+#include "Engine/CreateNodeArgs.h"
+#include "Engine/TimeLine.h"
 #include "Engine/Format.h"
 #include "Engine/Image.h"
 #include "Engine/KnobFile.h"
@@ -37,8 +40,10 @@ NATRON_NAMESPACE_ENTER
 using namespace Solv3D;
 
 // ============================================================================ helpers
+// knobs go on a page or into a group (both have addKnob)
+template <class C>
 static KnobDoublePtr
-makeDouble(EffectInstance* fx, const KnobPagePtr& page, const char* name, const char* label, int dims,
+makeDouble(EffectInstance* fx, const std::shared_ptr<C>& parent, const char* name, const char* label, int dims,
            double def, double dmin, double dmax, const char* hint = "")
 {
     KnobDoublePtr k = AppManager::createKnob<KnobDouble>( fx, std::string(label), dims );
@@ -51,9 +56,68 @@ makeDouble(EffectInstance* fx, const KnobPagePtr& page, const char* name, const 
     if (hint && *hint) {
         k->setHintToolTip( std::string(hint) );
     }
-    page->addKnob(k);
+    parent->addKnob(k);
 
     return k;
+}
+
+template <class C>
+static KnobChoicePtr
+makeChoice(EffectInstance* fx, const std::shared_ptr<C>& parent, const char* name, const char* label,
+           const std::vector<std::string>& options, int def, const char* hint = "", bool newLine = true)
+{
+    KnobChoicePtr k = AppManager::createKnob<KnobChoice>( fx, std::string(label) );
+    k->setName(name);
+    std::vector<ChoiceOption> o;
+    for (const std::string& s : options) {
+        o.push_back( ChoiceOption(s, s, "") );
+    }
+    k->populateChoices(o);
+    k->setDefaultValue(def);
+    k->setAnimationEnabled(false);
+    if (hint && *hint) {
+        k->setHintToolTip( std::string(hint) );
+    }
+    k->setAddNewLine(newLine);
+    parent->addKnob(k);
+
+    return k;
+}
+
+template <class C>
+static KnobBoolPtr
+makeBool(EffectInstance* fx, const std::shared_ptr<C>& parent, const char* name, const char* label, bool def,
+         const char* hint = "", bool newLine = true)
+{
+    KnobBoolPtr k = AppManager::createKnob<KnobBool>( fx, std::string(label) );
+    k->setName(name);
+    k->setDefaultValue(def);
+    if (hint && *hint) {
+        k->setHintToolTip( std::string(hint) );
+    }
+    k->setAddNewLine(newLine);
+    parent->addKnob(k);
+
+    return k;
+}
+
+static KnobGroupPtr
+makeGroup(EffectInstance* fx, const KnobPagePtr& page, const char* name, const char* label, bool open)
+{
+    KnobGroupPtr g = AppManager::createKnob<KnobGroup>( fx, std::string(label) );
+    g->setName(name);
+    g->setDefaultValue(open);
+    page->addKnob(g);
+
+    return g;
+}
+
+static void
+makeDivider(EffectInstance* fx, const KnobPagePtr& page, const char* name)
+{
+    KnobSeparatorPtr sep = AppManager::createKnob<KnobSeparator>( fx, std::string() );
+    sep->setName(name);
+    page->addKnob(sep);
 }
 
 static KnobPagePtr
@@ -75,22 +139,93 @@ getV3(const KnobDoubleWPtr& w, double t)
     return Vec3( k->getValueAtTime(t, 0), k->getValueAtTime(t, 1), k->getValueAtTime(t, 2) );
 }
 
-void
-Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page)
+static const char* kRotOrders[6] = { "XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX" };
+static const char* kXformOrders[6] = { "SRT", "STR", "RST", "RTS", "TSR", "TRS" };
+
+// rotation applied in the order of the letters (XYZ = X first)
+static Mat4
+rotationInOrder(const Vec3& deg, int order)
 {
+    const char* o = kRotOrders[std::max( 0, std::min(5, order) )];
+    Mat4 r;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 v;
+        switch (o[i]) {
+        case 'X': v.x = deg.x; break;
+        case 'Y': v.y = deg.y; break;
+        default: v.z = deg.z; break;
+        }
+        r = Mat4::rotateXYZ(v) * r;
+    }
+
+    return r;
+}
+
+void
+Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder)
+{
+    order = makeChoice(fx, page, "xform_order", "transform order", std::vector<std::string>(kXformOrders, kXformOrders + 6), 0,
+                       "Order of scale (S), rotation (R) and translation (T): SRT = scale first, then rotate, then move.", false);
+    rotOrder = makeChoice(fx, page, "rot_order", "rotation order", std::vector<std::string>(kRotOrders, kRotOrders + 6), defaultRotOrder,
+                          "Order of the X / Y / Z rotations (ZXY = Z first).");
     translate = makeDouble(fx, page, "translate", "translate", 3, 0., -10., 10.);
-    rotate = makeDouble(fx, page, "rotate", "rotate", 3, 0., -180., 180., "Degrees, applied X then Y then Z.");
+    rotate = makeDouble(fx, page, "rotate", "rotate", 3, 0., -180., 180., "Degrees.");
     scale = makeDouble(fx, page, "scaling", "scale", 3, 1., 0., 4.);
-    uniform = makeDouble(fx, page, "uniform_scale", "uniform scale", 1, 1., 0., 4.);
-    pivot = makeDouble(fx, page, "pivot", "pivot", 3, 0., -10., 10.);
+    uniform = makeDouble(fx, page, "uniform_scale", "uniform scale", 1, 1., 0., 10.);
+    pivot = makeDouble(fx, page, "pivot", "pivot translate", 3, 0., -10., 10., "Centre of rotation and scale.");
+    pivotRotate = makeDouble(fx, page, "pivot_rotate", "pivot rotate", 3, 0., -180., 180., "Orientation of the rotation and scale axes.");
 }
 
 Mat4
 Solv3DXformKnobs::matrix(double t) const
 {
     const double u = uniform.lock() ? uniform.lock()->getValueAtTime(t) : 1.;
+    const int ro = rotOrder.lock() ? rotOrder.lock()->getValueAtTime(t) : 0;
+    const int xo = order.lock() ? order.lock()->getValueAtTime(t) : 0;
+    const Vec3 pv = getV3(pivot, t);
+    const Mat4 P = Mat4::translate(pv), Pi = Mat4::translate(pv * -1.);
+    const Mat4 Pr = rotationInOrder(getV3(pivotRotate, t), ro), Pri = Pr.inverse();
+    const Mat4 T = Mat4::translate( getV3(translate, t) );
+    const Mat4 R = P * Pr * rotationInOrder(getV3(rotate, t), ro) * Pri * Pi;
+    const Mat4 S = P * Pr * Mat4::scale(getV3(scale, t) * u) * Pri * Pi;
+    Mat4 m;
+    const char* o = kXformOrders[std::max( 0, std::min(5, xo) )];
+    for (int i = 0; i < 3; ++i) {
+        m = (o[i] == 'S' ? S : (o[i] == 'R' ? R : T)) * m;
+    }
 
-    return Mat4::trs( getV3(translate, t), getV3(rotate, t), getV3(scale, t) * u, getV3(pivot, t) );
+    return m;
+}
+
+static const char* kDisplayModes[6] = { "off", "wireframe", "solid", "solid+lines", "textured", "textured+lines" };
+
+void
+Solv3DGeoKnobs::create(EffectInstance* fx, const KnobPagePtr& page)
+{
+    display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
+                         "How it is drawn in the 3D viewer (does not change the render).", false);
+    selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
+    const char* rm[3] = { "off", "solid", "textured" };
+    render = makeChoice(fx, page, "render_mode", "render", std::vector<std::string>(rm, rm + 3), 2,
+                        "ScanlineRender: off = not rendered, solid = colour only (no texture / projections), textured = everything.");
+}
+
+void
+Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std::string& root) const
+{
+    const int d = display.lock() ? display.lock()->getValueAtTime(t) : 4;
+    const int r = render.lock() ? render.lock()->getValueAtTime(t) : 2;
+    const bool sel = selectable.lock() ? selectable.lock()->getValueAtTime(t) : true;
+    for (auto& kv : scene->prims()) {
+        const std::string& path = kv.first;
+        if ( !root.empty() && (path != root) && (path.compare(0, root.size() + 1, root + "/") != 0) ) {
+            continue;
+        }
+        kv.second.display = d;
+        kv.second.render = r;
+        kv.second.selectable = sel;
+        kv.second.node = node;
+    }
 }
 
 // ============================================================================ Solv3DNode
@@ -163,10 +298,18 @@ Solv3DNode::primPath() const
     return "/" + makeValidName( getNode()->getScriptName_mt_safe() );
 }
 
+std::string
+Solv3DNode::nodeName() const
+{
+    return getNode()->getFullyQualifiedName();
+}
+
 Solv3DNode*
 Solv3DNode::as3D(const EffectInstancePtr& e)
 {
-    return dynamic_cast<Solv3DNode*>( e.get() );
+    Solv3DNode* n = dynamic_cast<Solv3DNode*>( e.get() );
+
+    return (n && n->is3D()) ? n : 0;
 }
 
 bool
@@ -239,25 +382,27 @@ void
 Solv3DPrimitive::initializeKnobs()
 {
     KnobPagePtr page = makePage( this, getPluginLabel().c_str() );
+    _geo.create(this, page);
+    makeDivider(this, page, "geo_divider");
     if (_kind == eCard) {
-        KnobBoolPtr ia = AppManager::createKnob<KnobBool>( this, std::string("image aspect") );
-        ia->setName("image_aspect");
-        ia->setDefaultValue(true);
-        ia->setHintToolTip( std::string("Card height follows the img input proportions (width 1). Off: uses the size.") );
-        page->addKnob(ia);
-        _imageAspect = ia;
+        const char* orients[3] = { "XY", "YZ", "ZX" };
+        _orientation = makeChoice(this, page, "orientation", "orientation", std::vector<std::string>(orients, orients + 3), 0,
+                                  "Plane of the card: XY faces +Z (default), YZ faces +X, ZX faces +Y (a floor).", false);
+        _imageAspect = makeBool(this, page, "image_aspect", "image aspect", true,
+                                "Card height follows the img input proportions (width = size). Off: square.");
     }
     _size = makeDouble(this, page, "size", "size", 1, 1., 0., 10., "Overall size of the shape.");
     if ( (_kind == eCard) || (_kind == eSphere) || (_kind == eCylinder) ) {
-        KnobIntPtr r = AppManager::createKnob<KnobInt>( this, std::string("rows") );
+        KnobIntPtr r = AppManager::createKnob<KnobInt>( this, std::string("rows/columns") );
         r->setName("rows");
         r->setDefaultValue(_kind == eCard ? 1 : 24);
         r->setDisplayMinimum(1);
         r->setDisplayMaximum(64);
+        r->setHintToolTip( std::string("Subdivisions (rows, then columns on the next field).") );
         r->setAddNewLine(false);
         page->addKnob(r);
         _rows = r;
-        KnobIntPtr c = AppManager::createKnob<KnobInt>( this, std::string("columns") );
+        KnobIntPtr c = AppManager::createKnob<KnobInt>( this, std::string("") );
         c->setName("columns");
         c->setDefaultValue(_kind == eCard ? 1 : 48);
         c->setDisplayMinimum(1);
@@ -273,12 +418,9 @@ Solv3DPrimitive::initializeKnobs()
     col->setHintToolTip( std::string("Multiplies the texture (the colour of the shape without texture).") );
     page->addKnob(col);
     _color = col;
-    KnobBoolPtr lit = AppManager::createKnob<KnobBool>( this, std::string("lit") );
-    lit->setName("lit");
-    lit->setDefaultValue(_kind != eCard);
-    lit->setHintToolTip( std::string("Off: the texture is shown as is (like a card). On: simple shading from the camera.") );
-    page->addKnob(lit);
-    _lit = lit;
+    _lit = makeBool(this, page, "lit", "lit", _kind != eCard,
+                    "Off: the texture is shown as is (like a card). On: simple shading from the camera.");
+    makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
 }
 
@@ -290,6 +432,7 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
     const int cols = _cols.lock() ? std::max( 1, _cols.lock()->getValueAtTime(t) ) : 1;
     EffectInstancePtr img = getInput(0);
     std::shared_ptr<Mesh> m;
+    Mat4 orient;
     switch (_kind) {
     case eCube: m = makeCube(size); break;
     case eSphere: m = makeSphere(size * 0.5, rows, cols); break;
@@ -305,6 +448,12 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
             }
         }
         m = makeCard(size, h, rows, cols);
+        const int o = _orientation.lock() ? _orientation.lock()->getValueAtTime(t) : 0;
+        if (o == 1) {
+            orient = Mat4::rotateXYZ( Vec3(0, 90, 0) );   // faces +X
+        } else if (o == 2) {
+            orient = Mat4::rotateXYZ( Vec3(-90, 0, 0) );  // faces +Y (floor)
+        }
         break;
     }
     }
@@ -314,54 +463,92 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
     m->material.emission = _lit.lock()->getValueAtTime(t) ? 0. : 1.;
     Prim& p = scene->define(primPath(), PrimType::Mesh);
     p.mesh = m;
-    p.local = _xf.matrix(t);
+    p.local = _xf.matrix(t) * orient;
+    _geo.apply( scene, t, nodeName(), primPath() );
 }
 
 // ============================================================================ Camera
 std::string
 Solv3DCamera::getPluginDescription() const
 {
-    return "3D camera (focal length and film back in mm). Connect a plate to bg to see it while placing the camera.\n"
-           "Camera from vanishing lines: turn on 'edit lines', drag the X (red), Y (green) and Z (blue) line pairs onto "
-           "parallel edges of the plate (each pair = two edges that are parallel in the real world, the three directions "
-           "at right angles), then press 'solve': focal length and rotation come from the vanishing points, the camera "
-           "is placed 'distance' away from the start of the first red line.";
+    return "3D camera. Focal length and film back (apertures) in mm, perspective or orthographic, clipping planes, "
+           "window (shift / zoom / roll of the image) and depth of field values. Look through it in the 3D viewer; "
+           "ScanlineRender and Project3D use it through their cam input. A camera can be made from vanishing lines "
+           "with the VanishingCamera node.";
 }
 
 void
 Solv3DCamera::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "Camera");
-    _xf.create(this, page);
-    _focal = makeDouble(this, page, "focal", "focal length", 1, 35., 8., 200., "mm");
-    _hAperture = makeDouble(this, page, "haperture", "horiz aperture", 1, 36., 5., 70., "Film back width (mm).");
-    _vAperture = makeDouble(this, page, "vaperture", "vert aperture", 1, 24., 5., 70., "Film back height (mm).");
-    _near = makeDouble(this, page, "near", "near", 1, 0.1, 0.001, 10.);
-    _far = makeDouble(this, page, "far", "far", 1, 10000., 10., 100000.);
+    _display = makeChoice(this, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 1,
+                          "off hides the camera in the 3D viewer.");
+    makeDivider(this, page, "xform_divider");
+    _xf.create(this, page, 4);
 
-    KnobPagePtr vp = makePage(this, "Vanishing lines");
-    KnobBoolPtr edit = AppManager::createKnob<KnobBool>( this, std::string("edit lines") );
-    edit->setName("edit_lines");
-    edit->setDefaultValue(false);
-    edit->setEvaluateOnChange(false);
-    edit->setAnimationEnabled(false);
-    edit->setHintToolTip( std::string("Show and drag the vanishing lines in the viewer (view this Camera with the plate in bg).") );
-    vp->addKnob(edit);
-    _editLines = edit;
-    KnobChoicePtr axes = AppManager::createKnob<KnobChoice>( this, std::string("axes") );
-    axes->setName("axes");
-    {
-        std::vector<ChoiceOption> o;
-        o.push_back( ChoiceOption("xz", "X and Z (focal from 2 directions, lens centre = image centre)", "") );
-        o.push_back( ChoiceOption("xy", "X and Y", "") );
-        o.push_back( ChoiceOption("xyz", "X, Y and Z (focal + lens centre)", "") );
-        axes->populateChoices(o);
-    }
-    axes->setDefaultValue(0);
-    axes->setAnimationEnabled(false);
-    axes->setEvaluateOnChange(false);
-    vp->addKnob(axes);
-    _axes = axes;
+    KnobPagePtr proj = makePage(this, "Projection");
+    const char* pm[2] = { "perspective", "orthographic" };
+    _projection = makeChoice(this, proj, "projection", "projection", std::vector<std::string>(pm, pm + 2), 0,
+                             "Orthographic: the horizontal aperture is the width of the view in tenths of a scene unit (USD).");
+    KnobGroupPtr fr = makeGroup(this, proj, "frustum", "Frustum", true);
+    _focal = makeDouble(this, fr, "focal", "focal length", 1, 50., 5., 200., "mm");
+    _hAperture = makeDouble(this, fr, "haperture", "horiz aperture", 1, 24.576, 1., 70., "Film back width (mm). The image width fits it.");
+    _vAperture = makeDouble(this, fr, "vaperture", "vert aperture", 1, 18.672, 1., 70., "Film back height (mm), kept for export: the image height follows the format.");
+    _near = makeDouble(this, fr, "near", "clipping near", 1, 0.1, 0.001, 10.);
+    _far = makeDouble(this, fr, "far", "clipping far", 1, 10000., 10., 100000.);
+    KnobGroupPtr win = makeGroup(this, proj, "window", "Window", true);
+    _winTranslate = makeDouble(this, win, "win_translate", "translate", 2, 0., -1., 1., "Shifts the image (1 = half the frame).");
+    _winScale = makeDouble(this, win, "win_scale", "scale", 2, 1., 0.1, 4., "Zooms the image (2 = shows twice the area).");
+    _winRoll = makeDouble(this, win, "winroll", "roll", 1, 0., -45., 45., "Rolls the image (degrees).");
+    KnobGroupPtr dof = makeGroup(this, proj, "dof", "Depth of Field", false);
+    _focusDist = makeDouble(this, dof, "focal_point", "focal distance", 1, 2., 0.1, 100., "Distance in focus (stored with the camera and exported).");
+    _fStop = makeDouble(this, dof, "fstop", "f-stop", 1, 16., 0.7, 32.);
+}
+
+void
+Solv3DCamera::buildScene(double t, Scene* scene)
+{
+    std::shared_ptr<Camera> c = std::make_shared<Camera>();
+    c->projectionMode = _projection.lock()->getValueAtTime(t);
+    c->focalLength = _focal.lock()->getValueAtTime(t);
+    c->horizontalAperture = _hAperture.lock()->getValueAtTime(t);
+    c->verticalAperture = _vAperture.lock()->getValueAtTime(t);
+    c->nearClip = _near.lock()->getValueAtTime(t);
+    c->farClip = _far.lock()->getValueAtTime(t);
+    KnobDoublePtr wt = _winTranslate.lock(), ws = _winScale.lock();
+    c->winTranslate[0] = wt->getValueAtTime(t, 0);
+    c->winTranslate[1] = wt->getValueAtTime(t, 1);
+    c->winScale[0] = ws->getValueAtTime(t, 0);
+    c->winScale[1] = ws->getValueAtTime(t, 1);
+    c->winRoll = _winRoll.lock()->getValueAtTime(t);
+    c->focusDistance = _focusDist.lock()->getValueAtTime(t);
+    c->fStop = _fStop.lock()->getValueAtTime(t);
+    Prim& p = scene->define(primPath(), PrimType::Camera);
+    p.camera = c;
+    p.local = _xf.matrix(t);
+    p.display = _display.lock()->getValueAtTime(t);
+    p.node = nodeName();
+}
+
+// ============================================================================ VanishingCamera
+std::string
+Solv3DVanishingCamera::getPluginDescription() const
+{
+    return "Finds a camera from a still plate. Drag the X (red), Y (green) and Z (blue) line pairs onto edges of the "
+           "plate that are parallel in the real world (the three directions at right angles), then press 'solve': "
+           "the focal length comes from where the lines meet (vanishing points) and the rotation from their "
+           "directions; the camera is placed 'distance' away from the start of the first red line. 'Export' creates a "
+           "Camera node, linked to this result or baked. The image passes through unchanged.";
+}
+
+void
+Solv3DVanishingCamera::initializeKnobs()
+{
+    KnobPagePtr vp = makePage(this, "VanishingCamera");
+    const char* ax[3] = { "X and Z", "X and Y", "X, Y and Z" };
+    _axes = makeChoice(this, vp, "axes", "axes", std::vector<std::string>(ax, ax + 3), 0,
+                       "Which line pairs are used. Two directions: the lens centre is the image centre. Three: the lens centre is solved too.");
+    _axes.lock()->setEvaluateOnChange(false);
     const char* names[6] = { "lineX1", "lineX2", "lineY1", "lineY2", "lineZ1", "lineZ2" };
     const char* labels[6] = { "X line 1", "X line 2", "Y line 1", "Y line 2", "Z line 1", "Z line 2" };
     for (int i = 0; i < 6; ++i) {
@@ -372,7 +559,10 @@ Solv3DCamera::initializeKnobs()
         k->setSecretByDefault(true);
         vp->addKnob(k);
         _lines[i] = k;
+        addOverlaySlaveParam(k);
     }
+    _hAperture = makeDouble(this, vp, "haperture", "film back width", 1, 24.576, 1., 70., "Horizontal aperture (mm) of the exported camera.");
+    _hAperture.lock()->setEvaluateOnChange(false);
     _distance = makeDouble(this, vp, "distance", "distance", 1, 5., 0.1, 100., "Distance from the camera to the start of the first red line (sets the scene scale).");
     _distance.lock()->setEvaluateOnChange(false);
     KnobButtonPtr solve = AppManager::createKnob<KnobButton>( this, std::string("solve") );
@@ -385,17 +575,92 @@ Solv3DCamera::initializeKnobs()
     reset->setName("reset_lines");
     vp->addKnob(reset);
     _reset = reset;
-    addOverlaySlaveParam(edit);
-    for (int i = 0; i < 6; ++i) {
-        addOverlaySlaveParam( _lines[i].lock() );
+    KnobStringPtr st = AppManager::createKnob<KnobString>( this, std::string("status") );
+    st->setName("status");
+    st->setAsLabel();
+    vp->addKnob(st);
+    _status = st;
+
+    KnobGroupPtr res = makeGroup(this, vp, "result", "Result", true);
+    _rFocal = makeDouble(this, res, "focal", "focal length", 1, 50., 5., 200., "mm (solved)");
+    _rVAperture = makeDouble(this, res, "vaperture", "vert aperture", 1, 18.672, 1., 70., "mm (film back width / plate aspect)");
+    _rTranslate = makeDouble(this, res, "translate", "translate", 3, 0., -10., 10.);
+    _rRotate = makeDouble(this, res, "rotate", "rotate", 3, 0., -180., 180., "Degrees, rotation order XYZ.");
+    KnobDoublePtr rk[4] = { _rFocal.lock(), _rVAperture.lock(), _rTranslate.lock(), _rRotate.lock() };
+    for (int i = 0; i < 4; ++i) {
+        rk[i]->setEvaluateOnChange(false);
+        rk[i]->setAnimationEnabled(false);
+        rk[i]->setAllDimensionsEnabled(false);
+    }
+
+    makeDivider(this, vp, "export_divider");
+    const char* em[2] = { "camera (linked)", "camera (baked)" };
+    _exportMode = makeChoice(this, vp, "export_mode", "export", std::vector<std::string>(em, em + 2), 0,
+                             "linked: the Camera follows this node (re-solving updates it). baked: a copy of the values.", false);
+    _exportMode.lock()->setEvaluateOnChange(false);
+    KnobButtonPtr ex = AppManager::createKnob<KnobButton>( this, std::string("create") );
+    ex->setName("export_create");
+    ex->setHintToolTip( std::string("Creates the Camera node next to this one.") );
+    vp->addKnob(ex);
+    _export = ex;
+}
+
+void
+Solv3DVanishingCamera::plateFormat(RectD* f)
+{
+    EffectInstancePtr in = getInput(0);
+    if (in) {
+        bool isProjectFormat = false;
+        const double t = getApp() ? getApp()->getTimeLine()->currentFrame() : 0.;
+        if ( (in->getRegionOfDefinition_public(in->getRenderHash(), t, RenderScale(), ViewIdx(0), f, &isProjectFormat) != eStatusFailed) &&
+             (f->width() > 0) && (f->height() > 0) ) {
+            return;
+        }
+    }
+    projectFormat(f);
+}
+
+bool
+Solv3DVanishingCamera::isIdentity(double time, const RenderScale &, const RectI &, ViewIdx view, double* inputTime, ViewIdx* inputView, int* inputNb)
+{
+    if ( !getInput(0) ) {
+        return false;
+    }
+    *inputTime = time;
+    *inputView = view;
+    *inputNb = 0;
+
+    return true;
+}
+
+StatusEnum
+Solv3DVanishingCamera::getRegionOfDefinition(U64 hash, double time, const RenderScale & scale, ViewIdx view, RectD* rod)
+{
+    EffectInstancePtr in = getInput(0);
+    if (in) {
+        bool isProjectFormat = false;
+
+        return in->getRegionOfDefinition_public(in->getRenderHash(), time, scale, view, rod, &isProjectFormat);
+    }
+
+    return Solv3DNode::getRegionOfDefinition(hash, time, scale, view, rod);
+}
+
+void
+Solv3DVanishingCamera::getRegionsOfInterest(double, const RenderScale &, const RectD &, const RectD & renderWindow, ViewIdx, RoIMap* ret)
+{
+    ret->clear();
+    EffectInstancePtr in = getInput(0);
+    if (in) {
+        (*ret)[in] = renderWindow;
     }
 }
 
 void
-Solv3DCamera::resetLines()
+Solv3DVanishingCamera::resetLines()
 {
     RectD f;
-    projectFormat(&f);
+    plateFormat(&f);
     const double w = f.width(), h = f.height(), x0 = f.x1, y0 = f.y1;
     // starting positions: X lines converge to the right, Z to the left, Y vertical
     const double L[6][4] = {
@@ -413,7 +678,7 @@ Solv3DCamera::resetLines()
 }
 
 bool
-Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
+Solv3DVanishingCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
 {
     if ( k == _solve.lock().get() ) {
         solveFromLines();
@@ -425,12 +690,8 @@ Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, ViewSpec 
 
         return true;
     }
-    if ( k == _editLines.lock().get() ) {
-        // first use: put the lines somewhere sensible
-        KnobDoublePtr l0 = _lines[0].lock();
-        if ( _editLines.lock()->getValue() && (l0->getValue(0) == 0.) && (l0->getValue(2) == 0.) ) {
-            resetLines();
-        }
+    if ( k == _export.lock().get() ) {
+        exportCamera();
 
         return true;
     }
@@ -439,10 +700,10 @@ Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum /*reason*/, ViewSpec 
 }
 
 void
-Solv3DCamera::solveFromLines()
+Solv3DVanishingCamera::solveFromLines()
 {
     RectD f;
-    projectFormat(&f);
+    plateFormat(&f);
     const int mode = _axes.lock()->getValue();
     const int axisIdx[3] = { 0, mode == 1 ? 1 : 2, 1 }; // which line pairs: X, then Z (or Y), then Y
     const int n = (mode == 2) ? 3 : 2;
@@ -457,7 +718,7 @@ Solv3DCamera::solveFromLines()
             l[j].b = SolvVP::V2{ k->getValue(2), k->getValue(3) };
         }
         if ( !SolvVP::vanishingPoint(l[0], l[1], &vps[i]) ) {
-            setPersistentMessage(eMessageTypeError, "The two lines of an axis are parallel in the image: tilt them so they meet.");
+            _status.lock()->setValue("The two lines of an axis are parallel in the image: tilt them so they meet.");
 
             return;
         }
@@ -466,11 +727,10 @@ Solv3DCamera::solveFromLines()
     const SolvVP::V2 centre{ (f.x1 + f.x2) * 0.5, (f.y1 + f.y2) * 0.5 };
     SolvVP::Result r = SolvVP::solve(vps, n, centre, dirs);
     if (!r.ok) {
-        setPersistentMessage(eMessageTypeError, std::string("Camera from lines: ") + r.error);
+        _status.lock()->setValue( std::string("Cannot solve: ") + r.error );
 
         return;
     }
-    clearPersistentMessage(false);
     // solver frame: x right, y up (image y up), z into the scene -> GL camera frame (looks down -Z)
     Vec3 cAx[3];
     for (int i = 0; i < 2; ++i) {
@@ -505,102 +765,104 @@ Solv3DCamera::solveFromLines()
     const double rx = std::atan2(worldFromCam.m[2][1], worldFromCam.m[2][2]);
     const double rz = std::atan2(worldFromCam.m[1][0], worldFromCam.m[0][0]);
     const double toDeg = 180. / 3.14159265358979323846;
+    const double ha = _hAperture.lock()->getValue();
+    const double focal = SolvVP::focalMM( r.f, ha, f.width() );
     beginChanges();
-    KnobDoublePtr t = _xf.translate.lock(), ro = _xf.rotate.lock();
+    KnobDoublePtr t = _rTranslate.lock(), ro = _rRotate.lock();
     t->setValue(camPos.x, ViewSpec::all(), 0); t->setValue(camPos.y, ViewSpec::all(), 1); t->setValue(camPos.z, ViewSpec::all(), 2);
     ro->setValue(rx * toDeg, ViewSpec::all(), 0); ro->setValue(ry * toDeg, ViewSpec::all(), 1); ro->setValue(rz * toDeg, ViewSpec::all(), 2);
-    _focal.lock()->setValue( SolvVP::focalMM( r.f, _hAperture.lock()->getValue(), f.width() ) );
+    _rFocal.lock()->setValue(focal);
+    _rVAperture.lock()->setValue( ha * f.height() / std::max(1e-9, f.width()) );
     endChanges();
+    std::stringstream ss;
+    ss.precision(3);
+    ss << std::fixed << "solved: focal " << focal << " mm, horizontal field of view "
+       << 2. * std::atan( ha / (2. * focal) ) * toDeg << " deg";
+    _status.lock()->setValue( ss.str() );
 }
 
 void
-Solv3DCamera::buildScene(double t, Scene* scene)
+Solv3DVanishingCamera::exportCamera()
 {
-    std::shared_ptr<Camera> c = std::make_shared<Camera>();
-    c->focalLength = _focal.lock()->getValueAtTime(t);
-    c->horizontalAperture = _hAperture.lock()->getValueAtTime(t);
-    c->verticalAperture = _vAperture.lock()->getValueAtTime(t);
-    c->nearClip = _near.lock()->getValueAtTime(t);
-    c->farClip = _far.lock()->getValueAtTime(t);
-    Prim& p = scene->define(primPath(), PrimType::Camera);
-    p.camera = c;
-    p.local = _xf.matrix(t);
-}
-
-StatusEnum
-Solv3DCamera::getRegionOfDefinition(U64 hash, double time, const RenderScale & scale, ViewIdx view, RectD* rod)
-{
-    EffectInstancePtr bg = getInput(0);
-    if (bg) {
-        bool isProjectFormat = false;
-
-        return bg->getRegionOfDefinition_public(bg->getRenderHash(), time, scale, view, rod, &isProjectFormat);
+    NodePtr thisNode = getNode();
+    AppInstancePtr app = getApp();
+    if (!thisNode || !app) {
+        return;
     }
-
-    return Solv3DNode::getRegionOfDefinition(hash, time, scale, view, rod);
-}
-
-void
-Solv3DCamera::getRegionsOfInterest(double, const RenderScale &, const RectD &, const RectD & renderWindow, ViewIdx, RoIMap* ret)
-{
-    ret->clear();
-    EffectInstancePtr bg = getInput(0);
-    if (bg) {
-        (*ret)[bg] = renderWindow;
+    CreateNodeArgs args( PLUGINID_SOLV3D_CAMERA, thisNode->getGroup() );
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    NodePtr cam = app->createNode(args);
+    if (!cam) {
+        return;
     }
-}
-
-StatusEnum
-Solv3DCamera::render(const RenderActionArgs& args)
-{
-    EffectInstancePtr bg = getInput(0);
-    for (std::list<std::pair<ImagePlaneDesc, ImagePtr> >::const_iterator it = args.outputPlanes.begin(); it != args.outputPlanes.end(); ++it) {
-        it->second->fillZero(args.roi);
-        if (!bg) {
+    double pos[2], size[2];
+    thisNode->getPosition(&pos[0], &pos[1]);
+    thisNode->getSize(&size[0], &size[1]);
+    cam->setPosition(pos[0] + size[0] * 1.6, pos[1]);
+    const bool linked = _exportMode.lock()->getValue() == 0;
+    // the solve uses rotation order XYZ and SRT
+    KnobChoicePtr ro = std::dynamic_pointer_cast<KnobChoice>( cam->getKnobByName("rot_order") );
+    if (ro) {
+        ro->setValue(0);
+    }
+    KnobChoicePtr xo = std::dynamic_pointer_cast<KnobChoice>( cam->getKnobByName("xform_order") );
+    if (xo) {
+        xo->setValue(0);
+    }
+    struct Pair { const char* camKnob; KnobDoublePtr src; int dims; };
+    const Pair pairs[5] = {
+        { "translate", _rTranslate.lock(), 3 }, { "rotate", _rRotate.lock(), 3 }, { "focal", _rFocal.lock(), 1 },
+        { "haperture", _hAperture.lock(), 1 }, { "vaperture", _rVAperture.lock(), 1 }
+    };
+    for (int i = 0; i < 5; ++i) {
+        KnobDoublePtr dst = std::dynamic_pointer_cast<KnobDouble>( cam->getKnobByName(pairs[i].camKnob) );
+        if ( !dst || !pairs[i].src ) {
             continue;
         }
-        RectI roiPixel;
-        ImagePtr src = getImage(0, args.time, args.originalScale, args.view, NULL, &it->first, false, true, eStorageModeRAM, 0, &roiPixel);
-        if (src) {
-            it->second->pasteFrom( *src, args.roi, false );
+        for (int d = 0; d < pairs[i].dims; ++d) {
+            if (linked) {
+                dst->slaveTo(d, pairs[i].src, d);
+            } else {
+                dst->setValue(pairs[i].src->getValue(d), ViewSpec::all(), d);
+            }
         }
     }
-
-    return eStatusOK;
 }
 
 static const float kAxisCol[3][3] = { { 0.93f, 0.33f, 0.31f }, { 0.4f, 0.85f, 0.42f }, { 0.36f, 0.55f, 1.f } };
 
 void
-Solv3DCamera::drawOverlay(double /*time*/, const RenderScale & /*renderScale*/, ViewIdx /*view*/)
+Solv3DVanishingCamera::drawOverlay(double /*time*/, const RenderScale & /*renderScale*/, ViewIdx /*view*/)
 {
-    if ( !_editLines.lock()->getValue() ) {
-        return;
-    }
-    double psx = 1., psy = 1.;
-    OverlaySupport* ov = getCurrentViewportForOverlays();
-    if (ov) {
-        ov->getPixelScale(psx, psy);
+    // first use: put the lines somewhere sensible
+    KnobDoublePtr l0 = _lines[0].lock();
+    if ( (l0->getValue(0) == 0.) && (l0->getValue(2) == 0.) ) {
+        resetLines();
     }
     GLProtectAttrib a(GL_ENABLE_BIT | GL_LINE_BIT | GL_COLOR_BUFFER_BIT | GL_POINT_BIT | GL_CURRENT_BIT);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_LINE_SMOOTH);
     glEnable(GL_POINT_SMOOTH);
+    const int mode = _axes.lock()->getValue();
     for (int i = 0; i < 6; ++i) {
+        const int axis = i / 2;
+        const bool used = (axis == 0) || (mode == 2) || (axis == 1 && mode == 1) || (axis == 2 && mode == 0);
         KnobDoublePtr k = _lines[i].lock();
-        const float* c = kAxisCol[i / 2];
+        const float* c = kAxisCol[axis];
+        const float alpha = used ? 1.f : 0.3f;
         const double x1 = k->getValue(0), y1 = k->getValue(1), x2 = k->getValue(2), y2 = k->getValue(3);
         // extended guide (dim) so the convergence is visible
         const double dx = x2 - x1, dy = y2 - y1;
         glLineWidth(1.f);
-        glColor4f(c[0], c[1], c[2], 0.35f);
+        glColor4f(c[0], c[1], c[2], 0.35f * alpha);
         glBegin(GL_LINES);
         glVertex2d(x1 - dx * 3., y1 - dy * 3.);
         glVertex2d(x2 + dx * 3., y2 + dy * 3.);
         glEnd();
         glLineWidth(2.f);
-        glColor4f(c[0], c[1], c[2], 1.f);
+        glColor4f(c[0], c[1], c[2], alpha);
         glBegin(GL_LINES);
         glVertex2d(x1, y1);
         glVertex2d(x2, y2);
@@ -611,21 +873,17 @@ Solv3DCamera::drawOverlay(double /*time*/, const RenderScale & /*renderScale*/, 
             if (_drag == i * 2 + e) {
                 glColor4f(1.f, 0.82f, 0.34f, 1.f);
             } else {
-                glColor4f(c[0], c[1], c[2], 1.f);
+                glColor4f(c[0], c[1], c[2], alpha);
             }
             glVertex2d(e ? x2 : x1, e ? y2 : y1);
         }
         glEnd();
     }
-    (void)psx; (void)psy;
 }
 
 bool
-Solv3DCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF & pos, double, double, PenType)
+Solv3DVanishingCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF & pos, double, double, PenType)
 {
-    if ( !_editLines.lock()->getValue() ) {
-        return false;
-    }
     double psx = 1., psy = 1.;
     OverlaySupport* ov = getCurrentViewportForOverlays();
     if (ov) {
@@ -649,7 +907,7 @@ Solv3DCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, const QPoin
 }
 
 bool
-Solv3DCamera::onOverlayPenMotion(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF & pos, double, double)
+Solv3DVanishingCamera::onOverlayPenMotion(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF & pos, double, double)
 {
     if (_drag < 0) {
         return false;
@@ -663,7 +921,7 @@ Solv3DCamera::onOverlayPenMotion(double, const RenderScale &, ViewIdx, const QPo
 }
 
 bool
-Solv3DCamera::onOverlayPenUp(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF &, double, double)
+Solv3DVanishingCamera::onOverlayPenUp(double, const RenderScale &, ViewIdx, const QPointF &, const QPointF &, double, double)
 {
     if (_drag < 0) {
         return false;
@@ -681,6 +939,7 @@ Solv3DTransformGeo::initializeKnobs()
     _xf.create(this, page);
 }
 
+
 void
 Solv3DTransformGeo::buildScene(double t, Scene* scene)
 {
@@ -691,6 +950,7 @@ Solv3DTransformGeo::buildScene(double t, Scene* scene)
     Prim* root = r.find( primPath() );
     if (root) {
         root->local = _xf.matrix(t);
+        root->node = nodeName();
     }
     scene->merge(r);
 }
@@ -745,6 +1005,8 @@ void
 Solv3DReadGeo::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "ReadGeo");
+    _geo.create(this, page);
+    makeDivider(this, page, "geo_divider");
     KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string("file") );
     f->setName("file");
     f->setHintToolTip( std::string(".obj or .abc file") );
@@ -768,6 +1030,7 @@ Solv3DReadGeo::initializeKnobs()
     info->setIsPersistent(false);
     page->addKnob(info);
     _info = info;
+    makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
 }
 
@@ -833,6 +1096,7 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
     if (root) {
         root->local = _xf.matrix(t);
     }
+    _geo.apply( &r, t, nodeName(), primPath() );
     scene->merge(r);
 }
 
@@ -915,6 +1179,12 @@ void
 Solv3DProject3D::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "Project3D");
+    const char* po[3] = { "both", "front", "back" };
+    _projectOn = makeChoice(this, page, "project_on", "project on", std::vector<std::string>(po, po + 3), 0,
+                            "Which faces get the image, as seen from the projection camera: both, only the faces turned towards it, or only the ones turned away.");
+    const char* oc[2] = { "none", "self" };
+    _occlusion = makeChoice(this, page, "occlusion_mode", "occlusion mode", std::vector<std::string>(oc, oc + 2), 0,
+                            "self: surfaces hidden from the projection camera by other geometry get nothing (no projection through objects).");
     KnobBoolPtr crop = AppManager::createKnob<KnobBool>( this, std::string("crop") );
     crop->setName("crop");
     crop->setDefaultValue(true);
@@ -961,9 +1231,15 @@ Solv3DProject3D::buildScene(double t, Scene* scene)
         aspect = rod.width() / rod.height();
     }
     Projection pr;
-    pr.viewProj = cp->camera->projection(aspect) * cs.worldMatrix(camPath).inverse();
+    const Mat4 camWorld = cs.worldMatrix(camPath);
+    pr.viewProj = cp->camera->projection(aspect) * camWorld.inverse();
     pr.texture = texRef(img);
     pr.crop = _crop.lock()->getValueAtTime(t);
+    pr.projectOn = _projectOn.lock()->getValueAtTime(t);
+    pr.occlusion = _occlusion.lock()->getValueAtTime(t) == 1;
+    pr.origin = camWorld.point( Vec3() );
+    pr.forward = normalize( camWorld.vector( Vec3(0, 0, -1) ) );
+    pr.orthographic = cp->camera->projectionMode == 1;
     for (auto& kv : scene->prims()) {
         if (kv.second.mesh) {
             std::shared_ptr<Mesh> m = std::make_shared<Mesh>(*kv.second.mesh);
@@ -1052,57 +1328,39 @@ void
 Solv3DScanline::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "ScanlineRender");
-    KnobChoicePtr out = AppManager::createKnob<KnobChoice>( this, std::string("output") );
-    out->setName("output");
-    {
-        std::vector<ChoiceOption> o;
-        o.push_back( ChoiceOption("rgba", "rgba", "") );
-        o.push_back( ChoiceOption("depth", "depth (distance to camera)", "") );
-        o.push_back( ChoiceOption("position", "world position", "") );
-        o.push_back( ChoiceOption("normal", "world normal", "") );
-        o.push_back( ChoiceOption("uv", "uv", "") );
-        out->populateChoices(o);
-    }
-    out->setDefaultValue(0);
-    page->addKnob(out);
-    _output = out;
-    KnobChoicePtr smp = AppManager::createKnob<KnobChoice>( this, std::string("samples") );
-    smp->setName("samples");
-    {
-        std::vector<ChoiceOption> o;
-        const char* n[8] = { "1", "4", "9", "16", "25", "36", "49", "64" };
-        for (int i = 0; i < 8; ++i) {
-            o.push_back( ChoiceOption(n[i], n[i], "") );
-        }
-        smp->populateChoices(o);
-    }
-    smp->setDefaultValue(3);
-    smp->setHintToolTip( std::string("Samples per pixel (anti-aliasing). 16 is a good default, 64 for final hard edges.") );
-    page->addKnob(smp);
-    _samples = smp;
-    KnobChoicePtr flt = AppManager::createKnob<KnobChoice>( this, std::string("filter") );
-    flt->setName("filter");
-    {
-        std::vector<ChoiceOption> o;
-        o.push_back( ChoiceOption("box", "box", "Sharpest, can alias.") );
-        o.push_back( ChoiceOption("triangle", "triangle", "Soft.") );
-        o.push_back( ChoiceOption("gaussian", "gaussian", "Softest, no ringing.") );
-        o.push_back( ChoiceOption("mitchell", "Mitchell", "Sharp and clean (slight ringing on hard edges).") );
-        o.push_back( ChoiceOption("blackmanharris", "Blackman-Harris", "Clean, smooth edges (default).") );
-        flt->populateChoices(o);
-    }
-    flt->setDefaultValue(4);
-    flt->setAddNewLine(false);
-    page->addKnob(flt);
-    _filter = flt;
-    _filterWidth = makeDouble(this, page, "filter_width", "filter width", 1, 2., 1., 4., "Filter diameter in pixels.");
-    KnobBoolPtr tf = AppManager::createKnob<KnobBool>( this, std::string("texture filtering") );
-    tf->setName("texture_filtering");
-    tf->setDefaultValue(true);
-    tf->setHintToolTip( std::string("Mip-mapped textures: no shimmering when textures are small on screen.") );
-    page->addKnob(tf);
-    _texFilter = tf;
+    _transparency = makeBool(this, page, "transparency", "transparency", true,
+                             "Keep the alpha of the textures (holes in cards). Off: every surface is opaque.", false);
+    _zBuffer = makeBool(this, page, "ztest_enabled", "Z-buffer", true,
+                        "Hide what is behind other surfaces. Off: later objects draw over earlier ones.");
+    const char* outs[5] = { "rgba", "depth (distance to camera)", "world position", "world normal", "uv" };
+    _output = makeChoice(this, page, "output", "output", std::vector<std::string>(outs, outs + 5), 0,
+                         "rgba, or a data pass for comp work.");
+    const char* pm[5] = { "render camera", "perspective", "orthographic", "uv", "spherical" };
+    _projMode = makeChoice(this, page, "projection_mode", "projection mode", std::vector<std::string>(pm, pm + 5), 0,
+                           "render camera: as the camera is set. perspective / orthographic: forces it. uv: unwraps the geometry "
+                           "(the 0..1 uv square fills the format, for baking projections into textures). spherical: lat-long "
+                           "around the camera position (environment maps).");
+    KnobIntPtr os = AppManager::createKnob<KnobInt>( this, std::string("overscan") );
+    os->setName("overscan");
+    os->setDefaultValue(0);
+    os->setDisplayMinimum(0);
+    os->setDisplayMaximum(500);
+    os->setHintToolTip( std::string("Pixels rendered outside the format on every side (for distortion or blur later).") );
+    page->addKnob(os);
+    _overscan = os;
     _ambient = makeDouble(this, page, "ambient", "ambient", 1, 0.15, 0., 1., "Minimum light on lit surfaces facing away from the camera.");
+
+    KnobPagePtr ms = makePage(this, "MultiSample");
+    const char* n[8] = { "1", "4", "9", "16", "25", "36", "49", "64" };
+    _samples = makeChoice(this, ms, "samples", "samples", std::vector<std::string>(n, n + 8), 3,
+                          "Samples per pixel (anti-aliasing). 16 is a good default, 64 for final hard edges.");
+    const char* fl[5] = { "box", "triangle", "gaussian", "Mitchell", "Blackman-Harris" };
+    _filter = makeChoice(this, ms, "filter", "filter", std::vector<std::string>(fl, fl + 5), 4,
+                         "box: sharpest, can alias. triangle: soft. gaussian: softest. Mitchell: sharp, slight ringing. "
+                         "Blackman-Harris: clean smooth edges (default).");
+    _filterWidth = makeDouble(this, ms, "filter_width", "filter width", 1, 2., 1., 4., "Filter diameter in pixels.");
+    _texFilter = makeBool(this, ms, "texture_filtering", "texture filtering", true,
+                          "Mip-mapped textures: no shimmering when textures are small on screen.");
 }
 
 void
@@ -1116,13 +1374,19 @@ StatusEnum
 Solv3DScanline::getRegionOfDefinition(U64 hash, double time, const RenderScale & scale, ViewIdx view, RectD* rod)
 {
     EffectInstancePtr bg = getInput(2);
+    StatusEnum st = eStatusOK;
     if (bg) {
         bool isProjectFormat = false;
-
-        return bg->getRegionOfDefinition_public(bg->getRenderHash(), time, scale, view, rod, &isProjectFormat);
+        st = bg->getRegionOfDefinition_public(bg->getRenderHash(), time, scale, view, rod, &isProjectFormat);
+    } else {
+        st = Solv3DNode::getRegionOfDefinition(hash, time, scale, view, rod);
+    }
+    const int o = _overscan.lock() ? _overscan.lock()->getValueAtTime(time) : 0;
+    if ( (st != eStatusFailed) && (o > 0) ) {
+        rod->x1 -= o; rod->y1 -= o; rod->x2 += o; rod->y2 += o;
     }
 
-    return Solv3DNode::getRegionOfDefinition(hash, time, scale, view, rod);
+    return st;
 }
 
 void
@@ -1277,6 +1541,9 @@ Solv3DScanline::render(const RenderActionArgs& args)
     st.textureFiltering = _texFilter.lock()->getValueAtTime(t);
     st.output = (ScanlineOutput)_output.lock()->getValueAtTime(t);
     st.ambient = _ambient.lock()->getValueAtTime(t);
+    st.transparency = _transparency.lock()->getValueAtTime(t);
+    st.zBuffer = _zBuffer.lock()->getValueAtTime(t);
+    st.projectionMode = _projMode.lock()->getValueAtTime(t);
     std::vector<float> buf;
     scanlineRender(scene, camPath, st,
                    [&](const std::shared_ptr<void>& h) -> const TexImage* {

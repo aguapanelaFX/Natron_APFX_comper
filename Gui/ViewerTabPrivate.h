@@ -153,6 +153,9 @@ struct ViewerTabPrivate
     double lastSaturationValue = 1.;
     Button* gainDownButton = nullptr;
     Button* gainUpButton = nullptr;
+    // SOLVFX 3D: 2D / 3D switch (2D, 3D, top, bottom, front, back, right, left) and the 3D view
+    ComboBox* solvViewMode = nullptr;
+    Solv3DView* solv3D = nullptr;
     ComboBox* viewerColorSpace;
     // SOLVFX: OCIO display/views listed in viewerColorSpace (empty = legacy LUT list)
     std::vector<SolvfxOcioViewerShader::DisplayView> ocioViews;

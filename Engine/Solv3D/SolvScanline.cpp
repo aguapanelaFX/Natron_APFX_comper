@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <thread>
 
 namespace Solv3D {
@@ -220,6 +221,7 @@ struct Tri
     double sx[3], sy[3], iw[3], zw[3];
     const Mesh* mesh;
     bool hasUV;
+    bool textured = true; // render mode solid: no texture / projections
     double lodArea = 0.; // uv area / screen area (texture minification), 0 = unknown
 };
 
@@ -249,6 +251,89 @@ toClip(const Mat4& m, const Vec3& p, double* c)
         c[i] = m.m[i][0] * p.x + m.m[i][1] * p.y + m.m[i][2] * p.z + m.m[i][3];
     }
 }
+// depth map seen from a projector (Project3D self occlusion): NDC depth per texel
+struct OcclusionMap
+{
+    int W = 0, H = 0;
+    Mat4 viewProj;
+    std::vector<float> z;
+
+    void build(const Mat4& vp, bool orthographic, const std::vector<std::array<Vec3, 3> >& world, int w, int h)
+    {
+        W = w; H = h; viewProj = vp; ortho = orthographic;
+        z.assign( (size_t)W * H, std::numeric_limits<float>::max() );
+        for (const std::array<Vec3, 3>& t : world) {
+            double c[3][4];
+            bool behind = false;
+            for (int k = 0; k < 3; ++k) {
+                toClip(vp, t[k], c[k]);
+                if (c[k][3] <= 1e-6) {
+                    behind = true;
+                }
+            }
+            if (behind) {
+                continue; // projector near plane: ignore (rare for occluders)
+            }
+            double sx[3], sy[3], sz[3];
+            for (int k = 0; k < 3; ++k) {
+                sx[k] = (c[k][0] / c[k][3] * 0.5 + 0.5) * W;
+                sy[k] = (c[k][1] / c[k][3] * 0.5 + 0.5) * H;
+                sz[k] = linearDepth(c[k]);
+            }
+            const double area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (sy[1] - sy[0]);
+            if (std::fabs(area) < 1e-12) {
+                continue;
+            }
+            const int xa = std::max( 0, (int)std::floor( std::min( sx[0], std::min(sx[1], sx[2]) ) ) );
+            const int xb = std::min( W - 1, (int)std::ceil( std::max( sx[0], std::max(sx[1], sx[2]) ) ) );
+            const int ya = std::max( 0, (int)std::floor( std::min( sy[0], std::min(sy[1], sy[2]) ) ) );
+            const int yb = std::min( H - 1, (int)std::ceil( std::max( sy[0], std::max(sy[1], sy[2]) ) ) );
+            const double ia = 1. / area;
+            for (int y = ya; y <= yb; ++y) {
+                for (int x = xa; x <= xb; ++x) {
+                    const double px = x + 0.5, py = y + 0.5;
+                    const double w0 = ( (sx[1] - px) * (sy[2] - py) - (sx[2] - px) * (sy[1] - py) ) * ia;
+                    const double w1 = ( (sx[2] - px) * (sy[0] - py) - (sx[0] - px) * (sy[2] - py) ) * ia;
+                    const double w2 = 1. - w0 - w1;
+                    if ( (w0 < 0) || (w1 < 0) || (w2 < 0) ) {
+                        continue;
+                    }
+                    // linear depth is not linear in screen space (perspective): interpolate 1/z
+                    const float zz = (float)( ortho ? (w0 * sz[0] + w1 * sz[1] + w2 * sz[2])
+                                                    : 1. / (w0 / sz[0] + w1 / sz[1] + w2 / sz[2]) );
+                    float& d = z[(size_t)y * W + x];
+                    if (zz < d) {
+                        d = zz;
+                    }
+                }
+            }
+        }
+    }
+
+    // true when the point is behind something else seen from the projector
+    bool occluded(const Vec3& P) const
+    {
+        double c[4];
+        toClip(viewProj, P, c);
+        if (c[3] <= 1e-9) {
+            return false;
+        }
+        const double nx = c[0] / c[3], ny = c[1] / c[3], lz = linearDepth(c);
+        const int x = (int)std::floor( (nx * 0.5 + 0.5) * W ), y = (int)std::floor( (ny * 0.5 + 0.5) * H );
+        if ( (x < 0) || (y < 0) || (x >= W) || (y >= H) ) {
+            return false;
+        }
+        const float best = z[(size_t)y * W + x];
+        return lz > best * 1.01 + 1e-4; // 1% relative bias: no self shadowing on curved surfaces
+    }
+
+    bool ortho = false;
+    // distance along the projector axis: w for perspective, z for orthographic (both increase away from it)
+    double linearDepth(const double* c) const
+    {
+        return ortho ? (c[2] + 1.) * 0.5 + 1e-6 : std::max(1e-9, c[3]);
+    }
+};
 } // anon
 
 void
@@ -273,6 +358,11 @@ scanlineRender(const Scene& scene,
             camWorld = scene.worldMatrix(cameraPath);
         }
     }
+    if (s.projectionMode == 1) {
+        cam.projectionMode = 0;
+    } else if (s.projectionMode == 2) {
+        cam.projectionMode = 1;
+    }
     const double fw = s.formatX2 - s.formatX1, fh = s.formatY2 - s.formatY1;
     const double aspect = fw * s.pixelAspect / std::max(1e-9, fh);
     const Mat4 view = camWorld.inverse();
@@ -281,9 +371,19 @@ scanlineRender(const Scene& scene,
 
     // triangles (world space attributes + clip, near-plane clipped)
     std::vector<Tri> tris;
+    std::vector<std::array<Vec3, 3> > occluders; // world triangles (projector self occlusion)
+    bool needOccluders = false;
+    for (const auto& kv : scene.prims()) {
+        if (kv.second.mesh) {
+            for (const Projection& pr : kv.second.mesh->projections) {
+                needOccluders = needOccluders || pr.occlusion;
+            }
+        }
+    }
+    const double farC = std::max(1e-6, cam.farClip);
     for (const auto& kv : scene.prims()) {
         const Prim& p = kv.second;
-        if ( (p.type != PrimType::Mesh) || !p.mesh || !p.visible ) {
+        if ( (p.type != PrimType::Mesh) || !p.mesh || !p.visible || (p.render == 0) ) {
             continue;
         }
         // hidden parent hides children
@@ -314,8 +414,34 @@ scanlineRender(const Scene& scene,
                     v[k].T = m.st[fv[t][k]];
                 }
                 double c[4];
-                toClip(viewProj, v[k].P, c);
+                if (s.projectionMode == 3) {
+                    // uv unwrap: the 0..1 uv square fills the format
+                    c[0] = v[k].T.x * 2. - 1.; c[1] = v[k].T.y * 2. - 1.; c[2] = 0.; c[3] = 1.;
+                } else if (s.projectionMode == 4) {
+                    // spherical: lat-long of the direction from the camera (camera space, -Z forward)
+                    const Vec3 d = view.vector( v[k].P - camPos );
+                    const double len = std::sqrt( dot(d, d) );
+                    const Vec3 n = len > 1e-12 ? d * (1. / len) : Vec3(0, 0, -1);
+                    const double u = 0.5 + std::atan2(n.x, -n.z) / (2. * kPi);
+                    const double vv = 0.5 + std::asin( std::max( -1., std::min(1., n.y) ) ) / kPi;
+                    c[0] = u * 2. - 1.; c[1] = vv * 2. - 1.; c[2] = std::min(1., len / farC) * 2. - 1.; c[3] = 1.;
+                } else {
+                    toClip(viewProj, v[k].P, c);
+                }
                 v[k].cx = c[0]; v[k].cy = c[1]; v[k].cz = c[2]; v[k].cw = c[3];
+            }
+            if (needOccluders) {
+                occluders.push_back( { { v[0].P, v[1].P, v[2].P } } );
+            }
+            if (s.projectionMode == 3 && !hasUV) {
+                continue;
+            }
+            if (s.projectionMode == 4) {
+                // triangles across the lat-long seam would stretch over the whole image: skip them
+                const double u0 = v[0].cx, u1 = v[1].cx, u2 = v[2].cx;
+                if ( std::max( u0, std::max(u1, u2) ) - std::min( u0, std::min(u1, u2) ) > 1. ) {
+                    continue;
+                }
             }
             if (!hasN) {
                 const Vec3 n = normalize( cross(v[1].P - v[0].P, v[2].P - v[0].P) );
@@ -340,6 +466,7 @@ scanlineRender(const Scene& scene,
                 Tri tr;
                 tr.mesh = &m;
                 tr.hasUV = hasUV;
+                tr.textured = p.render != 1;
                 for (int k = 0; k < 3; ++k) {
                     const double iw = 1. / q[k]->cw;
                     // NDC -> format pixels -> output buffer pixels
@@ -357,6 +484,42 @@ scanlineRender(const Scene& scene,
                     tr.lodArea = sa > 1e-12 ? ua / sa : 0.;
                 }
                 tris.push_back(tr);
+            }
+        }
+    }
+
+    // projector depth maps (one per occluding projection)
+    // (Project3D gives every mesh a copy of the same projection: one map per distinct projector)
+    std::map<const Projection*, std::shared_ptr<OcclusionMap> > occMaps;
+    if (needOccluders) {
+        std::vector<std::shared_ptr<OcclusionMap> > built;
+        for (const auto& kv : scene.prims()) {
+            if (!kv.second.mesh) {
+                continue;
+            }
+            for (const Projection& pr : kv.second.mesh->projections) {
+                if (!pr.occlusion) {
+                    continue;
+                }
+                std::shared_ptr<OcclusionMap> found;
+                for (const std::shared_ptr<OcclusionMap>& b : built) {
+                    bool same = true;
+                    for (int i = 0; i < 4 && same; ++i) {
+                        for (int j = 0; j < 4 && same; ++j) {
+                            same = b->viewProj.m[i][j] == pr.viewProj.m[i][j];
+                        }
+                    }
+                    if (same) {
+                        found = b;
+                        break;
+                    }
+                }
+                if (!found) {
+                    found = std::make_shared<OcclusionMap>();
+                    found->build(pr.viewProj, pr.orthographic, occluders, 1024, 1024);
+                    built.push_back(found);
+                }
+                occMaps[&pr] = found;
             }
         }
     }
@@ -426,7 +589,7 @@ scanlineRender(const Scene& scene,
                             continue;
                         }
                         const size_t k = (size_t)y * W + x;
-                        if ( z < depth[k] ) {
+                        if ( !s.zBuffer || (z < depth[k]) ) {
                             depth[k] = (float)z;
                             triId[k] = (int)ti;
                             // perspective-correct barycentrics
@@ -479,7 +642,7 @@ scanlineRender(const Scene& scene,
                         const Material& mt = t.mesh->material;
                         float base[4] = { 1.f, 1.f, 1.f, 1.f };
                         bool textured = false;
-                        if (t.mesh->texture && t.hasUV) {
+                        if (t.textured && t.mesh->texture && t.hasUV) {
                             const TexImage* tex = textures(t.mesh->texture);
                             if (tex) {
                                 const double tw = tex->fx2 - tex->fx1, thh = tex->fy2 - tex->fy1;
@@ -491,11 +654,34 @@ scanlineRender(const Scene& scene,
                                 textured = true;
                             }
                         }
-                        // projections (Project3D): later ones go over earlier ones
+                        // projections (Project3D): later ones go over earlier ones; a projected surface
+                        // without its own texture starts transparent (only the projections show)
+                        if ( !textured && t.textured && !t.mesh->projections.empty() ) {
+                            base[0] = base[1] = base[2] = base[3] = 0.f;
+                            textured = true;
+                        }
                         for (const Projection& pr : t.mesh->projections) {
+                            if (!t.textured) {
+                                break;
+                            }
                             const TexImage* tex = textures(pr.texture);
                             if (!tex) {
                                 continue;
+                            }
+                            if (pr.projectOn != 0) {
+                                // front / back as seen from the projector (geometric normal, not the flipped one)
+                                const Vec3 gN = normalize(t.N[0] * b0 + t.N[1] * b1 + t.N[2] * b2);
+                                const Vec3 toProj = pr.orthographic ? pr.forward * -1. : pr.origin - P;
+                                const bool front = dot(gN, toProj) >= 0.;
+                                if ( front != (pr.projectOn == 1) ) {
+                                    continue;
+                                }
+                            }
+                            if (pr.occlusion) {
+                                std::map<const Projection*, std::shared_ptr<OcclusionMap> >::const_iterator om = occMaps.find(&pr);
+                                if ( (om != occMaps.end()) && om->second->occluded(P) ) {
+                                    continue;
+                                }
                             }
                             double cc[4];
                             toClip(pr.viewProj, P, cc);
@@ -515,6 +701,14 @@ scanlineRender(const Scene& scene,
                             for (int ch = 0; ch < 4; ++ch) {
                                 base[ch] = pc[ch] + base[ch] * (1.f - pc[3]);
                             }
+                        }
+                        if (!s.transparency && textured) {
+                            // opaque: un-premultiply the texture, alpha 1
+                            const float ta = base[3];
+                            for (int ch = 0; ch < 3; ++ch) {
+                                base[ch] = ta > 1e-6f ? base[ch] / ta : 0.f;
+                            }
+                            base[3] = 1.f;
                         }
                         const float a = textured ? base[3] : 1.f;
                         const float bc[3] = { (float)mt.baseColor.x, (float)mt.baseColor.y, (float)mt.baseColor.z };

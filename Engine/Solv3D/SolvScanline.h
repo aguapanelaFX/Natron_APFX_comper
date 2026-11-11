@@ -54,6 +54,11 @@ struct ScanlineSettings
     bool textureFiltering = true;             // mip-mapped textures (no shimmering when small)
     ScanlineOutput output = ScanlineOutput::RGBA;
     double ambient = 0.15;                    // headlight shading floor for lit materials
+    bool transparency = true;                 // keep the texture alpha (off: every surface is opaque)
+    bool zBuffer = true;                      // off: no depth test, later prims draw over earlier ones
+    // 0 render camera, 1 perspective, 2 orthographic (forced on the camera), 3 uv (unwrap: the uv square
+    // fills the format), 4 spherical (lat-long around the camera position)
+    int projectionMode = 0;
     int threads = 0;                          // 0 = hardware concurrency
 };
 

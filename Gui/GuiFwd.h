@@ -211,7 +211,7 @@ class RotoGuiSharedData;
 class RotoPanel;
 class ScaleSliderQWidget;
 class ScriptEditor;
-class Solv3DViewerPanel; // SOLVFX 3D
+class Solv3DView; // SOLVFX 3D (inside ViewerTab)
 class ScriptObject;
 class SelectedKey;
 class SequenceFileDialog;

@@ -212,14 +212,44 @@ Camera::projection(double aspect) const
         p.m[i][i] = 0.;
     }
     const double n = nearClip, f = farClip;
-    p.m[0][0] = 2. * focalLength / ha;
-    p.m[1][1] = 2. * focalLength / va;
-    p.m[0][2] = 2. * horizontalApertureOffset / ha;
-    p.m[1][2] = 2. * verticalApertureOffset / va;
-    // camera looks down -Z (USD / OpenGL)
-    p.m[2][2] = -(f + n) / (f - n);
-    p.m[2][3] = -2. * f * n / (f - n);
-    p.m[3][2] = -1.;
+    if (projectionMode == 1) {
+        // orthographic: view width = horizontal aperture in tenths of a scene unit (UsdGeomCamera)
+        const double w = std::max(1e-9, ha * 0.1), h = std::max(1e-9, va * 0.1);
+        p.m[0][0] = 2. / w;
+        p.m[1][1] = 2. / h;
+        p.m[0][3] = 2. * horizontalApertureOffset / ha;
+        p.m[1][3] = 2. * verticalApertureOffset / va;
+        p.m[2][2] = -2. / (f - n);
+        p.m[2][3] = -(f + n) / (f - n);
+        p.m[3][3] = 1.;
+    } else {
+        p.m[0][0] = 2. * focalLength / ha;
+        p.m[1][1] = 2. * focalLength / va;
+        p.m[0][2] = 2. * horizontalApertureOffset / ha;
+        p.m[1][2] = 2. * verticalApertureOffset / va;
+        // camera looks down -Z (USD / OpenGL)
+        p.m[2][2] = -(f + n) / (f - n);
+        p.m[2][3] = -2. * f * n / (f - n);
+        p.m[3][2] = -1.;
+    }
+    // window (screen-space): roll and zoom around the centre (aspect kept), then shift
+    const bool hasWin = (winTranslate[0] != 0.) || (winTranslate[1] != 0.) || (winScale[0] != 1.) || (winScale[1] != 1.) || (winRoll != 0.);
+    if (hasWin) {
+        const double r = winRoll * 3.14159265358979323846 / 180.;
+        const double c = std::cos(r), s = std::sin(r);
+        const double a = std::max(1e-9, aspect);
+        const double sx = winScale[0] != 0. ? 1. / winScale[0] : 1., sy = winScale[1] != 0. ? 1. / winScale[1] : 1.;
+        Mat4 W; // x' = sx * (c * x - s * y / a), y' = sy * (s * x * a + c * y)   (rotation in square pixels)
+        W.m[0][0] = sx * c;      W.m[0][1] = -sx * s / a;
+        W.m[1][0] = sy * s * a;  W.m[1][1] = sy * c;
+        Mat4 out = W * p;
+        // shift in NDC: x_clip += tx * w_clip (w_clip is the 4th row of p)
+        for (int j = 0; j < 4; ++j) {
+            out.m[0][j] += winTranslate[0] * p.m[3][j];
+            out.m[1][j] += winTranslate[1] * p.m[3][j];
+        }
+        return out;
+    }
 
     return p;
 }
@@ -461,6 +491,9 @@ writePrim(std::ostringstream& o, const Scene& s, const Prim& p, int depth)
         o << in2 << "float horizontalApertureOffset = " << c.horizontalApertureOffset << "\n";
         o << in2 << "float verticalApertureOffset = " << c.verticalApertureOffset << "\n";
         o << in2 << "float2 clippingRange = (" << c.nearClip << ", " << c.farClip << ")\n";
+        o << in2 << "token projection = \"" << (c.projectionMode == 1 ? "orthographic" : "perspective") << "\"\n";
+        o << in2 << "float focusDistance = " << c.focusDistance << "\n";
+        o << in2 << "float fStop = " << c.fStop << "\n";
     }
     for (std::map<std::string, std::string>::const_iterator a = p.attributes.begin(); a != p.attributes.end(); ++a) {
         o << in2 << "custom string " << makeValidName(a->first) << " = \"" << a->second << "\"\n";

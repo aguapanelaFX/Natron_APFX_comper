@@ -105,7 +105,6 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ProjectGuiSerialization.h"
 #include "Gui/PropertiesBinWrapper.h"
 #include "Gui/ProgressPanel.h"
-#include "Gui/Solv3D/Solv3DViewer.h"
 #include "Gui/PythonPanels.h"
 #include "Gui/RightClickableWidget.h"
 #include "Gui/ScriptEditor.h"
@@ -437,17 +436,6 @@ GuiPrivate::createProgressPanelGui()
     _progressPanel->setLabel( tr("Progress").toStdString() );
     _progressPanel->setVisible(false);
     _gui->registerTab(_progressPanel, _progressPanel);
-}
-
-// SOLVFX 3D: dockable 3D Viewer tab (pane menu > 3D Viewer)
-void
-GuiPrivate::createSolv3DViewerGui()
-{
-    _solv3DViewer = new Solv3DViewerPanel(_gui);
-    _solv3DViewer->setScriptName("solv3DViewer");
-    _solv3DViewer->setLabel( tr("3D Viewer").toStdString() );
-    _solv3DViewer->setVisible(false);
-    _gui->registerTab(_solv3DViewer, _solv3DViewer);
 }
 
 TabWidget*
