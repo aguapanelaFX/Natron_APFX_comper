@@ -36,6 +36,8 @@
 #include "Engine/Settings.h"
 #include "Engine/Node.h"
 #include "Engine/TimeLine.h"
+#include "Engine/UndoCommand.h"
+#include "Engine/NodeGuiI.h"
 #include "Engine/ViewerInstance.h"
 #include "Engine/Solv3D/Solv3DNodes.h"
 
@@ -400,6 +402,8 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
             }
         } else if ( (p.type == PrimType::Camera) && p.camera && (kv.first != _lookThrough) ) {
             drawCameraIcon(sel, p.camera->horizontalAperture, p.camera->verticalAperture, p.camera->focalLength);
+        } else if ( (p.type == PrimType::Light) && p.light ) {
+            drawLightIcon(sel, *p.light);
         }
     }
 }
@@ -464,6 +468,70 @@ Solv3DGLWidget::drawCameraIcon(bool sel, double ha, double va, double fl)
     glBegin(GL_TRIANGLES);
     glVertex3d(-w * 0.35, h * 1.08, -0.35 - d); glVertex3d(0, h * 1.4, -0.35 - d); glVertex3d(w * 0.35, h * 1.08, -0.35 - d);
     glEnd();
+}
+
+// light icons (in the light's space, pointing down -Z): point = star, spot = cone, distant = parallel arrows,
+// ambient = ring
+void
+Solv3DGLWidget::drawLightIcon(bool sel, const Light& L)
+{
+    const float lc[3] = { (float)std::min(1., L.color.x * 0.5 + 0.5), (float)std::min(1., L.color.y * 0.5 + 0.5), (float)std::min(1., L.color.z * 0.3 + 0.4) };
+    if (sel) {
+        glColor4f(kSelCol[0], kSelCol[1], kSelCol[2], 1.f);
+    } else {
+        glColor4f(lc[0], lc[1], lc[2], 1.f);
+    }
+    glLineWidth(sel ? 2.f : 1.5f);
+    const double pi2 = 2. * 3.14159265358979323846;
+    auto circle = [&](double r, double z, int axis) {
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < 32; ++i) {
+            const double a = i * pi2 / 32., c = r * std::cos(a), s2 = r * std::sin(a);
+            if (axis == 2) {
+                glVertex3d(c, s2, z);
+            } else if (axis == 1) {
+                glVertex3d(c, z, s2);
+            } else {
+                glVertex3d(z, c, s2);
+            }
+        }
+        glEnd();
+    };
+    if (L.kind == "point") {
+        circle(0.35, 0., 0); circle(0.35, 0., 1); circle(0.35, 0., 2);
+        glBegin(GL_LINES);
+        const double d[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+        for (int i = 0; i < 6; ++i) {
+            glVertex3d(d[i][0] * 0.5, d[i][1] * 0.5, d[i][2] * 0.5);
+            glVertex3d(d[i][0] * 0.9, d[i][1] * 0.9, d[i][2] * 0.9);
+        }
+        glEnd();
+    } else if (L.kind == "spot") {
+        const double len = 2.5, r = len * std::tan( std::min(80., L.coneAngle * 0.5) * 3.14159265358979323846 / 180. );
+        circle(0.2, 0., 2);
+        circle(r, -len, 2);
+        glBegin(GL_LINES);
+        for (int i = 0; i < 4; ++i) {
+            const double a = i * pi2 / 4.;
+            glVertex3d(0, 0, 0);
+            glVertex3d(r * std::cos(a), r * std::sin(a), -len);
+        }
+        glVertex3d(0, 0, 0); glVertex3d(0, 0, -len * 1.2);
+        glEnd();
+    } else if (L.kind == "distant") {
+        glBegin(GL_LINES);
+        for (int i = 0; i < 5; ++i) {
+            const double x = (i % 3 - 1) * 0.4, y = (i / 3 - 0.5) * 0.4 * (i < 3 ? 1 : -1);
+            glVertex3d(x, y, 0.8); glVertex3d(x, y, -1.2);
+            glVertex3d(x, y, -1.2); glVertex3d(x + 0.12, y, -0.95);
+            glVertex3d(x, y, -1.2); glVertex3d(x - 0.12, y, -0.95);
+        }
+        glEnd();
+        circle(0.3, 0.8, 2);
+    } else {
+        circle(0.5, 0., 1);
+        circle(0.3, 0., 1);
+    }
 }
 
 void
@@ -1019,6 +1087,9 @@ Solv3DGLWidget::mouseReleaseEvent(QMouseEvent* e)
     if (_gDrag) {
         _gDrag = 0;
         _dragMode = 0;
+        if (onManipEnd) {
+            onManipEnd();
+        }
         update();
 
         return;
@@ -1088,6 +1159,54 @@ Solv3DGLWidget::keyPressEvent(QKeyEvent* e)
         onPresetChanged(preset);
     }
 }
+
+// one undo step per manipulator drag
+class Solv3DManipUndo
+    : public UndoCommand
+{
+public:
+    Solv3DManipUndo(const KnobDoublePtr& k, const std::vector<double>& before, const std::vector<double>& after, const std::string& what)
+        : UndoCommand("move " + what)
+        , _k(k)
+        , _before(before)
+        , _after(after)
+        , _first(true)
+    {}
+
+    virtual void redo() OVERRIDE FINAL
+    {
+        if (_first) { // the drag already set the values
+            _first = false;
+
+            return;
+        }
+        set(_after);
+    }
+
+    virtual void undo() OVERRIDE FINAL
+    {
+        set(_before);
+    }
+
+private:
+    void set(const std::vector<double>& v)
+    {
+        KnobDoublePtr k = _k.lock();
+        if (!k) {
+            return;
+        }
+        k->beginChanges();
+        for (size_t d = 0; d < v.size(); ++d) {
+            KeyFrame kf;
+            k->setValue(v[d], ViewSpec::all(), (int)d, eValueChangedReasonUserEdited, &kf);
+        }
+        k->endChanges();
+    }
+
+    KnobDoubleWPtr _k;
+    std::vector<double> _before, _after;
+    bool _first;
+};
 
 // ---------------------------------------------------------------- view (bar + GL)
 Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
@@ -1184,8 +1303,35 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         get3("pivot", &x->pivot);
         KnobDoublePtr u = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName("uniform_scale") );
         x->uniform = u ? u->getValue() : 1.;
+        _manipStart = *x;
+        _manipWhat = 0;
 
         return true;
+    };
+    _gl->onManipEnd = [this]() {
+        NodePtr n = gizmoNode();
+        if ( !n || (_manipWhat == 0) ) {
+            return;
+        }
+        const char* name = (_manipWhat == 1) ? "translate" : (_manipWhat == 2) ? "rotate" : (_manipWhat == 3) ? "scaling" : "uniform_scale";
+        KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(name) );
+        NodeGuiIPtr ng = n->getNodeGui();
+        if (!k || !ng) {
+            return;
+        }
+        const Vec3 b = (_manipWhat == 1) ? _manipStart.translate : (_manipWhat == 2) ? _manipStart.rotate : _manipStart.scale;
+        std::vector<double> before, after;
+        if (_manipWhat == 4) {
+            before.push_back(_manipStart.uniform);
+            after.push_back( k->getValue() );
+        } else {
+            before.push_back(b.x); before.push_back(b.y); before.push_back(b.z);
+            for (int d = 0; d < 3; ++d) {
+                after.push_back( k->getValue(d) );
+            }
+        }
+        ng->pushUndoCommand( UndoCommandPtr( new Solv3DManipUndo(k, before, after, name) ) );
+        _manipWhat = 0;
     };
     _gl->onManipSet = [this](int what, const Vec3& v, double uniform) {
         NodePtr n = gizmoNode();
@@ -1197,6 +1343,7 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         if (!k) {
             return;
         }
+        _manipWhat = what;
         // user edit: keys the value when the parameter is animated (auto key)
         const double vals[3] = { v.x, v.y, v.z };
         const int dims = (what == 4) ? 1 : 3;

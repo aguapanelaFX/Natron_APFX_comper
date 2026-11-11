@@ -53,16 +53,36 @@ struct ScanlineSettings
     double filterWidth = 2.;                  // filter diameter in pixels (1 = within the pixel)
     bool textureFiltering = true;             // mip-mapped textures (no shimmering when small)
     ScanlineOutput output = ScanlineOutput::RGBA;
-    double ambient = 0.15;                    // headlight shading floor for lit materials
+    double ambient = 0.15;                    // headlight shading floor for lit materials (no lights in the scene)
     bool transparency = true;                 // keep the texture alpha (off: every surface is opaque)
     bool zBuffer = true;                      // off: no depth test, later prims draw over earlier ones
     // 0 render camera, 1 perspective, 2 orthographic (forced on the camera), 3 uv (unwrap: the uv square
     // fills the format), 4 spherical (lat-long around the camera position)
     int projectionMode = 0;
     int threads = 0;                          // 0 = hardware concurrency
+    int timeSamples = 1;                      // motion blur: time samples (passes are max(samples, timeSamples))
 };
 
 typedef std::function<const TexImage*(const std::shared_ptr<void>&)> TextureResolver;
+
+// extra outputs (each width * height floats, optional)
+struct ScanlineAOV
+{
+    std::vector<float>* depth = nullptr;  // closest surface: 1/z (far = 0) or distance along the view axis
+    bool depthInverse = true;
+    std::vector<float>* shadow = nullptr; // 0 lit .. 1 fully in shadow (anti-aliased)
+};
+
+// motion blur: 'steps' are the scene at sub-frame times across the shutter (one = no blur). Samples are
+// shared between the steps (each step gets its own sub-pixel positions), so blur costs about
+// max(samples, steps) passes instead of samples * steps.
+void scanlineRenderSteps(const std::vector<const Scene*>& steps,
+                         const std::string& cameraPath,
+                         const ScanlineSettings& s,
+                         const TextureResolver& textures,
+                         const TexImage* environment,
+                         std::vector<float>* out,
+                         const ScanlineAOV& aov);
 
 // renders 'scene' through the camera prim 'cameraPath' (or a default camera when empty / missing)
 // into out (width * height * 4, premultiplied rgba)

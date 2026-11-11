@@ -113,11 +113,21 @@ struct Camera
     Mat4 projection(double aspect) const;
 };
 
+// light (UsdLux-shaped). Lights look down -Z of their transform (like cameras).
 struct Light
 {
-    std::string kind = "distant"; // distant, point, dome
+    std::string kind = "point";    // point, spot, distant, ambient, dome
     Vec3 color = Vec3(1, 1, 1);
     double intensity = 1.;
+    int falloff = 0;               // point / spot: 0 none, 1 linear, 2 quadratic
+    double coneAngle = 30.;        // spot: full angle (degrees)
+    double conePenumbra = 5.;      // spot: soft edge width (degrees), centred on the cone edge
+    // shadows (off by default)
+    bool castShadows = false;
+    double shadowSoftness = 0.;    // point / spot: light size (scene units); distant: angular size (degrees)
+    int shadowSamples = 16;        // filter samples (quality)
+    int shadowResolution = 2048;   // shadow map size
+    double shadowBias = 0.1;       // scene units
     std::shared_ptr<void> texture; // dome: environment image handle
 };
 
@@ -130,6 +140,8 @@ struct Prim
     int display = 4;          // viewer: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
     int render = 4;           // ScanlineRender: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
     bool selectable = true;   // can be picked in the 3D viewer
+    bool castShadow = true;   // blocks light (lights with shadows on)
+    bool receiveShadow = true;
     std::string node;         // script name of the node that made the prim (viewer selection / highlight)
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Camera> camera;

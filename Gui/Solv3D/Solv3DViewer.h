@@ -70,6 +70,7 @@ public:
     std::function<bool(Xform* out)> onManipBegin;                      // current knob values
     std::function<void(int what, const Solv3D::Vec3& v, double uniform)> onManipSet; // 1 translate 2 rotate 3 scale 4 uniform
     std::function<void(int mode)> onManipModeChanged;
+    std::function<void()> onManipEnd;                                    // drag finished (undo step)
 
     std::function<void(const std::string& node, bool add)> onPick;     // click on geometry
     std::function<void(int preset)> onPresetChanged;                     // keys changed the view
@@ -93,6 +94,7 @@ private:
     void pollTextures();
     std::string pick(const QPoint& p) const;
     void drawCameraIcon(bool sel, double ha, double va, double fl);
+    void drawLightIcon(bool sel, const Solv3D::Light& L);
     void drawGizmo(const Solv3D::Mat4& P, const Solv3D::Mat4& V);
     // gizmo handle under the mouse: 1..3 axes, 4 centre, 0 none
     int gizmoHandle(const QPoint& p) const;
@@ -167,6 +169,8 @@ private:
     void pickNode(const std::string& name, bool add);
     NodePtr gizmoNode() const;
     std::string _gizmoNode;
+    Solv3DGLWidget::Xform _manipStart;
+    int _manipWhat = 0;
 
     ViewerTab* _viewer;
     Gui* _gui;

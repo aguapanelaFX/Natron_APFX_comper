@@ -15,6 +15,7 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <cstring>
 
 #include <QApplication>
 
@@ -38,6 +39,7 @@
 #include "Engine/Solv3D/SolvVanishingCamera.h"
 #include "Engine/Solv3D/SolvCameraPresets.h"
 #include "Engine/Solv3D/SolvLineAlign.h"
+#include "Engine/Solv3D/SolvUsd.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -226,6 +228,8 @@ Solv3DGeoKnobs::create(EffectInstance* fx, const KnobPagePtr& page)
     display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
                          "How it is drawn in the 3D viewer (does not change the render).", false);
     selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
+    castShadow = makeBool(fx, page, "cast_shadow", "cast shadow", true, "Blocks the light of lights with shadows on.", false);
+    receiveShadow = makeBool(fx, page, "receive_shadow", "receive shadow", true, "Shadows fall on it.");
     render = makeChoice(fx, page, "render_mode", "render", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
                         "How ScanlineRender draws it: off, wireframe (edges in the colour), solid (colour, no texture / projections), "
                         "solid+lines, textured (everything), textured+lines (dark edges over the surface).");
@@ -237,6 +241,8 @@ Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std
     const int d = display.lock() ? display.lock()->getValueAtTime(t) : 4;
     const int r = render.lock() ? render.lock()->getValueAtTime(t) : 4;
     const bool sel = selectable.lock() ? selectable.lock()->getValueAtTime(t) : true;
+    const bool cs = castShadow.lock() ? castShadow.lock()->getValueAtTime(t) : true;
+    const bool rs = receiveShadow.lock() ? receiveShadow.lock()->getValueAtTime(t) : true;
     for (auto& kv : scene->prims()) {
         const std::string& path = kv.first;
         if ( !root.empty() && (path != root) && (path.compare(0, root.size() + 1, root + "/") != 0) ) {
@@ -245,6 +251,8 @@ Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std
         kv.second.display = d;
         kv.second.render = r;
         kv.second.selectable = sel;
+        kv.second.castShadow = cs;
+        kv.second.receiveShadow = rs;
         kv.second.node = node;
     }
 }
@@ -490,6 +498,117 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
     _geo.apply( scene, t, nodeName(), primPath() );
 }
 
+// ============================================================================ Lights
+std::string
+Solv3DLight::getPluginID() const
+{
+    switch (_kind) {
+    case eSpot: return PLUGINID_SOLV3D_SPOTLIGHT;
+    case eDirectional: return PLUGINID_SOLV3D_DIRLIGHT;
+    case eAmbient: return PLUGINID_SOLV3D_AMBIENTLIGHT;
+    default: return PLUGINID_SOLV3D_POINTLIGHT;
+    }
+}
+
+std::string
+Solv3DLight::getPluginLabel() const
+{
+    switch (_kind) {
+    case eSpot: return "Spotlight";
+    case eDirectional: return "DirectLight";
+    case eAmbient: return "AmbientLight";
+    default: return "PointLight";
+    }
+}
+
+std::string
+Solv3DLight::getPluginDescription() const
+{
+    switch (_kind) {
+    case eSpot:
+        return "Spotlight: shines down its -Z axis in a cone (cone angle, soft edge = penumbra). Shadows are off by default; "
+               "'softness' is the size of the light (bigger = softer shadows away from the contact).";
+    case eDirectional:
+        return "Directional light (sun): parallel light along its -Z axis, only the rotation matters. Shadows are off by default; "
+               "'softness' is the angular size of the light in degrees (the sun is about 0.5).";
+    case eAmbient:
+        return "Ambient light: the same light everywhere, no direction and no shadows.";
+    default:
+        return "Point light: shines in all directions from its position. Shadows are off by default; 'softness' is the size "
+               "of the light (bigger = softer shadows away from the contact).";
+    }
+}
+
+void
+Solv3DLight::initializeKnobs()
+{
+    KnobPagePtr page = makePage( this, getPluginLabel().c_str() );
+    _display = makeChoice(this, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 1,
+                          "off hides the light in the 3D viewer.");
+    KnobColorPtr col = AppManager::createKnob<KnobColor>( this, std::string("color"), 3 );
+    col->setName("color");
+    for (int d = 0; d < 3; ++d) {
+        col->setDefaultValue(1., d);
+    }
+    page->addKnob(col);
+    _color = col;
+    _intensity = makeDouble(this, page, "intensity", "intensity", 1, 1., 0., 10.);
+    if ( (_kind == ePoint) || (_kind == eSpot) ) {
+        const char* fo[3] = { "none", "linear", "quadratic" };
+        _falloff = makeChoice(this, page, "falloff_type", "falloff", std::vector<std::string>(fo, fo + 3), 0,
+                              "How the light gets weaker with distance (quadratic = physical; raise the intensity).");
+    }
+    if (_kind == eSpot) {
+        _cone = makeDouble(this, page, "cone_angle", "cone angle", 1, 30., 1., 170., "Full angle of the cone (degrees).");
+        _penumbra = makeDouble(this, page, "cone_penumbra_angle", "cone penumbra", 1, 5., 0., 60., "Width of the soft edge of the cone (degrees).");
+    }
+    if (_kind != eAmbient) {
+        KnobGroupPtr sh = makeGroup(this, page, "shadows", "Shadows", false);
+        _castShadows = makeBool(this, sh, "cast_shadows", "cast shadows", false, "Off by default (faster). On: soft shadow maps.");
+        _softness = makeDouble(this, sh, "shadow_softness", "softness", 1, _kind == eDirectional ? 0.5 : 0., 0., _kind == eDirectional ? 10. : 50.,
+                               _kind == eDirectional ? "Angular size of the light (degrees): 0 = hard, the sun is about 0.5." :
+                               "Size of the light (scene units, 1 = 1 cm): 0 = hard. Shadows stay sharp at the contact and soften with distance.");
+        const char* q[4] = { "low (8)", "medium (16)", "high (32)", "very high (64)" };
+        _shadowQuality = makeChoice(this, sh, "shadow_quality", "quality", std::vector<std::string>(q, q + 4), 1,
+                                    "Filter samples per shading sample (anti-aliasing samples add more).");
+        const char* r[4] = { "1024", "2048", "4096", "8192" };
+        _shadowRes = makeChoice(this, sh, "shadow_resolution", "resolution", std::vector<std::string>(r, r + 4), 1,
+                                "Shadow map size. Raise it for large scenes with small details.");
+        _bias = makeDouble(this, sh, "shadow_bias", "bias", 1, 0.1, 0., 5., "Pushes the shadow away from the surface (fixes dark speckles on lit surfaces).");
+    }
+    makeDivider(this, page, "xform_divider");
+    _xf.create(this, page, 4);
+}
+
+void
+Solv3DLight::buildScene(double t, Scene* scene)
+{
+    std::shared_ptr<Light> L = std::make_shared<Light>();
+    L->kind = (_kind == eSpot) ? "spot" : (_kind == eDirectional) ? "distant" : (_kind == eAmbient) ? "ambient" : "point";
+    KnobColorPtr c = _color.lock();
+    L->color = Vec3( c->getValueAtTime(t, 0), c->getValueAtTime(t, 1), c->getValueAtTime(t, 2) );
+    L->intensity = _intensity.lock()->getValueAtTime(t);
+    if ( _falloff.lock() ) {
+        L->falloff = _falloff.lock()->getValueAtTime(t);
+    }
+    if ( _cone.lock() ) {
+        L->coneAngle = _cone.lock()->getValueAtTime(t);
+        L->conePenumbra = _penumbra.lock()->getValueAtTime(t);
+    }
+    if ( _castShadows.lock() ) {
+        L->castShadows = _castShadows.lock()->getValueAtTime(t);
+        L->shadowSoftness = _softness.lock()->getValueAtTime(t);
+        L->shadowSamples = 8 << _shadowQuality.lock()->getValueAtTime(t);
+        L->shadowResolution = 1024 << _shadowRes.lock()->getValueAtTime(t);
+        L->shadowBias = _bias.lock()->getValueAtTime(t);
+    }
+    Prim& p = scene->define(primPath(), PrimType::Light);
+    p.light = L;
+    p.local = _xf.matrix(t);
+    p.display = _display.lock()->getValueAtTime(t);
+    p.node = nodeName();
+}
+
 // ============================================================================ Camera
 std::string
 Solv3DCamera::getPluginDescription() const
@@ -614,10 +733,14 @@ Solv3DVanishingCamera::initializeKnobs()
     add->setAddNewLine(false);
     vp->addKnob(add);
     _addLine = add;
+    _drawMode = makeBool(this, vp, "draw_lines", "draw lines", false,
+                         "On: click-drag on an empty part of the plate draws a new line (no Ctrl needed). Turn it off to "
+                         "only move existing lines.", false);
+    _drawMode.lock()->setEvaluateOnChange(false);
     KnobStringPtr hint = AppManager::createKnob<KnobString>( this, std::string("") );
     hint->setName("lines_hint");
     hint->setAsLabel();
-    hint->setDefaultValue("Ctrl+drag on the plate draws a line. Red X, green Y, blue Z; arrows on on-axis lines.");
+    hint->setDefaultValue("Draw: 'draw lines' on, or Ctrl+drag. Red X, green Y, blue Z; arrows on on-axis lines.");
     hint->setIsPersistent(false);
     vp->addKnob(hint);
     for (int i = 0; i < kMaxLines; ++i) {
@@ -1113,8 +1236,8 @@ Solv3DVanishingCamera::onOverlayPenDown(double, const RenderScale &, ViewIdx, co
 
         return true;
     }
-    // Ctrl + drag on empty plate: new line
-    if ( QApplication::keyboardModifiers() & Qt::ControlModifier ) {
+    // draw mode, or Ctrl + drag on empty plate: new line
+    if ( _drawMode.lock()->getValue() || (QApplication::keyboardModifiers() & Qt::ControlModifier) ) {
         addLine( pos.x(), pos.y(), pos.x(), pos.y() );
         if (_selLine >= 0) {
             _drag = _selLine * 2 + 1;
@@ -1267,9 +1390,11 @@ Solv3DReadGeo::Solv3DReadGeo(NodePtr n)
 std::string
 Solv3DReadGeo::getPluginDescription() const
 {
-    return std::string("Reads geometry: OBJ (meshes with uv / normals) and ") +
-           ( alembicAvailable() ? "Alembic (.abc: animated meshes, xforms and cameras, read at the current frame)." : "Alembic (not in this build)." ) +
-           " The img input is used as the texture of all its meshes. USD import comes with the USD bridge.";
+    return std::string("Reads geometry: OBJ (meshes with uv / normals), ") +
+           ( alembicAvailable() ? "Alembic (.abc: animated meshes, xforms and cameras, read at the current frame)" : "Alembic (not in this build)" ) +
+           ( usdAvailable() ? " and USD (.usd .usda .usdc .usdz: meshes, cameras, lights, animation, UsdPreviewSurface values; "
+                              "converted to 1 unit = 1 cm, Y up)." : " and USD (bridge not installed)." ) +
+           " The img input is used as the texture of all its meshes.";
 }
 
 void
@@ -1280,7 +1405,7 @@ Solv3DReadGeo::initializeKnobs()
     makeDivider(this, page, "geo_divider");
     KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string("file") );
     f->setName("file");
-    f->setHintToolTip( std::string(".obj or .abc file") );
+    f->setHintToolTip( std::string(".obj, .abc, .usd, .usda, .usdc or .usdz file") );
     f->setAnimationEnabled(false);
     page->addKnob(f);
     _file = f;
@@ -1328,15 +1453,18 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
     std::string lower = file;
     std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
     const bool isAbc = lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".abc") == 0;
+    const bool isUsd = (lower.find(".usd") != std::string::npos) && (lower.rfind(".usd") >= lower.size() - 5);
     const double ft = t + _frameOffset.lock()->getValueAtTime(t);
     Scene loaded;
     {
         std::lock_guard<std::mutex> l(_cache->m);
-        if ( (_cache->file != file) || (isAbc && _cache->time != ft) ) {
+        if ( (_cache->file != file) || ( (isAbc || isUsd) && (_cache->time != ft) ) ) {
             _cache->scene = Scene();
             _cache->error.clear();
             bool ok;
-            if (isAbc) {
+            if (isUsd) {
+                ok = readUsd(file, ft, "/geo", &_cache->scene, &_cache->error);
+            } else if (isAbc) {
                 const double fps = std::max( 1., getApp()->getProjectFrameRate() );
                 ok = readAlembic(file, ft / fps, "/geo", &_cache->scene, &_cache->error);
             } else {
@@ -1375,8 +1503,9 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
 std::string
 Solv3DWriteGeo::getPluginDescription() const
 {
-    return "Writes the 3D input to a file at the current frame: .usda (USD text, opens in any USD application) or "
-           ".abc (Alembic). Press 'write'.";
+    return "Writes the 3D input to a file: .usd / .usdc (binary USD), .usda (text USD), .usdz (packed USD) or .abc (Alembic, "
+           "current frame). USD files can hold the animation of a frame range (meshes, cameras, lights, transforms, "
+           "UsdPreviewSurface values), 1 unit = 1 cm, Y up. Press 'write'.";
 }
 
 void
@@ -1385,10 +1514,26 @@ Solv3DWriteGeo::initializeKnobs()
     KnobPagePtr page = makePage(this, "WriteGeo");
     KnobOutputFilePtr f = AppManager::createKnob<KnobOutputFile>( this, std::string("file") );
     f->setName("file");
-    f->setHintToolTip( std::string(".usda or .abc") );
+    f->setHintToolTip( std::string(".usd, .usdc, .usda, .usdz or .abc") );
     f->setAnimationEnabled(false);
     page->addKnob(f);
     _file = f;
+    const char* rg[3] = { "current frame", "project range", "custom" };
+    _range = makeChoice(this, page, "frame_range", "frame range", std::vector<std::string>(rg, rg + 3), 0,
+                        "USD: the frames written as animation. Alembic always writes the current frame.");
+    KnobIntPtr fi = AppManager::createKnob<KnobInt>( this, std::string("first") );
+    fi->setName("first_frame");
+    fi->setDefaultValue(1);
+    fi->disableSlider();
+    fi->setAddNewLine(false);
+    page->addKnob(fi);
+    _first = fi;
+    KnobIntPtr la = AppManager::createKnob<KnobInt>( this, std::string("last") );
+    la->setName("last_frame");
+    la->setDefaultValue(100);
+    la->disableSlider();
+    page->addKnob(la);
+    _last = la;
     KnobButtonPtr w = AppManager::createKnob<KnobButton>( this, std::string("write") );
     w->setName("write");
     page->addKnob(w);
@@ -1409,25 +1554,54 @@ Solv3DWriteGeo::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double t
     }
     std::string file = _file.lock()->getValue();
     if ( file.empty() ) {
-        setPersistentMessage(eMessageTypeError, "Set the output file first (.usda or .abc).");
+        setPersistentMessage(eMessageTypeError, "Set the output file first (.usd, .usdc, .usda, .usdz or .abc).");
 
         return true;
     }
-    Scene s;
-    buildScene(time, &s);
     std::string lower = file;
     std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
+    auto ends = [&](const char* e) {
+        const size_t n = std::strlen(e);
+
+        return (lower.size() > n) && (lower.compare(lower.size() - n, n, e) == 0);
+    };
     std::string err;
     bool ok;
-    if ( (lower.size() > 4) && (lower.compare(lower.size() - 4, 4, ".abc") == 0) ) {
+    if ( ends(".abc") ) {
+        Scene s;
+        buildScene(time, &s);
         ok = writeAlembic(file, s, &err);
-    } else {
+    } else if ( ends(".usda") && !usdAvailable() ) {
+        // built-in text writer (current frame) when the bridge is not installed
+        Scene s;
+        buildScene(time, &s);
         std::ofstream o( file.c_str() );
-        o << s.toUsda(0.01); // Maya scale: 1 unit = 1 cm
+        o << s.toUsda(0.01); // 1 unit = 1 cm
         ok = (bool)o;
         if (!ok) {
             err = "cannot write " + file;
         }
+    } else {
+        double first = time, last = time;
+        const int rg = _range.lock()->getValue();
+        if (rg == 1) {
+            getApp()->getProject()->getFrameRange(&first, &last);
+        } else if (rg == 2) {
+            first = _first.lock()->getValue();
+            last = std::max(first, (double)_last.lock()->getValue() );
+        }
+        std::vector<Scene> scenes;
+        for (double f = first; f <= last + 1e-9; f += 1.) {
+            scenes.push_back( Scene() );
+            buildScene(f, &scenes.back() );
+        }
+        std::vector<std::pair<double, const Scene*> > frames;
+        double f = first;
+        for (const Scene& sc : scenes) {
+            frames.push_back( std::make_pair(f, &sc) );
+            f += 1.;
+        }
+        ok = writeUsd( file, frames, std::max( 1., getApp()->getProjectFrameRate() ), &err );
     }
     if (ok) {
         clearPersistentMessage(false);
@@ -1632,6 +1806,70 @@ Solv3DScanline::initializeKnobs()
     _filterWidth = makeDouble(this, ms, "filter_width", "filter width", 1, 2., 1., 4., "Filter diameter in pixels.");
     _texFilter = makeBool(this, ms, "texture_filtering", "texture filtering", true,
                           "Mip-mapped textures: no shimmering when textures are small on screen.");
+    makeDivider(this, ms, "mb_divider");
+    KnobIntPtr mbs = AppManager::createKnob<KnobInt>( this, std::string("motion blur samples") );
+    mbs->setName("motion_blur_samples");
+    mbs->setDefaultValue(1);
+    mbs->setDisplayMinimum(1);
+    mbs->setDisplayMaximum(64);
+    mbs->setMinimum(1);
+    mbs->setHintToolTip( std::string("Time samples across the shutter. 1 = no motion blur (default). 8-16 for most shots, "
+                                     "32-64 for fast motion. The scene is evaluated at up to 9 times and interpolated in "
+                                     "between, and the samples are shared with the anti-aliasing samples, so the cost is "
+                                     "about max(samples, motion blur samples) passes.") );
+    ms->addKnob(mbs);
+    _mbSamples = mbs;
+    _shutter = makeDouble(this, ms, "shutter", "shutter", 1, 0.5, 0., 2., "Shutter length in frames (0.5 = 180 degrees).");
+    const char* so[4] = { "centred", "start", "end", "custom" };
+    _shutterOffset = makeChoice(this, ms, "shutter_offset", "shutter offset", std::vector<std::string>(so, so + 4), 0,
+                                "centred: around the frame. start: from the frame on. end: up to the frame. custom: starts at 'offset'.", false);
+    _shutterCustom = makeDouble(this, ms, "shutter_custom_offset", "", 1, 0., -1., 1., "Custom shutter start (frames, relative to the frame).");
+
+    // AOVs
+    KnobPagePtr aovp = makePage(this, "AOVs");
+    KnobStringPtr ai = AppManager::createKnob<KnobString>( this, std::string("aov_info") );
+    ai->setName("aov_info");
+    ai->setAsLabel();
+    ai->setDefaultValue("Extra layers next to rgba (viewer layer menu, Shuffle): depth.Z and shadow.A.");
+    ai->setIsPersistent(false);
+    aovp->addKnob(ai);
+    const char* dm[2] = { "1/z (far = 0)", "distance" };
+    _depthMode = makeChoice(this, aovp, "depth_mode", "depth", std::vector<std::string>(dm, dm + 2), 0,
+                            "1/z: 0 at infinity, the usual convention for defocus (ZDefocus math 'depth / far = 0'). "
+                            "distance: along the camera axis, in scene units.");
+}
+
+const ImagePlaneDesc&
+Solv3DScanline::depthPlane()
+{
+    static const char* ch[1] = { "Z" };
+    static const ImagePlaneDesc p("depth", "depth", "Z", ch, 1);
+
+    return p;
+}
+
+const ImagePlaneDesc&
+Solv3DScanline::shadowPlane()
+{
+    static const char* ch[1] = { "A" };
+    static const ImagePlaneDesc p("shadow", "shadow", "A", ch, 1);
+
+    return p;
+}
+
+void
+Solv3DScanline::getComponentsNeededAndProduced(double time, ViewIdx view, EffectInstance::ComponentsNeededMap* comps,
+                                               double* passThroughTime, int* passThroughView, int* passThroughInput)
+{
+    *passThroughTime = time;
+    *passThroughView = view;
+    *passThroughInput = -1;
+    std::list<ImagePlaneDesc>& outp = (*comps)[-1];
+    outp.push_back( ImagePlaneDesc::getRGBAComponents() );
+    outp.push_back( depthPlane() );
+    outp.push_back( shadowPlane() );
+    (*comps)[2].push_back( ImagePlaneDesc::getRGBAComponents() );
+    (*comps)[3].push_back( ImagePlaneDesc::getRGBAComponents() );
 }
 
 void
@@ -1722,27 +1960,51 @@ Solv3DScanline::render(const RenderActionArgs& args)
 {
     const double t = args.time;
     const double sx = args.originalScale.toOfxPointD().x, sy = args.originalScale.toOfxPointD().y;
-    Scene scene, camScene;
-    inputScene(this, 0, t, &scene);
+    // scene at time tt (+ the cam input next to it, in its own namespace)
+    auto sceneAt = [&](double tt, Scene* sc, std::string* cp) {
+        Scene camScene;
+        inputScene(this, 0, tt, sc);
+        cp->clear();
+        if ( inputScene(this, 1, tt, &camScene) ) {
+            *cp = camScene.firstCamera();
+            Scene ns = camScene.reparented("/__cam");
+            sc->merge(ns);
+            *cp = cp->empty() ? std::string() : "/__cam" + *cp;
+        }
+        if ( cp->empty() ) {
+            *cp = sc->firstCamera();
+        }
+    };
+    Scene scene;
     std::string camPath;
-    if ( inputScene(this, 1, t, &camScene) ) {
-        camPath = camScene.firstCamera();
-        // the cam input lives next to the scene (its own namespace to avoid clashes)
-        Scene ns = camScene.reparented("/__cam");
-        scene.merge(ns);
-        camPath = camPath.empty() ? std::string() : "/__cam" + camPath;
-    }
-    if ( camPath.empty() ) {
-        camPath = scene.firstCamera();
+    sceneAt(t, &scene, &camPath);
+    // motion blur: the scene at up to 9 times across the shutter (interpolated in between)
+    const int mbSamples = std::max( 1, _mbSamples.lock()->getValueAtTime(t) );
+    std::vector<Scene> mbScenes;
+    if (mbSamples > 1) {
+        const double sh = _shutter.lock()->getValueAtTime(t);
+        const int om = _shutterOffset.lock()->getValueAtTime(t);
+        const double start = (om == 0) ? -sh * 0.5 : (om == 1) ? 0. : (om == 2) ? -sh : _shutterCustom.lock()->getValueAtTime(t);
+        const int nSteps = std::min(mbSamples, 9);
+        mbScenes.resize(nSteps);
+        for (int i = 0; i < nSteps; ++i) {
+            const double tt = t + start + sh * (nSteps > 1 ? (double)i / (nSteps - 1) : 0.5);
+            std::string cp;
+            sceneAt(tt, &mbScenes[i], &cp);
+        }
     }
     // textures: fetch every referenced upstream image once
     std::map<const void*, std::shared_ptr<TexImage> > texCache;
     auto fetchTex = [&](const std::shared_ptr<void>& h) {
         Solv3DTexRef* ref = static_cast<Solv3DTexRef*>( h.get() );
-        if ( !ref || texCache.count( h.get() ) ) {
+        if (!ref) {
             return;
         }
         EffectInstancePtr e = ref->effect.lock();
+        // keyed by the image node: every motion blur step makes its own handles
+        if ( !e || texCache.count( e.get() ) ) {
+            return;
+        }
         std::shared_ptr<TexImage> ti;
         if (e) {
             RectD rod;
@@ -1763,7 +2025,7 @@ Solv3DScanline::render(const RenderActionArgs& args)
                 }
             }
         }
-        texCache[h.get()] = ti;
+        texCache[e.get()] = ti;
     };
     for (const auto& kv : scene.prims()) {
         if (kv.second.mesh) {
@@ -1815,13 +2077,34 @@ Solv3DScanline::render(const RenderActionArgs& args)
     st.transparency = _transparency.lock()->getValueAtTime(t);
     st.zBuffer = _zBuffer.lock()->getValueAtTime(t);
     st.projectionMode = _projMode.lock()->getValueAtTime(t);
-    std::vector<float> buf;
-    scanlineRender(scene, camPath, st,
-                   [&](const std::shared_ptr<void>& h) -> const TexImage* {
-                       std::map<const void*, std::shared_ptr<TexImage> >::const_iterator it = texCache.find( h.get() );
-                       return it == texCache.end() ? (const TexImage*)0 : it->second.get();
-                   },
-                   envTex.get(), &buf);
+    st.timeSamples = mbSamples;
+    // which planes are asked for
+    bool wantDepth = false, wantShadow = false;
+    for (std::list<std::pair<ImagePlaneDesc, ImagePtr> >::const_iterator it = args.outputPlanes.begin(); it != args.outputPlanes.end(); ++it) {
+        wantDepth = wantDepth || (it->first.getPlaneID() == depthPlane().getPlaneID());
+        wantShadow = wantShadow || (it->first.getPlaneID() == shadowPlane().getPlaneID());
+    }
+    std::vector<float> buf, depthBuf, shadowBuf;
+    ScanlineAOV aov;
+    aov.depth = wantDepth ? &depthBuf : 0;
+    aov.depthInverse = _depthMode.lock()->getValueAtTime(t) == 0;
+    aov.shadow = wantShadow ? &shadowBuf : 0;
+    std::vector<const Scene*> steps;
+    if ( mbScenes.empty() ) {
+        steps.push_back(&scene);
+    } else {
+        for (const Scene& sc : mbScenes) {
+            steps.push_back(&sc);
+        }
+    }
+    scanlineRenderSteps(steps, camPath, st,
+                        [&](const std::shared_ptr<void>& h) -> const TexImage* {
+                            Solv3DTexRef* ref = static_cast<Solv3DTexRef*>( h.get() );
+                            EffectInstancePtr e = ref ? ref->effect.lock() : EffectInstancePtr();
+                            std::map<const void*, std::shared_ptr<TexImage> >::const_iterator it = texCache.find( e.get() );
+                            return it == texCache.end() ? (const TexImage*)0 : it->second.get();
+                        },
+                        envTex.get(), &buf, aov);
     // over bg
     ImagePtr bgImg;
     if ( getInput(2) ) {
@@ -1833,6 +2116,25 @@ Solv3DScanline::render(const RenderActionArgs& args)
         const ImagePtr& dst = it->second;
         const int dnc = (int)dst->getComponentsCount();
         Image::WriteAccess wa( dst.get() );
+        const bool isDepth = it->first.getPlaneID() == depthPlane().getPlaneID();
+        const bool isShadow = it->first.getPlaneID() == shadowPlane().getPlaneID();
+        if (isDepth || isShadow) {
+            const std::vector<float>& src = isDepth ? depthBuf : shadowBuf;
+            for (int y = args.roi.y1; y < args.roi.y2; ++y) {
+                float* d = (float*)wa.pixelAt(args.roi.x1, y);
+                if (!d) {
+                    continue;
+                }
+                for (int x = args.roi.x1; x < args.roi.x2; ++x, d += dnc) {
+                    const size_t k = (size_t)(y - args.roi.y1) * st.width + (x - args.roi.x1);
+                    const float v = k < src.size() ? src[k] : 0.f;
+                    for (int c = 0; c < dnc; ++c) {
+                        d[c] = v;
+                    }
+                }
+            }
+            continue;
+        }
         std::shared_ptr<Image::ReadAccess> ra;
         int bnc = 0;
         RectI bb;

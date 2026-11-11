@@ -225,6 +225,7 @@ struct Tri
     double lodArea = 0.; // uv area / screen area (texture minification), 0 = unknown
     unsigned char edges = 0; // face edges among the triangle edges: bit0 = 0-1, bit1 = 1-2, bit2 = 2-0
     int lineMode = 0;        // 0 none, 1 wireframe only, 2 lines over the surface
+    bool receiveShadow = true;
 };
 
 // distance (pixels) from (px, py) to the nearest face edge of the triangle, large if none
@@ -359,6 +360,243 @@ struct OcclusionMap
         return ortho ? (c[2] + 1.) * 0.5 + 1e-6 : std::max(1e-9, c[3]);
     }
 };
+
+// ---------------------------------------------------------------- lights and shadows
+// shadow map seen from a light: linear depth per texel (perspective: distance along the light axis,
+// orthographic: distance from the front plane)
+struct ShadowView
+{
+    Mat4 vp;
+    bool ortho = false;
+    double n = 0.1, f = 1e5;
+    int R = 0;
+    double k = 1.;          // texels per scene unit (orthographic) or per unit at distance 1 (perspective)
+    std::vector<float> z;
+
+    double lin(const double* c) const
+    {
+        if (ortho) {
+            return ( (c[2] / c[3]) * 0.5 + 0.5 ) * (f - n) + n;
+        }
+
+        return c[3];
+    }
+
+    void build(const std::vector<std::array<Vec3, 3> >& world)
+    {
+        z.assign( (size_t)R * R, std::numeric_limits<float>::max() );
+        for (const std::array<Vec3, 3>& t : world) {
+            double c[3][4];
+            bool behind = false;
+            for (int q = 0; q < 3; ++q) {
+                toClip(vp, t[q], c[q]);
+                if (c[q][3] <= 1e-6) {
+                    behind = true;
+                }
+            }
+            if (behind) {
+                continue;
+            }
+            double sx[3], sy[3], sz[3];
+            for (int q = 0; q < 3; ++q) {
+                sx[q] = (c[q][0] / c[q][3] * 0.5 + 0.5) * R;
+                sy[q] = (c[q][1] / c[q][3] * 0.5 + 0.5) * R;
+                sz[q] = lin(c[q]);
+            }
+            const double area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (sy[1] - sy[0]);
+            if (std::fabs(area) < 1e-12) {
+                continue;
+            }
+            const int xa = std::max( 0, (int)std::floor( std::min( sx[0], std::min(sx[1], sx[2]) ) ) );
+            const int xb = std::min( R - 1, (int)std::ceil( std::max( sx[0], std::max(sx[1], sx[2]) ) ) );
+            const int ya = std::max( 0, (int)std::floor( std::min( sy[0], std::min(sy[1], sy[2]) ) ) );
+            const int yb = std::min( R - 1, (int)std::ceil( std::max( sy[0], std::max(sy[1], sy[2]) ) ) );
+            if ( (xa > xb) || (ya > yb) ) {
+                continue;
+            }
+            const double ia = 1. / area;
+            for (int y = ya; y <= yb; ++y) {
+                for (int x = xa; x <= xb; ++x) {
+                    const double px = x + 0.5, py = y + 0.5;
+                    const double w0 = ( (sx[1] - px) * (sy[2] - py) - (sx[2] - px) * (sy[1] - py) ) * ia;
+                    const double w1 = ( (sx[2] - px) * (sy[0] - py) - (sx[0] - px) * (sy[2] - py) ) * ia;
+                    const double w2 = 1. - w0 - w1;
+                    if ( (w0 < 0) || (w1 < 0) || (w2 < 0) ) {
+                        continue;
+                    }
+                    const float zz = (float)( ortho ? (w0 * sz[0] + w1 * sz[1] + w2 * sz[2])
+                                                    : 1. / (w0 / sz[0] + w1 / sz[1] + w2 / sz[2]) );
+                    float& d = z[(size_t)y * R + x];
+                    if (zz < d) {
+                        d = zz;
+                    }
+                }
+            }
+        }
+    }
+
+    // where P lands: texel position and linear depth. false when outside the map
+    bool locate(const Vec3& P, double* u, double* v, double* d) const
+    {
+        double c[4];
+        toClip(vp, P, c);
+        if (c[3] <= 1e-9) {
+            return false;
+        }
+        const double nx = c[0] / c[3], ny = c[1] / c[3];
+        if ( (nx < -1.) || (nx > 1.) || (ny < -1.) || (ny > 1.) ) {
+            return false;
+        }
+        *u = (nx * 0.5 + 0.5) * R;
+        *v = (ny * 0.5 + 0.5) * R;
+        *d = lin(c);
+
+        return true;
+    }
+
+    float at(double u, double v) const
+    {
+        const int x = std::max( 0, std::min(R - 1, (int)u) ), y = std::max( 0, std::min(R - 1, (int)v) );
+
+        return z[(size_t)y * R + x];
+    }
+};
+
+// Vogel disk (golden angle spiral): even coverage for any sample count, rotated per pixel
+static inline void
+vogel(int i, int n, double rot, double* x, double* y)
+{
+    const double r = std::sqrt( (i + 0.5) / n );
+    const double a = i * 2.39996322972865332 + rot;
+    *x = r * std::cos(a);
+    *y = r * std::sin(a);
+}
+
+static inline double
+hash01(unsigned int a, unsigned int b, unsigned int c)
+{
+    unsigned int h = a * 73856093u ^ b * 19349663u ^ c * 83492791u;
+    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+
+    return (h & 0xffffff) / 16777216.;
+}
+
+struct LightEval
+{
+    int kind = 0;           // 0 point, 1 spot, 2 distant, 3 ambient
+    Vec3 col;               // colour * intensity
+    Vec3 pos, dir;          // dir: where the light points
+    int falloff = 0;
+    double cosInner = 1., cosOuter = 0.;
+    bool shadows = false;
+    double size = 0.;       // point / spot: radius (units); distant: tan(half angle)
+    int samples = 16;
+    double bias = 0.1;
+    std::vector<ShadowView> views; // spot / distant: 1, point: 6 faces
+
+    // 1 = lit, 0 = in shadow. PCSS: blocker search, then a filter as wide as the penumbra.
+    double visibility(const Vec3& P, double NdotL, double rot) const
+    {
+        if ( !shadows || views.empty() ) {
+            return 1.;
+        }
+        const ShadowView* sv = &views[0];
+        if (views.size() == 6) {
+            const Vec3 d = P - pos;
+            const double ax = std::fabs(d.x), ay = std::fabs(d.y), az = std::fabs(d.z);
+            const int face = (ax >= ay && ax >= az) ? (d.x > 0 ? 0 : 1) : (ay >= az ? (d.y > 0 ? 2 : 3) : (d.z > 0 ? 4 : 5) );
+            sv = &views[face];
+        }
+        double u, v, dR;
+        if ( !sv->locate(P, &u, &v, &dR) ) {
+            return 1.;
+        }
+        const double tanT = std::sqrt( std::max(0., 1. - NdotL * NdotL) ) / std::max(0.05, NdotL);
+        const double b = std::max(bias, dR * 0.0015) * ( 1. + std::min(4., tanT) );
+        const double ref = dR - b;
+        // texels for a world size at the receiver
+        const double kR = sv->ortho ? sv->k : sv->k / std::max(1e-9, dR);
+        // blocker search region
+        double rs;
+        if (sv->ortho) {
+            rs = sv->k * size * std::max(0., dR - sv->n);
+        } else {
+            rs = kR * size * 4.;
+        }
+        rs = std::max( 1.5, std::min(48., rs) );
+        // receiver slope: a tilted surface changes depth across the filter -> bias grows with the radius
+        const double slope = std::min(4., tanT) / std::max(1e-9, kR);
+        double sumB = 0.;
+        int nB = 0;
+        const int ns = 16;
+        for (int i = 0; i < ns; ++i) {
+            double ox, oy;
+            vogel(i, ns, rot, &ox, &oy);
+            const float zb = sv->at(u + ox * rs, v + oy * rs);
+            if ( zb < ref - slope * rs * std::sqrt(ox * ox + oy * oy) ) {
+                sumB += zb;
+                ++nB;
+            }
+        }
+        if (nB == 0) {
+            return 1.;
+        }
+        const double dB = sumB / nB;
+        double pen;
+        if (sv->ortho) {
+            pen = sv->k * (dR - dB) * size;
+        } else {
+            pen = kR * size * (dR - dB) / std::max(1e-6, dB);
+        }
+        const double rf = std::max( 1., std::min(48., pen) );
+        int lit = 0;
+        const int n = std::max(4, samples);
+        for (int i = 0; i < n; ++i) {
+            double ox, oy;
+            vogel(i, n, rot + 1.3, &ox, &oy);
+            if ( sv->at(u + ox * rf, v + oy * rf) >= ref - slope * rf * std::sqrt(ox * ox + oy * oy) ) {
+                ++lit;
+            }
+        }
+
+        return (double)lit / n;
+    }
+};
+
+static Mat4
+orthoMatrix(double l, double r, double b, double t, double n, double f)
+{
+    Mat4 m;
+    m.m[0][0] = 2. / (r - l); m.m[0][3] = -(r + l) / (r - l);
+    m.m[1][1] = 2. / (t - b); m.m[1][3] = -(t + b) / (t - b);
+    m.m[2][2] = -2. / (f - n); m.m[2][3] = -(f + n) / (f - n);
+
+    return m;
+}
+
+static Mat4
+perspMatrix(double fovDeg, double n, double f)
+{
+    Mat4 m;
+    const double c = 1. / std::tan(fovDeg * kPi / 360.);
+    m.m[0][0] = c; m.m[1][1] = c;
+    m.m[2][2] = -(f + n) / (f - n); m.m[2][3] = -2. * f * n / (f - n);
+    m.m[3][2] = -1.; m.m[3][3] = 0.;
+
+    return m;
+}
+
+// per motion-blur step: camera, triangles, projector occlusion maps, lights + shadow maps
+struct Step
+{
+    Mat4 view, viewProj;
+    Vec3 camPos;
+    std::vector<Tri> tris;
+    std::map<const Projection*, std::shared_ptr<OcclusionMap> > occMaps;
+    std::vector<LightEval> lights;
+    Vec3 ambientLight;
+    bool anyLight = false;
+};
 } // anon
 
 void
@@ -369,11 +607,34 @@ scanlineRender(const Scene& scene,
                const TexImage* environment,
                std::vector<float>* out)
 {
+    std::vector<const Scene*> one(1, &scene);
+    scanlineRenderSteps( one, cameraPath, s, textures, environment, out, ScanlineAOV() );
+}
+
+void
+scanlineRenderSteps(const std::vector<const Scene*>& scenes,
+                    const std::string& cameraPath,
+                    const ScanlineSettings& s,
+                    const TextureResolver& textures,
+                    const TexImage* environment,
+                    std::vector<float>* out,
+                    const ScanlineAOV& aov)
+{
     const int W = s.width, H = s.height;
     out->assign( (size_t)std::max(0, W) * std::max(0, H) * 4, 0.f );
-    if ( (W <= 0) || (H <= 0) ) {
+    if (aov.depth) {
+        aov.depth->assign( (size_t)std::max(0, W) * std::max(0, H), 0.f );
+    }
+    if (aov.shadow) {
+        aov.shadow->assign( (size_t)std::max(0, W) * std::max(0, H), 0.f );
+    }
+    if ( (W <= 0) || (H <= 0) || scenes.empty() ) {
         return;
     }
+    const double fw = s.formatX2 - s.formatX1, fh = s.formatY2 - s.formatY1;
+    const double aspect = fw * s.pixelAspect / std::max(1e-9, fh);
+
+    auto buildStep = [&](const Scene& scene, Step& stp) {
     // camera
     Camera cam;
     Mat4 camWorld = Mat4::translate( Vec3(0, 0, 5) );
@@ -388,8 +649,6 @@ scanlineRender(const Scene& scene,
     } else if (s.projectionMode == 2) {
         cam.projectionMode = 1;
     }
-    const double fw = s.formatX2 - s.formatX1, fh = s.formatY2 - s.formatY1;
-    const double aspect = fw * s.pixelAspect / std::max(1e-9, fh);
     const Mat4 view = camWorld.inverse();
     const Mat4 viewProj = cam.projection(aspect) * view;
     const Vec3 camPos = camWorld.point( Vec3(0, 0, 0) );
@@ -397,7 +656,13 @@ scanlineRender(const Scene& scene,
     // triangles (world space attributes + clip, near-plane clipped)
     std::vector<Tri> tris;
     std::vector<std::array<Vec3, 3> > occluders; // world triangles (projector self occlusion)
-    bool needOccluders = false;
+    std::vector<std::array<Vec3, 3> > casters;   // world triangles that cast shadows
+    bool needOccluders = false, needCasters = false;
+    for (const auto& kv : scene.prims()) {
+        if ( (kv.second.type == PrimType::Light) && kv.second.light && kv.second.visible && kv.second.light->castShadows ) {
+            needCasters = true;
+        }
+    }
     for (const auto& kv : scene.prims()) {
         if (kv.second.mesh) {
             for (const Projection& pr : kv.second.mesh->projections) {
@@ -469,6 +734,9 @@ scanlineRender(const Scene& scene,
             if (needOccluders) {
                 occluders.push_back( { { v[0].P, v[1].P, v[2].P } } );
             }
+            if (needCasters && p.castShadow) {
+                casters.push_back( { { v[0].P, v[1].P, v[2].P } } );
+            }
             if (s.projectionMode == 3 && !hasUV) {
                 continue;
             }
@@ -509,6 +777,7 @@ scanlineRender(const Scene& scene,
                 const ClipVert* q[3] = { &outp[0], &outp[i], &outp[i + 1] };
                 Tri tr;
                 tr.mesh = &m;
+                tr.receiveShadow = p.receiveShadow;
                 tr.hasUV = hasUV;
                 tr.textured = p.render >= 4;
                 tr.lineMode = lineMode;
@@ -570,14 +839,184 @@ scanlineRender(const Scene& scene,
         }
     }
 
+    // lights (+ shadow maps)
+    stp.ambientLight = Vec3();
+    stp.anyLight = false;
+    Vec3 casLo(1e30, 1e30, 1e30), casHi(-1e30, -1e30, -1e30);
+    for (const std::array<Vec3, 3>& t : casters) {
+        for (int q = 0; q < 3; ++q) {
+            casLo = Vec3( std::min(casLo.x, t[q].x), std::min(casLo.y, t[q].y), std::min(casLo.z, t[q].z) );
+            casHi = Vec3( std::max(casHi.x, t[q].x), std::max(casHi.y, t[q].y), std::max(casHi.z, t[q].z) );
+        }
+    }
+    for (const auto& kv : scene.prims()) {
+        const Prim& lp = kv.second;
+        if ( (lp.type != PrimType::Light) || !lp.light || !lp.visible ) {
+            continue;
+        }
+        bool hiddenL = false;
+        for (std::string par = parentPath(kv.first); !par.empty(); par = parentPath(par)) {
+            const Prim* pp = scene.find(par);
+            if (pp && !pp->visible) {
+                hiddenL = true;
+                break;
+            }
+        }
+        if (hiddenL) {
+            continue;
+        }
+        const Light& L = *lp.light;
+        stp.anyLight = true;
+        const Vec3 col = L.color * L.intensity;
+        if (L.kind == "ambient" || L.kind == "dome") {
+            stp.ambientLight = stp.ambientLight + col;
+            continue;
+        }
+        const Mat4 lw = scene.worldMatrix(kv.first);
+        LightEval le;
+        le.kind = (L.kind == "spot") ? 1 : (L.kind == "distant") ? 2 : 0;
+        le.col = col;
+        le.pos = lw.point( Vec3() );
+        le.dir = normalize( lw.vector( Vec3(0, 0, -1) ) );
+        le.falloff = L.falloff;
+        const double half = L.coneAngle * 0.5, pen = std::max(0., L.conePenumbra) * 0.5;
+        le.cosInner = std::cos( std::max(0., half - pen) * kPi / 180. );
+        le.cosOuter = std::cos( std::min(89.9, half + pen) * kPi / 180. );
+        le.shadows = L.castShadows && !casters.empty();
+        le.samples = std::max(4, std::min(256, L.shadowSamples) );
+        le.bias = std::max(0., L.shadowBias);
+        le.size = (le.kind == 2) ? std::tan( std::max(0., L.shadowSoftness) * 0.5 * kPi / 180. ) : std::max(0., L.shadowSoftness);
+        if (le.shadows) {
+            const int R = std::max( 128, std::min(8192, L.shadowResolution) );
+            // light frame without scale
+            const Vec3 zAx = le.dir * -1.;
+            const Vec3 up0 = std::fabs(zAx.y) < 0.99 ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
+            const Vec3 xAx = normalize( cross(up0, zAx) ), yAx = cross(zAx, xAx);
+            auto frame = [](const Vec3& o, const Vec3& x, const Vec3& y, const Vec3& z) {
+                Mat4 m;
+                m.m[0][0] = x.x; m.m[1][0] = x.y; m.m[2][0] = x.z;
+                m.m[0][1] = y.x; m.m[1][1] = y.y; m.m[2][1] = y.z;
+                m.m[0][2] = z.x; m.m[1][2] = z.y; m.m[2][2] = z.z;
+                m.m[0][3] = o.x; m.m[1][3] = o.y; m.m[2][3] = o.z;
+
+                return m;
+            };
+            const Vec3 ext = casHi - casLo;
+            const double sceneSize = std::max( 1e-3, std::sqrt( dot(ext, ext) ) );
+            const double nearC = std::max(1e-3, sceneSize * 1e-4), farC2 = sceneSize * 4. + 1e4;
+            if (le.kind == 2) {
+                // distant: orthographic box around the casters, seen along the light
+                const Mat4 lv = frame(Vec3(), xAx, yAx, zAx).inverse();
+                Vec3 lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30);
+                for (int c8 = 0; c8 < 8; ++c8) {
+                    const Vec3 cpt( (c8 & 1) ? casHi.x : casLo.x, (c8 & 2) ? casHi.y : casLo.y, (c8 & 4) ? casHi.z : casLo.z );
+                    const Vec3 q = lv.point(cpt);
+                    lo = Vec3( std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z) );
+                    hi = Vec3( std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z) );
+                }
+                const double mx = std::max(hi.x - lo.x, hi.y - lo.y) * 0.02 + 1e-3;
+                ShadowView sv;
+                sv.ortho = true;
+                sv.R = R;
+                sv.n = 0.;
+                sv.f = (hi.z - lo.z) + 2. * mx;
+                // camera at the front (largest z) looking down -z of the light frame
+                const Mat4 eye = Mat4::translate( Vec3(0, 0, hi.z + mx) );
+                const Mat4 v2 = eye.inverse() * lv;
+                const Mat4 P = orthoMatrix(lo.x - mx, hi.x + mx, lo.y - mx, hi.y + mx, sv.n, sv.f);
+                sv.vp = P * v2;
+                sv.k = P.m[0][0] * R * 0.5;
+                sv.build(casters);
+                le.views.push_back(sv);
+            } else if (le.kind == 1) {
+                ShadowView sv;
+                sv.R = R;
+                const double fov = std::min( 170., (half + pen) * 2. + 4. );
+                const Mat4 P = perspMatrix(fov, nearC, farC2);
+                sv.vp = P * frame(le.pos, xAx, yAx, zAx).inverse();
+                sv.n = nearC; sv.f = farC2;
+                sv.k = P.m[0][0] * R * 0.5;
+                sv.build(casters);
+                le.views.push_back(sv);
+            } else {
+                // point: cube of 6 perspective maps (+x -x +y -y +z -z)
+                const Vec3 dirs[6] = { Vec3(1, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Vec3(0, 0, -1) };
+                const int Rp = std::max(128, R / 2);
+                for (int fI = 0; fI < 6; ++fI) {
+                    const Vec3 zz = dirs[fI] * -1.;
+                    const Vec3 up = std::fabs(zz.y) < 0.99 ? Vec3(0, 1, 0) : Vec3(0, 0, 1);
+                    const Vec3 xx = normalize( cross(up, zz) ), yy = cross(zz, xx);
+                    ShadowView sv;
+                    sv.R = Rp;
+                    const Mat4 P = perspMatrix(92., nearC, farC2);
+                    sv.vp = P * frame(le.pos, xx, yy, zz).inverse();
+                    sv.n = nearC; sv.f = farC2;
+                    sv.k = P.m[0][0] * Rp * 0.5;
+                    sv.build(casters);
+                    le.views.push_back(sv);
+                }
+            }
+        }
+        stp.lights.push_back(le);
+    }
+
+    stp.view = view;
+    stp.viewProj = viewProj;
+    stp.camPos = camPos;
+    stp.tris.swap(tris);
+    stp.occMaps.swap(occMaps);
+    }; // buildStep
+
+    // build each distinct step once (unchanged scenes share the same pointer)
+    std::vector<Step> stepsData( scenes.size() );
+    std::vector<int> stepIndex( scenes.size() );
+    for (size_t i = 0; i < scenes.size(); ++i) {
+        stepIndex[i] = (int)i;
+        for (size_t j = 0; j < i; ++j) {
+            if (scenes[j] == scenes[i]) {
+                stepIndex[i] = stepIndex[j];
+                break;
+            }
+        }
+        if (stepIndex[i] == (int)i) {
+            buildStep(*scenes[i], stepsData[i]);
+        }
+    }
+    const int nSteps = (int)scenes.size();
+
     EnvMips env;
     if ( environment && (environment->w > 0) && (environment->h > 0) ) {
         env.build(*environment);
     }
 
-    int grid = (int)std::lround( std::sqrt( (double)std::max(1, s.samples) ) );
-    grid = std::max(1, std::min(8, grid) );
+    // samples shared by the motion blur steps: max(samples, steps) passes in total
+    int grid = (int)std::ceil( std::sqrt( (double)std::max( std::max( std::max(1, s.samples), nSteps ), s.timeSamples ) ) - 1e-9 );
+    grid = std::max(1, std::min(16, grid) );
     const int nS = grid * grid;
+    // time step of each sample: stratified in time, decorrelated from the sub-pixel position
+    std::vector<int> sampleStep(nS, 0);
+    std::vector<double> sampleTime(nS, 0.5);
+    {
+        int P = 1;
+        for (int c = (int)(nS * 0.618) | 1; c < nS + 1000; c += 2) {
+            int a = c, b = nS;
+            while (b) { const int t = a % b; a = b; b = t; }
+            if (a == 1) { P = c % std::max(1, nS); break; }
+        }
+        for (int k = 0; k < nS; ++k) {
+            const int perm = (int)( ( (long long)k * std::max(1, P) ) % nS );
+            // continuous time in [0, 1]: stratified, small jitter inside the stratum
+            sampleTime[k] = (perm + 0.25 + 0.5 * hash01(k, 7u, 13u) ) / nS;
+            const int nearest = (int)std::lround( sampleTime[k] * (nSteps - 1) );
+            sampleStep[k] = stepIndex[ std::max(0, std::min(nSteps - 1, nearest) ) ];
+        }
+    }
+    std::vector<Tri> lerpTris;
+    std::vector<float> shadowAcc, shadowSample;
+    if (aov.shadow) {
+        shadowAcc.assign( (size_t)W * H, 0.f );
+        shadowSample.assign( (size_t)W * H, 0.f );
+    }
     const int nThreads = s.threads > 0 ? s.threads : std::max(1u, std::thread::hardware_concurrency() );
 
     const double fr = std::max( 0.5, s.filterWidth * 0.5 );   // filter radius (pixels)
@@ -602,6 +1041,44 @@ scanlineRender(const Scene& scene,
 
     for (int si = 0; si < nS; ++si) {
         const double ox = ( (si % grid) + 0.5 ) / grid, oy = ( (si / grid) + 0.5 ) / grid;
+        const Step& stp = stepsData[ sampleStep[si] ];
+        // motion blur: every sample has its own time; geometry (and camera, through the screen positions) is
+        // interpolated between the two evaluated steps around it when they match (same triangles)
+        const std::vector<Tri>* trisPtr = &stp.tris;
+        if (nSteps > 1) {
+            const double u = std::min( 0.999999, sampleTime[si] ) * (nSteps - 1);
+            const int i0 = std::min(nSteps - 2, (int)u);
+            const double fr = u - i0;
+            const Step& A = stepsData[ stepIndex[i0] ];
+            const Step& B = stepsData[ stepIndex[i0 + 1] ];
+            if ( (&A != &B) && (A.tris.size() == B.tris.size()) ) {
+                lerpTris.resize( A.tris.size() );
+                const double g = 1. - fr;
+                for (size_t q = 0; q < A.tris.size(); ++q) {
+                    const Tri& ta = A.tris[q];
+                    const Tri& tb = B.tris[q];
+                    Tri& o = lerpTris[q];
+                    o = ta;
+                    for (int v = 0; v < 3; ++v) {
+                        o.P[v] = ta.P[v] * g + tb.P[v] * fr;
+                        o.N[v] = ta.N[v] * g + tb.N[v] * fr;
+                        o.sx[v] = ta.sx[v] * g + tb.sx[v] * fr;
+                        o.sy[v] = ta.sy[v] * g + tb.sy[v] * fr;
+                        o.iw[v] = ta.iw[v] * g + tb.iw[v] * fr;
+                        o.zw[v] = ta.zw[v] * g + tb.zw[v] * fr;
+                    }
+                }
+                trisPtr = &lerpTris;
+            } else if (&A == &B) {
+                trisPtr = &A.tris;
+            }
+        }
+        const std::vector<Tri>& tris = *trisPtr;
+        const Vec3& camPos = stp.camPos;
+        const std::map<const Projection*, std::shared_ptr<OcclusionMap> >& occMaps = stp.occMaps;
+        if (aov.shadow) {
+            std::fill(shadowSample.begin(), shadowSample.end(), 0.f);
+        }
         std::fill(triId.begin(), triId.end(), -1);
         std::fill( depth.begin(), depth.end(), std::numeric_limits<float>::max() );
         // raster pass
@@ -668,6 +1145,15 @@ scanlineRender(const Scene& scene,
                     uv.x = t.T[0].x * b0 + t.T[1].x * b1 + t.T[2].x * b2;
                     uv.y = t.T[0].y * b0 + t.T[1].y * b1 + t.T[2].y * b2;
                     const Vec3 V = normalize(camPos - P);   // towards the camera
+                    if (aov.depth) {
+                        const double zc = -stp.view.point(P).z;
+                        const float dv = (float)( aov.depthInverse ? (zc > 1e-9 ? 1. / zc : 0.) : zc );
+                        float& dd = (*aov.depth)[k];
+                        // closest surface wins (1/z: largest)
+                        if ( (dd == 0.f) || (aov.depthInverse ? dv > dd : dv < dd) ) {
+                            dd = dv;
+                        }
+                    }
                     if (dot(N, V) < 0.) {
                         N = N * -1.;                         // two-sided
                     }
@@ -761,11 +1247,66 @@ scanlineRender(const Scene& scene,
                         }
                         const float a = textured ? base[3] : 1.f;
                         const float bc[3] = { (float)mt.baseColor.x, (float)mt.baseColor.y, (float)mt.baseColor.z };
-                        // headlight lambert for the lit part
-                        const float lam = (float)std::max( s.ambient, dot(N, V) );
-                        const float lit = (float)( mt.emission + (1. - mt.emission) * lam );
-                        for (int ch = 0; ch < 3; ++ch) {
-                            c[ch] = base[ch] * bc[ch] * lit;
+                        if (!stp.anyLight || mt.emission >= 1.) {
+                            // no lights: headlight lambert for the lit part
+                            const float lam = (float)std::max( s.ambient, dot(N, V) );
+                            const float lit = (float)( mt.emission + (1. - mt.emission) * lam );
+                            for (int ch = 0; ch < 3; ++ch) {
+                                c[ch] = base[ch] * bc[ch] * lit;
+                            }
+                        } else {
+                            // lights: lambert + normalised Blinn-Phong, soft shadows
+                            Vec3 dif = stp.ambientLight, spc;
+                            double litLum = 0., unlitLum = 0.;
+                            const double rough = std::max(0.02, mt.roughness);
+                            const double shin = std::max( 1., 2. / std::pow(rough, 4.) - 2. );
+                            const double rot = hash01( (unsigned)x, (unsigned)y, (unsigned)si ) * 6.283185307;
+                            for (const LightEval& le : stp.lights) {
+                                Vec3 L;
+                                double att = 1.;
+                                if (le.kind == 2) {
+                                    L = le.dir * -1.;
+                                } else {
+                                    const Vec3 d = le.pos - P;
+                                    const double dist = std::max( 1e-6, std::sqrt( dot(d, d) ) );
+                                    L = d * (1. / dist);
+                                    att = (le.falloff == 1) ? 1. / dist : (le.falloff == 2) ? 1. / (dist * dist) : 1.;
+                                    if (le.kind == 1) {
+                                        const double ca = dot(L * -1., le.dir);
+                                        const double tt = (ca - le.cosOuter) / std::max(1e-6, le.cosInner - le.cosOuter);
+                                        const double sm = std::max( 0., std::min(1., tt) );
+                                        att *= sm * sm * (3. - 2. * sm);
+                                    }
+                                }
+                                const double ndl = dot(N, L);
+                                if ( (ndl <= 0.) || (att <= 0.) ) {
+                                    continue;
+                                }
+                                const double vis = t.receiveShadow ? le.visibility(P, ndl, rot) : 1.;
+                                const double w = ndl * att;
+                                const double lum = (le.col.x + le.col.y + le.col.z) * w;
+                                unlitLum += lum;
+                                litLum += lum * vis;
+                                dif = dif + le.col * (w * vis);
+                                if (mt.specular > 0. || mt.metalness > 0.) {
+                                    const Vec3 Hh = normalize(L + V);
+                                    const double nh = std::max( 0., dot(N, Hh) );
+                                    const double sp = std::pow(nh, shin) * (shin + 8.) / 25.1327 * att * vis * ndl;
+                                    spc = spc + le.col * sp;
+                                }
+                            }
+                            if ( !shadowSample.empty() && (unlitLum > 1e-12) ) {
+                                shadowSample[k] = (float)( 1. - litLum / unlitLum );
+                            }
+                            const double em = mt.emission, kd = (1. - em) * (1. - mt.metalness);
+                            const double ks = (1. - em) * std::max(mt.specular, mt.metalness);
+                            const double dl[3] = { dif.x, dif.y, dif.z }, sl[3] = { spc.x, spc.y, spc.z };
+                            for (int ch = 0; ch < 3; ++ch) {
+                                const double albedo = base[ch] * bc[ch];
+                                // metals tint the highlight with their colour (premultiplied by alpha)
+                                const double sc = (1. - mt.metalness) * a + mt.metalness * albedo;
+                                c[ch] = (float)( albedo * (em + kd * dl[ch]) + ks * sl[ch] * sc );
+                            }
                         }
                         c[3] = a;
                         // environment reflection (split-sum style, Schlick Fresnel)
@@ -814,6 +1355,7 @@ scanlineRender(const Scene& scene,
             for (int y = y0; y < y1; ++y) {
                 for (int x = 0; x < W; ++x) {
                     float acc[4] = { 0, 0, 0, 0 };
+                    float accS = 0.f;
                     float ws = 0.f;
                     for (int j = -fri; j <= fri; ++j) {
                         const int yy = y + j;
@@ -837,6 +1379,9 @@ scanlineRender(const Scene& scene,
                             for (int ch = 0; ch < 4; ++ch) {
                                 acc[ch] += (float)w * sc[ch];
                             }
+                            if (!shadowSample.empty()) {
+                                accS += (float)w * shadowSample[(size_t)yy * W + xx];
+                            }
                             ws += (float)w;
                         }
                     }
@@ -844,6 +1389,9 @@ scanlineRender(const Scene& scene,
                     float* o = &(*out)[k * 4];
                     for (int ch = 0; ch < 4; ++ch) {
                         o[ch] += acc[ch];
+                    }
+                    if (!shadowAcc.empty()) {
+                        shadowAcc[k] += accS;
                     }
                     wsum[k] += ws;
                 }
@@ -855,6 +1403,9 @@ scanlineRender(const Scene& scene,
         float* o = &(*out)[k * 4];
         for (int ch = 0; ch < 4; ++ch) {
             o[ch] = w != 0.f ? o[ch] / w : 0.f;
+        }
+        if (aov.shadow) {
+            (*aov.shadow)[k] = w != 0.f ? shadowAcc[k] / w : 0.f;
         }
     }
 }

@@ -141,6 +141,28 @@ jobs:
           echo "TEST_FAILURES_NAME=${TEST_FAILURES_NAME}" >> $GITHUB_OUTPUT
           echo "TEST_FAILURES_DIR=$(cygpath -m ${TEST_FAILURES_DIR})" >> $GITHUB_OUTPUT
 
+      - name: Add the USD bridge (prebuilt with MSVC by the 'Build USD Bridge' workflow)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ZIP="${RUNNER_TEMP}/solvfx_usd_bridge.zip"
+          if ! gh release download windows-usd-bridge --repo "${GITHUB_REPOSITORY}" --pattern solvfx_usd_bridge.zip --dir "${RUNNER_TEMP}" --clobber; then
+            echo "SOLVFX: no USD bridge release yet: building without USD (run 'Build USD Bridge' once)."
+            exit 0
+          fi
+          NAME="${{ steps.build.outputs.INSTALLER_NAME }}"
+          IDIR="${{ steps.build.outputs.INSTALLER_DIR }}"
+          BIN="${IDIR}/${NAME}/bin"
+          [ -d "${BIN}" ] || { echo "SOLVFX: ${BIN} not found"; exit 0; }
+          7z x -y -bd -o"${BIN}" "${ZIP}" > /dev/null
+          ls "${BIN}/usdbridge" | head
+          # repack the installer zip with the bridge inside
+          INSTALLER_ZIP="${{ steps.build.outputs.INSTALLER_ZIP }}"
+          rm -f "${INSTALLER_ZIP}"
+          (cd "${IDIR}" && 7z a -tzip -bd "${INSTALLER_ZIP}" "${NAME}" > /dev/null)
+          ls -la "${INSTALLER_ZIP}"
+
       - name: Publish built plugins to the release
         # Full builds always refresh it; a test build publishes only plugins it had to build.
         shell: bash

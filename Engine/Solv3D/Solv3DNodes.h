@@ -33,6 +33,10 @@
 #define PLUGINID_SOLV3D_MATERIAL       "com.aguapanelafx.solv3d.Material"
 #define PLUGINID_SOLV3D_SCANLINE       "com.aguapanelafx.solv3d.ScanlineRender"
 #define PLUGINID_SOLV3D_VANISHINGCAM   "com.aguapanelafx.solv3d.VanishingCamera"
+#define PLUGINID_SOLV3D_POINTLIGHT     "com.aguapanelafx.solv3d.PointLight"
+#define PLUGINID_SOLV3D_SPOTLIGHT      "com.aguapanelafx.solv3d.SpotLight"
+#define PLUGINID_SOLV3D_DIRLIGHT       "com.aguapanelafx.solv3d.DirectLight"
+#define PLUGINID_SOLV3D_AMBIENTLIGHT   "com.aguapanelafx.solv3d.AmbientLight"
 
 NATRON_NAMESPACE_ENTER
 
@@ -57,7 +61,7 @@ struct Solv3DXformKnobs
 struct Solv3DGeoKnobs
 {
     KnobChoiceWPtr display, render;
-    KnobBoolWPtr selectable;
+    KnobBoolWPtr selectable, castShadow, receiveShadow;
 
     void create(EffectInstance* fx, const KnobPagePtr& page);
     // stamps the settings and the owner node on every prim of the scene under 'root' ("" = all)
@@ -150,6 +154,44 @@ SOLV3D_PRIMITIVE_CLASS(Solv3DCube, Solv3DPrimitive::eCube)
 SOLV3D_PRIMITIVE_CLASS(Solv3DSphere, Solv3DPrimitive::eSphere)
 SOLV3D_PRIMITIVE_CLASS(Solv3DCylinder, Solv3DPrimitive::eCylinder)
 
+class Solv3DLight
+    : public Solv3DNode
+{
+public:
+    enum Kind { ePoint = 0, eSpot, eDirectional, eAmbient };
+
+    Solv3DLight(NodePtr n, Kind k) : Solv3DNode(n), _kind(k) {}
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 0; }
+    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return std::string(); }
+    virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+
+private:
+    Kind _kind;
+    Solv3DXformKnobs _xf;
+    KnobChoiceWPtr _display, _falloff, _shadowQuality, _shadowRes;
+    KnobColorWPtr _color;
+    KnobDoubleWPtr _intensity, _cone, _penumbra, _softness, _bias;
+    KnobBoolWPtr _castShadows;
+};
+
+#define SOLV3D_LIGHT_CLASS(NAME, KIND) \
+    class NAME : public Solv3DLight \
+    { \
+public: \
+        explicit NAME(NodePtr n) : Solv3DLight(n, KIND) {} \
+        static EffectInstance* BuildEffect(NodePtr n) { return new NAME(n); } \
+    };
+SOLV3D_LIGHT_CLASS(Solv3DPointLight, Solv3DLight::ePoint)
+SOLV3D_LIGHT_CLASS(Solv3DSpotLight, Solv3DLight::eSpot)
+SOLV3D_LIGHT_CLASS(Solv3DDirectLight, Solv3DLight::eDirectional)
+SOLV3D_LIGHT_CLASS(Solv3DAmbientLight, Solv3DLight::eAmbient)
+
 class Solv3DCamera
     : public Solv3DNode
 {
@@ -224,7 +266,7 @@ private:
     KnobChoiceWPtr _lineType[kMaxLines];
     KnobButtonWPtr _lineSwap[kMaxLines], _lineDel[kMaxLines];
     KnobDoubleWPtr _lineLen[kMaxLines];
-    KnobBoolWPtr _useOrigin, _flipY, _flipZ;
+    KnobBoolWPtr _useOrigin, _flipY, _flipZ, _drawMode;
     KnobDoubleWPtr _origin;
     KnobDoubleWPtr _rFocal, _rVAperture, _rTranslate, _rRotate; // results
     KnobStringWPtr _status;
@@ -328,6 +370,8 @@ public:
 private:
     KnobOutputFileWPtr _file;
     KnobButtonWPtr _write;
+    KnobChoiceWPtr _range;
+    KnobIntWPtr _first, _last;
 };
 
 class Solv3DProject3D
@@ -396,11 +440,18 @@ public:
     virtual void getRegionsOfInterest(double time, const RenderScale & scale, const RectD & outputRoD, const RectD & renderWindow, ViewIdx view, RoIMap* ret) OVERRIDE FINAL;
     virtual StatusEnum render(const RenderActionArgs& args) OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual void getPluginGrouping(std::list<std::string>* grouping) const OVERRIDE FINAL;
+    // AOVs: rgba + depth + shadow planes
+    virtual bool isMultiPlanar() const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
+    virtual EffectInstance::PassThroughEnum isPassThroughForNonRenderedPlanes() const OVERRIDE FINAL WARN_UNUSED_RETURN { return EffectInstance::ePassThroughBlockNonRenderedPlanes; }
+    virtual void getComponentsNeededAndProduced(double time, ViewIdx view, EffectInstance::ComponentsNeededMap* comps,
+                                                double* passThroughTime, int* passThroughView, int* passThroughInput) OVERRIDE FINAL;
+    static const ImagePlaneDesc& depthPlane();
+    static const ImagePlaneDesc& shadowPlane();
 
 private:
-    KnobChoiceWPtr _samples, _filter, _output, _projMode;
-    KnobDoubleWPtr _filterWidth, _ambient;
-    KnobIntWPtr _overscan;
+    KnobChoiceWPtr _samples, _filter, _output, _projMode, _shutterOffset, _depthMode;
+    KnobDoubleWPtr _filterWidth, _ambient, _shutter, _shutterCustom;
+    KnobIntWPtr _overscan, _mbSamples;
     KnobBoolWPtr _texFilter, _transparency, _zBuffer;
 };
 
