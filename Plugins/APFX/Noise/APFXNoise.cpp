@@ -40,7 +40,7 @@ namespace {
 #define kPluginName "Noise_APFX"
 #define kPluginGrouping "APFX"
 #define kPluginDescription \
-    "APFX Noise: procedural noise like Nuke's Noise node, with Houdini-style noise types.\n\n" \
+    "APFX Noise: procedural noise with several noise types.\n\n" \
     "Noise type picks the basic pattern, Fractal adds layers (octaves) on top of it.\n" \
     "Z moves through the noise (animate it, or use Z speed). With Loop, the animation " \
     "repeats seamlessly every Loop period frames.\n" \
@@ -603,9 +603,9 @@ APFXNoisePluginFactory::describeInContext(ImageEffectDescriptor& desc,
     {
         ChoiceParamDescriptor* p = choice(desc, page, kParamFractal, "fractal", "How the octaves are added together.");
         p->appendOption("None", "Only the basic noise, no octaves.");
-        p->appendOption("fBm", "Fractal Brownian motion: the classic layered noise (Nuke fBm).");
-        p->appendOption("Turbulence", "Absolute value of every octave: billowy, cloudy (Nuke turbulence).");
-        p->appendOption("Ridged", "Sharp ridges (Houdini \"sharp\").");
+        p->appendOption("fBm", "Fractal Brownian motion: the classic layered noise.");
+        p->appendOption("Turbulence", "Absolute value of every octave: billowy, cloudy.");
+        p->appendOption("Ridged", "Sharp ridges.");
         p->appendOption("Terrain", "Heterogeneous terrain: more detail on the high areas.");
         p->appendOption("Hybrid Terrain", "Smooth valleys and rough, rocky peaks.");
         p->setDefault(APFXNoise::eFractalFBM);
@@ -641,7 +641,7 @@ APFXNoisePluginFactory::describeInContext(ImageEffectDescriptor& desc,
         oct->setParent(*grp);
         DoubleParamDescriptor* lac = dbl(desc, page, kParamLacunarity, "lacunarity", "Size ratio between octaves (2 = each octave is half the size).", 2., 1.1, 4.);
         lac->setParent(*grp);
-        DoubleParamDescriptor* gain = dbl(desc, page, kParamGain, "gain", "Strength ratio between octaves (Houdini roughness).", 0.5, 0., 1.);
+        DoubleParamDescriptor* gain = dbl(desc, page, kParamGain, "gain", "Strength ratio between octaves.", 0.5, 0., 1.);
         gain->setParent(*grp);
         BooleanParamDescriptor* ny = boolean(desc, page, kParamNyquist, "nyquist", "Skip the octaves smaller than a pixel (faster, no aliasing).", true);
         ny->setParent(*grp);

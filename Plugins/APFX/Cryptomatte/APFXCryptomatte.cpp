@@ -892,7 +892,7 @@ APFXCryptomatteFactory::describe(ImageEffectDescriptor& desc)
 {
     desc.setLabel("Cryptomatte");
     desc.setPluginGrouping("Keyer");
-    desc.setPluginDescription("APFX Cryptomatte (Nuke-like). Pick objects in the viewer: Ctrl+click adds the object under the cursor, "
+    desc.setPluginDescription("APFX Cryptomatte. Pick objects in the viewer: Ctrl+click adds the object under the cursor, "
                               "Ctrl+Shift+click removes it. The matte (coverage-correct) goes to alpha. Names come from the "
                               "manifest in the EXR header (the upstream Read file is used automatically); without one, picks show as <id>. "
                               "Follows the Cryptomatte specification (Psyop, BSD-3).");

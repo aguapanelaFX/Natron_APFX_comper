@@ -203,7 +203,7 @@ void
 APFXExpoGlowFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "ExpoGlow",
-                            "APFX ExpoGlow: Stuart Lashley's Shake Exponential Glow (Nuke gizmo port by brad-f). Glows the highs of the "
+                            "APFX ExpoGlow: exponential glow based on Stuart Lashley's Exponential Glow (port by brad-f). Glows the highs of the "
                             "input with a natural exponential falloff: 9 blurs of doubling size (Size = % of width / 3), each weighted "
                             "by 1/Falloff more than the previous one.");
     desc.setPluginGrouping("Filter");

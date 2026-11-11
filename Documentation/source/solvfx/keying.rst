@@ -6,15 +6,15 @@ Keying
 APFX Keyer
 ----------
 
-Nuke-like Keyer: *operation* (luminance, red, green, blue, saturation, min, max, greenscreen,
-bluescreen) and a range graph with the A, B, C, D handles. Alpha is 0 below A, ramps from A to B,
+The *operation* turns each pixel into a value (luminance, red, green, blue, saturation, min, max, greenscreen,
+bluescreen); the range graph with the A, B, C, D handles maps that value to alpha. Alpha is 0 below A, ramps from A to B,
 is 1 from B to C and ramps down from C to D. Dragging a handle updates the fields and is one undo
 step.
 
 DifScreenColour and DifScreenKey
 --------------------------------
 
-An IBK-style pair:
+A two-step screen keyer:
 
 - **DifScreenColour** builds a clean screen plate from the green / blue screen: *size* removes the
   foreground, *darks* / *lights* set what counts as screen, *erode* and *patch black* clean the
@@ -23,5 +23,5 @@ An IBK-style pair:
   background to *Bg*): red weight, blue/green weight, luminance match, autolevels, screen
   subtraction (despill), use bkg luminance / chroma, black / white clip and premultiply.
 
-Tip: test the keys on the real plates and compare with Nuke's IBKColour / IBKGizmo settings, the
-parameters follow the same names.
+Tip: start with *size* in DifScreenColour until no foreground is left in the clean plate, then
+balance the weights in DifScreenKey on the edges.

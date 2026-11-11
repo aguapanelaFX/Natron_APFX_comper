@@ -8,7 +8,7 @@
  * (at your option) any later version.
  * ***** END LICENSE BLOCK ***** */
 
-// APFX Look: Lumetri-like one-node look, all maths in one float pass (per pixel, tiles OK).
+// APFX Look: one-node look, all maths in one float pass (per pixel, tiles OK).
 //  basic:    white balance (temperature / tint), exposure, contrast (around a pivot),
 //            highlights / shadows / whites / blacks, saturation
 //  creative: faded film, vibrance, shadow tint / highlight tint + balance
@@ -387,7 +387,7 @@ void
 APFXLookFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "Look",
-                            "APFX Look (Lumetri-like): white balance, exposure, contrast, highlights / shadows / whites / blacks, "
+                            "APFX Look: white balance, exposure, contrast, highlights / shadows / whites / blacks, "
                             "saturation, vibrance, faded film, split toning, colour wheels. One fast float pass, works on "
                             "premultiplied images. Save / load looks and export the colour part as a .cube 3D LUT (log2 shaper).");
     desc.setPluginGrouping("Color");

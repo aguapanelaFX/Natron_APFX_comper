@@ -38,7 +38,7 @@ namespace {
 #define kPluginGrouping "APFX"
 #define kPluginDescription \
     "APFX Defocus: fast lens defocus. Every pixel spreads into a flat bokeh shape " \
-    "(disc or aperture blades) instead of a soft gaussian, like Nuke's Defocus.\n" \
+    "(disc or aperture blades) instead of a soft gaussian.\n" \
     "Highlights can be boosted so bright spots bloom into strong bokeh balls.\n" \
     "Works on premultiplied images. For depth based defocus use a ZDefocus."
 #define kPluginIdentifier "com.aguapanelafx.APFX.Defocus"

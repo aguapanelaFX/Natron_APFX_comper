@@ -26,7 +26,7 @@ Properties
 ----------
 
 - Properties open in floating windows when the Properties dock is closed (Esc or X closes them).
-- Rows follow Nuke: label column, value field, slider, then colour swatch, colour wheel,
+- Each row has a label column, value field, slider, then colour swatch, colour wheel,
   ``4`` (split the channels) and the curve (animation) button. Panels stretch with their width.
 - Labels are lowercase; checkbox text comes after the box.
 - The bottom block of most nodes is ``mask`` / ``(un)premult by`` / ``mix``.

@@ -215,7 +215,7 @@ void
 APFXConvolveFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "Convolve",
-                            "APFX Convolve: convolves the Source with the Filter image (FFT), like Nuke's Convolve. Use any image "
+                            "APFX Convolve: convolves the Source with the Filter image (FFT). Use any image "
                             "as the kernel: image bokeh, streaks, custom glows. The filter is centred on its format centre; "
                             "normalize keeps the brightness. Works on premultiplied images.");
     desc.setPluginGrouping("Filter");

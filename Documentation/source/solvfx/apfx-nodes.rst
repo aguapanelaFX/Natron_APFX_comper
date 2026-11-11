@@ -10,7 +10,7 @@ Color
 -----
 
 **Look**
-  Lumetri-like one-node look: temperature / tint, exposure, contrast and pivot, highlights /
+  One-node look: temperature / tint, exposure, contrast and pivot, highlights /
   shadows / whites / blacks, saturation, vibrance, faded film, shadow / highlight tint, colour
   wheels. *save look* / *load look* keep looks in ``.look`` files; *export .cube* writes the
   colour part as a 3D LUT (log2 shaper, -8 to +8 stops around 0.18).
@@ -20,7 +20,8 @@ Color
   background and mask).
 
 **Toe**
-  Lifts the blacks with a smooth curve below *range*, like Nuke's Toe.
+  Lifts the blacks with a smooth curve that only affects values below *range*; values above it
+  are untouched.
 
 Filter
 ------
@@ -61,8 +62,8 @@ Draw
   for checking. Tip: prerender the denoised plate.
 
 **Noise**
-  Procedural noise like Nuke's Noise, with Houdini-style noise types, fractal layers and seamless
-  loops.
+  Procedural noise: several noise types, fractal layers (octaves), Z to move through the noise and
+  seamless loops.
 
 Keyer
 -----
@@ -73,13 +74,15 @@ Channel, Time, Transform and others
 -----------------------------------
 
 **Copy**
-  Output is B with up to 4 channels copied from A (K), like Nuke's Copy.
+  Output is B with up to 4 channels copied from A (shortcut K).
 
 **Remove**
-  Keeps or removes channels and layers, like Nuke's Remove.
+  *keep*: only the chosen rgba channels go through and every other layer is removed. *remove*: the
+  chosen channels are set to 0 and every other layer goes through.
 
 **Cryptomatte**
-  Pick objects in the viewer (Ctrl+click adds, Ctrl+Shift+click removes), Nuke-like.
+  Pick objects in the viewer: Ctrl+click adds the object under the cursor, Ctrl+Shift+click
+  removes it. The matte goes to alpha; names come from the EXR manifest.
 
 **Retime**
   Maps an input frame range to an output range, or retimes by a speed; reverse, before / after

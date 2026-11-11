@@ -409,7 +409,7 @@ APFXRetimeFactory::describe(ImageEffectDescriptor& desc)
 {
     desc.setLabel("Retime");
     desc.setPluginGrouping("Time");
-    desc.setPluginDescription("APFX Retime (Nuke-like): maps the input frame range to the output frame range, or "
+    desc.setPluginDescription("APFX Retime: maps the input frame range to the output frame range, or "
                               "retimes by a speed. Each range field has a lock; unlocked fields show live values "
                               "(typing a value locks it). Reverse, before/after (continue, loop, bounce, hold, black) "
                               "and filter: none (fractional frames), nearest, box (averages frames over the shutter).");

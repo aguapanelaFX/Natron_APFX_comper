@@ -141,7 +141,7 @@ void
 APFXRemoveFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "Remove",
-                            "APFX Remove (like Nuke's Remove). Keep (default): only the chosen rgba channels go through and every "
+                            "APFX Remove. Keep (default): only the chosen rgba channels go through and every "
                             "other layer is removed. Remove: the chosen rgba channels are set to 0 and every other layer goes through.");
     desc.setPluginGrouping("Channel");
     desc.setSupportsTiles(true);

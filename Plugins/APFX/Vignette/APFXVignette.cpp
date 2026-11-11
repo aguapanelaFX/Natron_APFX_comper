@@ -367,7 +367,7 @@ APFXVignetteFactory::describe(ImageEffectDescriptor& desc)
     APFXOfx::describeCommon(desc, "Vignette",
                             "APFX Vignette. Physical: natural falloff (cos^4 law from focal length + sensor size), optical vignetting "
                             "(the lens barrel clips the off-axis pupil, stronger wide open), pixel falloff (digital sensors) and "
-                            "mechanical (hood / matte box corners). Artistic: Lumetri-like amount, midpoint, roundness, feather. "
+                            "mechanical (hood / matte box corners). Artistic: amount, midpoint, roundness, feather. "
                             "Applied as exposure, with colour tint, highlight protection and chroma fringe. Presets are approximate "
                             "starting points.");
     desc.setPluginGrouping("Filter");
@@ -397,7 +397,7 @@ APFXVignetteFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         ChoiceParamDescriptor* p = desc.defineChoiceParam("type");
         p->setLabel("type");
         p->appendOption("physical", "Natural cos^4 + optical + pixel + mechanical vignetting.");
-        p->appendOption("artistic", "Lumetri-like amount / midpoint / roundness / feather.");
+        p->appendOption("artistic", "Amount / midpoint / roundness / feather.");
         p->setDefault(eTypePhysical);
         p->setAnimates(false);
         APFXOfx::divider(p);

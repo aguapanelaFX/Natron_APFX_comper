@@ -12,7 +12,7 @@
 //  Add:   synthetic film / digital grain. Per channel size, irregularity, intensity; channel
 //         correlation; response (black, minimum, shadows / mids / highlights); presets (approximate
 //         film stocks and digital cameras) + user presets saved in a text file.
-//  Match: DasGrain-like regrain written from scratch. Plate + degrained plate (or an internal
+//  Match: regrain written from scratch. Plate + degrained plate (or an internal
 //         degrain) give the plate grain; "analyse" measures its per-channel response to luminance
 //         on ~10 frames; the normalised grain is scattered with jittered Voronoi cells and added to
 //         the comp only where the comp differs from the plate (replace mask), scaled by the response.
@@ -835,7 +835,7 @@ APFXGrainFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         ChoiceParamDescriptor* p = desc.defineChoiceParam("mode");
         p->setLabel("mode");
         p->appendOption("add", "Synthetic grain (presets / custom).");
-        p->appendOption("match", "Regrain matching the plate's grain (DasGrain-like).");
+        p->appendOption("match", "Regrain matching the plate's grain.");
         p->setDefault(eModeAdd);
         p->setAnimates(false);
         APFXOfx::divider(p);

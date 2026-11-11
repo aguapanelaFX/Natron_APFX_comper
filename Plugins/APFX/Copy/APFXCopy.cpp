@@ -154,7 +154,7 @@ APFXCopyFactory::describe(ImageEffectDescriptor& desc)
 {
     desc.setLabel("Copy");
     desc.setPluginGrouping("APFX");
-    desc.setPluginDescription("APFX Copy: output is B, with up to 4 channels copied from A (default: A alpha into B alpha), like Nuke's Copy.");
+    desc.setPluginDescription("APFX Copy: output is B, with up to 4 channels copied from A (default: A alpha into B alpha).");
     desc.addSupportedContext(eContextGeneral);
     desc.addSupportedBitDepth(eBitDepthFloat);
     desc.setSingleInstance(false);

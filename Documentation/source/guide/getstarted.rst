@@ -9,7 +9,6 @@ Getting started
    
    getstarted-about
    getstarted-installation
-   Transition-fromNuke_01
    getstarted-environment
    getstarted-troubleshooting
    known-bugs-and-workarounds

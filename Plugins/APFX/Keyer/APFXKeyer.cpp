@@ -138,7 +138,7 @@ void
 APFXKeyerFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "Keyer",
-                            "APFX Keyer (like Nuke's Keyer): the operation turns each pixel into a value, the range A B C D maps it "
+                            "APFX Keyer: the operation turns each pixel into a value, the range A B C D maps it "
                             "to alpha (0 below A, ramp A to B, 1 from B to C, ramp C to D, 0 above D). RGB goes through.");
     desc.setPluginGrouping("Keyer");
     desc.setSupportsTiles(false);

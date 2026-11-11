@@ -114,7 +114,7 @@ void
 APFXToeFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "Toe",
-                            "APFX Toe (like Nuke's Toe): lifts the blacks with a smooth curve that only affects values below Range; "
+                            "APFX Toe: lifts the blacks with a smooth curve that only affects values below Range; "
                             "values above Range are untouched.");
     desc.setPluginGrouping("Color");
 }

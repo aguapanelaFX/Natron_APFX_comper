@@ -4,7 +4,7 @@ SOLVFX guide
 ============
 
 SOLVFX is a node-based compositing application by AGUAPANELA FX, based on Natron. It keeps
-Natron's engine and OpenFX plug-ins and adds a Nuke-like interface and workflow, the APFX nodes,
+Natron's engine and OpenFX plug-ins and adds its own interface and workflow, the APFX nodes,
 planar tracking inside Roto and project path variables. Comps are saved as ``.solv`` files
 (``.ntp`` files still open).
 
