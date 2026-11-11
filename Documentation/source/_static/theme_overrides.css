@@ -13,3 +13,17 @@
       overflow: visible !important;
    }
 }
+
+/* ---- SOLVFX identity (brand-bg #161413, cream #ede6df, orange #e0743a) ---- */
+.wy-side-nav-search, .wy-nav-top { background-color: #161413 !important; }
+.wy-side-nav-search > a img.logo { max-width: 85%; padding: 6px 0; }
+.wy-nav-side { background: #1f1c1a; }
+.wy-menu-vertical a { color: #c8c8c8; }
+.wy-menu-vertical a:hover { background-color: #2b231e; color: #ede6df; }
+.wy-menu-vertical li.current > a, .wy-menu-vertical li.on a { color: #161413; }
+.wy-menu-vertical header, .wy-menu-vertical p.caption { color: #e0743a; }
+a, a:visited { color: #c8642e; }
+.rst-content .admonition.tip, .rst-content .admonition.note { background: #fbf3ec; }
+.rst-content .admonition.tip .admonition-title, .rst-content .admonition.note .admonition-title { background: #e0743a; }
+.wy-nav-content { max-width: 960px; }
+h1, h2, h3 { color: #2b231e; }

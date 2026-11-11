@@ -5,10 +5,16 @@
 .. for help on writing/extending this file, see the reStructuredText cheatsheet
    http://github.com/ralsina/rst-cheatsheet/raw/master/rst-cheatsheet.pdf
 
-Natron documentation
+SOLVFX documentation
 ====================
 
-The Natron documentation is organized as follows:
+SOLVFX is a node-based compositing application by AGUAPANELA FX, based on Natron. Start with the
+:ref:`solvfx-guide` for everything SOLVFX adds (interface, project folders, Roto and planar
+tracking, the APFX nodes); the Natron chapters below still describe the engine and most nodes.
+
+The documentation is organized as follows:
+
+- The :ref:`solvfx-guide` covers the SOLVFX interface, workflow and the APFX nodes.
 
 - The :ref:`user-guide` contains everything to get started with Natron, including tutorials.
 - The :ref:`reference-guide` contains the documentation about the user settings and environment variables for Natron, as well as the documentation for each node in Natron.
@@ -43,6 +49,7 @@ The *Natron documentation authors* are:
 .. toctree::
     :maxdepth: 3
 
+    solvfx/index.rst
     guide/index.rst
     _group.rst
     devel/index.rst
