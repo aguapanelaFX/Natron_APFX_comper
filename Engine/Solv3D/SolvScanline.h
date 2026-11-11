@@ -30,7 +30,15 @@ struct TexImage
     double fx1 = 0, fy1 = 0, fx2 = 1, fy2 = 1;
 
     void sample(double px, double py, float* out) const; // bilinear, transparent outside
+
+    // mip-mapped (trilinear) lookup: lod 0 = full resolution; build the mips once before rendering
+    void buildMips();
+    void sampleLod(double px, double py, double lod, float* out) const;
+    std::vector<TexImage> mips;            // level 1, 2, ... (half size each)
 };
+
+// reconstruction filter applied to the samples (anti-aliasing of edges)
+enum class ScanlineFilter { Box = 0, Triangle, Gaussian, Mitchell, BlackmanHarris };
 
 enum class ScanlineOutput { RGBA = 0, Depth, Position, Normal, UV };
 
@@ -40,7 +48,10 @@ struct ScanlineSettings
     int originX = 0, originY = 0;            // pixel coordinate of the first output pixel
     double formatX1 = 0, formatY1 = 0, formatX2 = 1, formatY2 = 1; // format in pixels (projection maps onto it)
     double pixelAspect = 1.;
-    int samples = 4;                          // per pixel (1, 4, 9, 16: square grid)
+    int samples = 16;                         // per pixel, stratified square grid (1 .. 64)
+    ScanlineFilter filter = ScanlineFilter::BlackmanHarris;
+    double filterWidth = 2.;                  // filter diameter in pixels (1 = within the pixel)
+    bool textureFiltering = true;             // mip-mapped textures (no shimmering when small)
     ScanlineOutput output = ScanlineOutput::RGBA;
     double ambient = 0.15;                    // headlight shading floor for lit materials
     int threads = 0;                          // 0 = hardware concurrency

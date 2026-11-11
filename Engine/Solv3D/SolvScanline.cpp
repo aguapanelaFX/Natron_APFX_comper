@@ -38,7 +38,103 @@ TexImage::sample(double px, double py, float* out) const
     }
 }
 
+void
+TexImage::buildMips()
+{
+    mips.clear();
+    const TexImage* prev = this;
+    while ( (prev->w > 1) || (prev->h > 1) ) {
+        TexImage n;
+        n.w = std::max(1, prev->w / 2);
+        n.h = std::max(1, prev->h / 2);
+        n.data.assign( (size_t)n.w * n.h * 4, 0.f );
+        for (int y = 0; y < n.h; ++y) {
+            for (int x = 0; x < n.w; ++x) {
+                for (int c = 0; c < 4; ++c) {
+                    float acc = 0.f;
+                    for (int j = 0; j < 2; ++j) {
+                        for (int i = 0; i < 2; ++i) {
+                            const int xx = std::min(prev->w - 1, 2 * x + i), yy = std::min(prev->h - 1, 2 * y + j);
+                            acc += prev->data[( (size_t)yy * prev->w + xx ) * 4 + c];
+                        }
+                    }
+                    n.data[( (size_t)y * n.w + x ) * 4 + c] = acc * 0.25f;
+                }
+            }
+        }
+        mips.push_back(n);
+        prev = &mips.back();
+        if (mips.size() > 16) {
+            break;
+        }
+    }
+}
+
+void
+TexImage::sampleLod(double px, double py, double lod, float* out) const
+{
+    if ( (lod <= 0.) || mips.empty() ) {
+        sample(px, py, out);
+
+        return;
+    }
+    const double L = std::min( lod, (double)mips.size() );
+    const int l0 = (int)std::floor(L), l1 = std::min( (int)mips.size(), l0 + 1 );
+    const float f = (float)(L - l0);
+    auto at = [&](int l, float* o) {
+        if (l == 0) {
+            sample(px, py, o);
+
+            return;
+        }
+        const TexImage& m = mips[l - 1];
+        // continuous position in this level's pixels (the level starts at 0, 0)
+        const double lx = (px - x1) * (double)m.w / w, ly = (py - y1) * (double)m.h / h;
+        m.sample(lx, ly, o);
+    };
+    float a[4], b[4];
+    at(l0, a);
+    at(l1, b);
+    for (int c = 0; c < 4; ++c) {
+        out[c] = a[c] + (b[c] - a[c]) * f;
+    }
+}
+
 namespace {
+
+// separable reconstruction filters, x in pixels from the pixel centre, r = radius
+inline double
+filterWeight(ScanlineFilter f, double x, double r)
+{
+    const double ax = std::fabs(x);
+    if (ax >= r) {
+        return 0.;
+    }
+    switch (f) {
+    case ScanlineFilter::Box:
+        return 1.;
+    case ScanlineFilter::Triangle:
+        return 1. - ax / r;
+    case ScanlineFilter::Gaussian: {
+        const double sigma = r / 2.5;
+        return std::exp( -0.5 * x * x / (sigma * sigma) ) - std::exp( -0.5 * r * r / (sigma * sigma) );
+    }
+    case ScanlineFilter::Mitchell: {
+        const double B = 1. / 3., C = 1. / 3.;
+        const double t = 2. * ax / r; // Mitchell-Netravali spans 2 units
+        if (t < 1.) {
+            return ( (12 - 9 * B - 6 * C) * t * t * t + (-18 + 12 * B + 6 * C) * t * t + (6 - 2 * B) ) / 6.;
+        }
+        return ( (-B - 6 * C) * t * t * t + (6 * B + 30 * C) * t * t + (-12 * B - 48 * C) * t + (8 * B + 24 * C) ) / 6.;
+    }
+    case ScanlineFilter::BlackmanHarris:
+    default: {
+        const double n = 0.5 + 0.5 * x / r; // 0..1 across the window
+        const double a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
+        return a0 - a1 * std::cos(2 * kPi * n) + a2 * std::cos(4 * kPi * n) - a3 * std::cos(6 * kPi * n);
+    }
+    }
+}
 
 struct EnvMips
 {
@@ -124,6 +220,7 @@ struct Tri
     double sx[3], sy[3], iw[3], zw[3];
     const Mesh* mesh;
     bool hasUV;
+    double lodArea = 0.; // uv area / screen area (texture minification), 0 = unknown
 };
 
 struct ClipVert
@@ -254,6 +351,11 @@ scanlineRender(const Scene& scene,
                     tr.N[k] = q[k]->N;
                     tr.T[k] = q[k]->T;
                 }
+                {
+                    const double sa = std::fabs( (tr.sx[1] - tr.sx[0]) * (tr.sy[2] - tr.sy[0]) - (tr.sx[2] - tr.sx[0]) * (tr.sy[1] - tr.sy[0]) );
+                    const double ua = std::fabs( (tr.T[1].x - tr.T[0].x) * (tr.T[2].y - tr.T[0].y) - (tr.T[2].x - tr.T[0].x) * (tr.T[1].y - tr.T[0].y) );
+                    tr.lodArea = sa > 1e-12 ? ua / sa : 0.;
+                }
                 tris.push_back(tr);
             }
         }
@@ -269,6 +371,10 @@ scanlineRender(const Scene& scene,
     const int nS = grid * grid;
     const int nThreads = s.threads > 0 ? s.threads : std::max(1u, std::thread::hardware_concurrency() );
 
+    const double fr = std::max( 0.5, s.filterWidth * 0.5 );   // filter radius (pixels)
+    const int fri = (int)std::ceil(fr);
+    std::vector<float> wsum( (size_t)W * H, 0.f );
+    std::vector<float> sampleCol( (size_t)W * H * 4 );
     std::vector<int> triId( (size_t)W * H );
     std::vector<float> depth( (size_t)W * H );
     std::vector<float> bary( (size_t)W * H * 2 );
@@ -332,7 +438,8 @@ scanlineRender(const Scene& scene,
                 }
             }
         });
-        // shading pass
+        // shading pass (one shaded sample per pixel for this sample position)
+        std::fill(sampleCol.begin(), sampleCol.end(), 0.f);
         runRows([&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {
                 for (int x = 0; x < W; ++x) {
@@ -375,7 +482,12 @@ scanlineRender(const Scene& scene,
                         if (t.mesh->texture && t.hasUV) {
                             const TexImage* tex = textures(t.mesh->texture);
                             if (tex) {
-                                tex->sample( tex->fx1 + uv.x * (tex->fx2 - tex->fx1), tex->fy1 + uv.y * (tex->fy2 - tex->fy1), base );
+                                const double tw = tex->fx2 - tex->fx1, thh = tex->fy2 - tex->fy1;
+                                double lod = 0.;
+                                if ( s.textureFiltering && (t.lodArea > 0.) ) {
+                                    lod = 0.5 * std::log2( std::max(1e-12, t.lodArea * tw * thh) );
+                                }
+                                tex->sampleLod( tex->fx1 + uv.x * tw, tex->fy1 + uv.y * thh, lod, base );
                                 textured = true;
                             }
                         }
@@ -435,17 +547,60 @@ scanlineRender(const Scene& scene,
                         break;
                     }
                     }
-                    float* o = &(*out)[k * 4];
+                    float* o = &sampleCol[k * 4];
                     for (int ch = 0; ch < 4; ++ch) {
-                        o[ch] += c[ch];
+                        o[ch] = c[ch];
                     }
                 }
             }
         });
+        // filter pass (gather): every pixel takes the weighted samples around it
+        runRows([&](int y0, int y1) {
+            for (int y = y0; y < y1; ++y) {
+                for (int x = 0; x < W; ++x) {
+                    float acc[4] = { 0, 0, 0, 0 };
+                    float ws = 0.f;
+                    for (int j = -fri; j <= fri; ++j) {
+                        const int yy = y + j;
+                        if ( (yy < 0) || (yy >= H) ) {
+                            continue;
+                        }
+                        const double wy = filterWeight(s.filter, (yy + oy) - (y + 0.5), fr);
+                        if (wy == 0.) {
+                            continue;
+                        }
+                        for (int i = -fri; i <= fri; ++i) {
+                            const int xx = x + i;
+                            if ( (xx < 0) || (xx >= W) ) {
+                                continue;
+                            }
+                            const double w = wy * filterWeight(s.filter, (xx + ox) - (x + 0.5), fr);
+                            if (w == 0.) {
+                                continue;
+                            }
+                            const float* sc = &sampleCol[( (size_t)yy * W + xx ) * 4];
+                            for (int ch = 0; ch < 4; ++ch) {
+                                acc[ch] += (float)w * sc[ch];
+                            }
+                            ws += (float)w;
+                        }
+                    }
+                    const size_t k = (size_t)y * W + x;
+                    float* o = &(*out)[k * 4];
+                    for (int ch = 0; ch < 4; ++ch) {
+                        o[ch] += acc[ch];
+                    }
+                    wsum[k] += ws;
+                }
+            }
+        });
     }
-    const float inv = 1.f / nS;
-    for (float& v : *out) {
-        v *= inv;
+    for (size_t k = 0; k < wsum.size(); ++k) {
+        const float w = wsum[k];
+        float* o = &(*out)[k * 4];
+        for (int ch = 0; ch < 4; ++ch) {
+            o[ch] = w != 0.f ? o[ch] / w : 0.f;
+        }
     }
 }
 } // namespace Solv3D
