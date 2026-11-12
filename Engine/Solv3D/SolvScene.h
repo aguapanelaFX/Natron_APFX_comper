@@ -108,6 +108,7 @@ struct Camera
     double winScale[2] = { 1., 1. };     // window: zoom of the image
     double winRoll = 0.;                 // window: roll (degrees)
     double focusDistance = 2., fStop = 16.; // depth of field (stored, used by the renderer later)
+    double iconScale = 1.;               // 3D viewer: size of the camera icon (display only)
 
     // projection to normalised device coordinates (x, y in -1..1), aspect = image width / height
     Mat4 projection(double aspect) const;
@@ -143,6 +144,7 @@ struct Prim
     bool castShadow = true;   // blocks light (lights with shadows on)
     bool receiveShadow = true;
     std::string node;         // script name of the node that made the prim (viewer selection / highlight)
+    double axisSize = 0.;     // > 0: the viewer draws a locator (Axis node) of this size
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Camera> camera;
     std::shared_ptr<Light> light;

@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -23,6 +24,9 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QMenu>
+#include <QPainter>
+#include <QFocusEvent>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -84,6 +88,10 @@ Solv3DGLWidget::~Solv3DGLWidget()
                 glDeleteTextures(1, &id);
             }
         }
+        for (std::map<U64, GpuMesh>::iterator it = _gpu.begin(); it != _gpu.end(); ++it) {
+            GLuint b[2] = { it->second.vbo, it->second.lineVbo };
+            glDeleteBuffers(2, b);
+        }
         doneCurrent();
     }
 }
@@ -94,9 +102,117 @@ Solv3DGLWidget::initializeGL()
     appPTR->initializeOpenGLFunctionsOnce();
 }
 
+static U64
+hashBytes(U64 h, const void* data, size_t n)
+{
+    // FNV-1a over 8 byte words (tail bytes at the end)
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    size_t i = 0;
+    for (; i + 8 <= n; i += 8) {
+        U64 w;
+        std::memcpy(&w, p + i, 8);
+        h = (h ^ w) * 1099511628211ULL;
+    }
+    for (; i < n; ++i) {
+        h = (h ^ p[i]) * 1099511628211ULL;
+    }
+
+    return h;
+}
+
+U64
+Solv3DGLWidget::meshKey(const Mesh* m)
+{
+    std::map<const Mesh*, U64>::const_iterator it = _meshKey.find(m);
+    if ( it != _meshKey.end() ) {
+        return it->second;
+    }
+    U64 h = 1469598103934665603ULL;
+    h = hashBytes( h, m->points.data(), m->points.size() * sizeof(Vec3) );
+    h = hashBytes( h, m->faceVertexCounts.data(), m->faceVertexCounts.size() * sizeof(int) );
+    h = hashBytes( h, m->faceVertexIndices.data(), m->faceVertexIndices.size() * sizeof(int) );
+    h = hashBytes( h, m->normals.data(), m->normals.size() * sizeof(Vec3) );
+    h = hashBytes( h, m->st.data(), m->st.size() * sizeof(Vec2) );
+    _meshKey[m] = h;
+
+    return h;
+}
+
+void
+Solv3DGLWidget::indexMeshes(const Scene& s, std::map<const Mesh*, U64>* out)
+{
+    for (const auto& kv : s.prims()) {
+        const Mesh* m = kv.second.mesh.get();
+        if (!m) {
+            continue;
+        }
+        std::map<const Mesh*, U64>::const_iterator it = _meshKey.find(m);
+        (*out)[m] = ( it != _meshKey.end() ) ? it->second : meshKey(m);
+    }
+}
+
+Solv3DGLWidget::GpuMesh*
+Solv3DGLWidget::gpuMesh(const Mesh& m)
+{
+    const U64 key = meshKey(&m);
+    GpuMesh& g = _gpu[key];
+    g.lastUse = _frameNo;
+    if (g.vbo) {
+        return &g;
+    }
+    // interleaved: pos 3, normal 3, uv 2 (fan triangulation of each face)
+    g.hasN = m.normals.size() == m.faceVertexIndices.size();
+    g.hasUV = m.st.size() == m.faceVertexIndices.size();
+    std::vector<float> tri, lin;
+    tri.reserve(m.faceVertexIndices.size() * 8 * 2);
+    lin.reserve(m.faceVertexIndices.size() * 6);
+    size_t base = 0;
+    auto put = [&](size_t c) {
+        const Vec3& v = m.points[m.faceVertexIndices[c]];
+        tri.push_back( (float)v.x ); tri.push_back( (float)v.y ); tri.push_back( (float)v.z );
+        const Vec3 n = g.hasN ? m.normals[c] : Vec3(0, 1, 0);
+        tri.push_back( (float)n.x ); tri.push_back( (float)n.y ); tri.push_back( (float)n.z );
+        const Vec2 uv = g.hasUV ? m.st[c] : Vec2{0, 0};
+        tri.push_back( (float)uv.x ); tri.push_back( (float)uv.y );
+    };
+    for (int n : m.faceVertexCounts) {
+        if ( base + n > m.faceVertexIndices.size() ) {
+            break;
+        }
+        for (int k = 1; k + 1 < n; ++k) {
+            put(base); put(base + k); put(base + k + 1);
+        }
+        for (int k = 0; k < n; ++k) {
+            const Vec3& a = m.points[m.faceVertexIndices[base + k]];
+            const Vec3& b = m.points[m.faceVertexIndices[base + (k + 1) % n]];
+            lin.push_back( (float)a.x ); lin.push_back( (float)a.y ); lin.push_back( (float)a.z );
+            lin.push_back( (float)b.x ); lin.push_back( (float)b.y ); lin.push_back( (float)b.z );
+        }
+        base += n;
+    }
+    GLuint b[2];
+    glGenBuffers(2, b);
+    glBindBuffer(GL_ARRAY_BUFFER, b[0]);
+    glBufferData( GL_ARRAY_BUFFER, tri.size() * sizeof(float), tri.data(), GL_STATIC_DRAW );
+    glBindBuffer(GL_ARRAY_BUFFER, b[1]);
+    glBufferData( GL_ARRAY_BUFFER, lin.size() * sizeof(float), lin.data(), GL_STATIC_DRAW );
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    g.vbo = b[0];
+    g.lineVbo = b[1];
+    g.triVerts = (int)(tri.size() / 8);
+    g.lineVerts = (int)(lin.size() / 3);
+
+    return &g;
+}
+
 void
 Solv3DGLWidget::setScenes(const Scene& main, const Scene& templ, const std::set<std::string>& selectedNodes)
 {
+    // content keys of the new meshes (the old scenes are still alive, so pointers are not reused yet)
+    std::map<const Mesh*, U64> keys;
+    indexMeshes(main, &keys);
+    indexMeshes(templ, &keys);
+    _meshKey.swap(keys);
     _scene = main;
     _templ = templ;
     _selected = selectedNodes;
@@ -163,6 +279,49 @@ Solv3DGLWidget::viewMatrices(Mat4* proj, Mat4* view) const
     *proj = c.projection(aspect);
     const Mat4 camWorld = Mat4::translate(_target) * rotYX * Mat4::translate( Vec3(0, 0, camDist) );
     *view = camWorld.inverse();
+}
+
+void
+Solv3DGLWidget::frameSelected()
+{
+    Scene sel;
+    const Scene* scenes[2] = { &_scene, &_templ };
+    Vec3 lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30);
+    bool any = false;
+    for (int si = 0; si < 2; ++si) {
+        for (const auto& kv : scenes[si]->prims()) {
+            const Prim& p = kv.second;
+            if ( p.node.empty() || !_selected.count(p.node) ) {
+                continue;
+            }
+            const Mat4 W = scenes[si]->worldMatrix(kv.first);
+            if (p.mesh) {
+                for (const Vec3& q : p.mesh->points) {
+                    const Vec3 w = W.point(q);
+                    lo = Vec3( std::min(lo.x, w.x), std::min(lo.y, w.y), std::min(lo.z, w.z) );
+                    hi = Vec3( std::max(hi.x, w.x), std::max(hi.y, w.y), std::max(hi.z, w.z) );
+                    any = true;
+                }
+            } else {
+                const Vec3 w = W.point( Vec3() );
+                lo = Vec3( std::min(lo.x, w.x - 1), std::min(lo.y, w.y - 1), std::min(lo.z, w.z - 1) );
+                hi = Vec3( std::max(hi.x, w.x + 1), std::max(hi.y, w.y + 1), std::max(hi.z, w.z + 1) );
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        frameAll();
+
+        return;
+    }
+    _target = (lo + hi) * 0.5;
+    const Vec3 d = hi - lo;
+    _dist = std::max( 0.5, std::sqrt( dot(d, d) ) * 1.4 );
+    if (!_locked) {
+        _lookThrough.clear();
+    }
+    update();
 }
 
 void
@@ -341,8 +500,27 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
                 if (templ) {
                     glDepthMask(GL_FALSE);
                 }
+                GpuMesh* g = proj ? 0 : gpuMesh(m);
+                if (g) {
+                    glBindBuffer(GL_ARRAY_BUFFER, g->vbo);
+                    glEnableClientState(GL_VERTEX_ARRAY);
+                    glVertexPointer( 3, GL_FLOAT, 8 * sizeof(float), (const void*)0 );
+                    if (g->hasN) {
+                        glEnableClientState(GL_NORMAL_ARRAY);
+                        glNormalPointer( GL_FLOAT, 8 * sizeof(float), (const void*)(3 * sizeof(float)) );
+                    }
+                    if (tex) {
+                        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                        glTexCoordPointer( 2, GL_FLOAT, 8 * sizeof(float), (const void*)(6 * sizeof(float)) );
+                    }
+                    glDrawArrays(GL_TRIANGLES, 0, g->triVerts);
+                    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                    glDisableClientState(GL_NORMAL_ARRAY);
+                    glDisableClientState(GL_VERTEX_ARRAY);
+                    glBindBuffer(GL_ARRAY_BUFFER, 0);
+                }
                 size_t base = 0;
-                for (int n : m.faceVertexCounts) {
+                for (int n : (g ? std::vector<int>() : m.faceVertexCounts)) {
                     glBegin(GL_POLYGON);
                     for (int k = 0; k < n; ++k) {
                         if (hasN) {
@@ -389,21 +567,40 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
                     glLineWidth(1.f);
                     glColor4f(0.08f, 0.08f, 0.08f, 0.55f);
                 }
-                size_t base = 0;
-                for (int n : m.faceVertexCounts) {
-                    glBegin(GL_LINE_LOOP);
-                    for (int k = 0; k < n; ++k) {
-                        const Vec3& v = m.points[m.faceVertexIndices[base + k]];
-                        glVertex3d(v.x, v.y, v.z);
-                    }
-                    glEnd();
-                    base += n;
-                }
+                GpuMesh* g = gpuMesh(m);
+                glBindBuffer(GL_ARRAY_BUFFER, g->lineVbo);
+                glEnableClientState(GL_VERTEX_ARRAY);
+                glVertexPointer( 3, GL_FLOAT, 0, (const void*)0 );
+                glDrawArrays(GL_LINES, 0, g->lineVerts);
+                glDisableClientState(GL_VERTEX_ARRAY);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
             }
         } else if ( (p.type == PrimType::Camera) && p.camera && (kv.first != _lookThrough) ) {
+            glMatrixMode(GL_MODELVIEW);
+            glPushMatrix();
+            const double is = std::max(0.01, p.camera->iconScale);
+            glScaled(is, is, is);
             drawCameraIcon(sel, p.camera->horizontalAperture, p.camera->verticalAperture, p.camera->focalLength);
+            glPopMatrix();
         } else if ( (p.type == PrimType::Light) && p.light ) {
             drawLightIcon(sel, *p.light);
+        } else if ( (p.type == PrimType::Xform) && (p.axisSize > 0.) ) {
+            // locator (Axis node): three axes, + ends a little longer
+            const double a = p.axisSize;
+            glLineWidth(sel ? 2.5f : 1.5f);
+            glBegin(GL_LINES);
+            const float k = sel ? 1.f : 0.85f;
+            glColor3f(0.93f * k, 0.33f * k, 0.31f * k); glVertex3d(-a * 0.5, 0, 0); glVertex3d(a, 0, 0);
+            glColor3f(0.4f * k, 0.85f * k, 0.42f * k); glVertex3d(0, -a * 0.5, 0); glVertex3d(0, a, 0);
+            glColor3f(0.36f * k, 0.55f * k, 1.f * k); glVertex3d(0, 0, -a * 0.5); glVertex3d(0, 0, a);
+            glEnd();
+            if (sel) {
+                glColor4f(kSelCol[0], kSelCol[1], kSelCol[2], 1.f);
+                glPointSize(6.f);
+                glBegin(GL_POINTS);
+                glVertex3d(0, 0, 0);
+                glEnd();
+            }
         }
     }
 }
@@ -587,13 +784,31 @@ Solv3DGLWidget::paintGL()
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 
+    ++_frameNo;
     drawScene(_scene, V, false);
     drawScene(_templ, V, true);
-    drawGizmo(P, V);
-
+    // free buffers of meshes not drawn for a while
+    if (_gpu.size() > 64) {
+        for (std::map<U64, GpuMesh>::iterator it = _gpu.begin(); it != _gpu.end(); ) {
+            if (_frameNo - it->second.lastUse > 120) {
+                GLuint b[2] = { it->second.vbo, it->second.lineVbo };
+                glDeleteBuffers(2, b);
+                it = _gpu.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_LIGHTING);
     glDisable(GL_COLOR_MATERIAL);
+    glDisable(GL_BLEND);
+
+    // handles and HUD in 2D over the frame
+    QPainter painter(this);
+    drawGizmo2D(painter);
+    drawHud(painter);
+    painter.end();
 }
 
 std::string
@@ -628,7 +843,7 @@ Solv3DGLWidget::pick(const QPoint& pt) const
 
                 return true;
             };
-            if ( (p.type == PrimType::Camera) && p.camera ) {
+            if ( ( (p.type == PrimType::Camera) && p.camera ) || (p.type == PrimType::Light) || (p.axisSize > 0.) ) {
                 double sx, sy, sz;
                 if ( toScreen(Vec3(), &sx, &sy, &sz) && (std::hypot(sx - px, sy - py) < 12.) && (sz < bestZ) ) {
                     bestZ = sz;
@@ -674,19 +889,12 @@ Solv3DGLWidget::pick(const QPoint& pt) const
 
 
 // ---------------------------------------------------------------- manipulator
-// parameter t of the point on line O + t*a closest to the ray ro + s*rd
-static double
-closestParam(const Vec3& O, const Vec3& a, const Vec3& ro, const Vec3& rd)
-{
-    const Vec3 w = O - ro;
-    const double A = dot(a, a), B = dot(a, rd), C = dot(rd, rd), D = dot(a, w), E = dot(rd, w);
-    const double den = A * C - B * B;
-    if (std::fabs(den) < 1e-12) {
-        return 0.;
-    }
+// (behaviour: see the manipulator spec. Handles are drawn in 2D over the 3D frame.)
 
-    return (B * E - C * D) / den;
-}
+static const QColor kAxQ[3] = { QColor(0xff, 0x3a, 0x3a), QColor(0x2f, 0xdc, 0x4f), QColor(0x55, 0x77, 0xff) };
+static const QColor kActiveQ(0xff, 0xd2, 0x57);
+static const QColor kOutlineQ(0x14, 0x14, 0x14);
+static const double kDeg = 180. / 3.14159265358979323846;
 
 // ray / plane (point P0, normal n) intersection
 static Vec3
@@ -700,17 +908,131 @@ rayPlane(const Vec3& ro, const Vec3& rd, const Vec3& P0, const Vec3& n)
     return ro + rd * ( dot(P0 - ro, n) / den );
 }
 
-void
-Solv3DGLWidget::setGizmo(bool on, const Mat4& parentWorld, const Mat4& world, const Vec3& pivot)
+static double
+segDist(double px, double py, double ax, double ay, double bx, double by, double* tOut = 0)
 {
-    if (_gDrag) {
-        return; // keep the start values while dragging
+    const double ex = bx - ax, ey = by - ay, l2 = ex * ex + ey * ey;
+    double u = l2 > 1e-12 ? ( (px - ax) * ex + (py - ay) * ey ) / l2 : 0.;
+    u = std::max( 0., std::min(1., u) );
+    if (tOut) {
+        *tOut = u;
+    }
+
+    return std::hypot(ax + u * ex - px, ay + u * ey - py);
+}
+
+// rotation applied in the order of the letters (XYZ = X first), as the nodes do it
+static const char* kViewRotOrders[6] = { "XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX" };
+
+static Mat4
+eulerToMatrix(const Vec3& deg, int order)
+{
+    const char* o = kViewRotOrders[std::max( 0, std::min(5, order) )];
+    Mat4 r;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 v;
+        switch (o[i]) {
+        case 'X': v.x = deg.x; break;
+        case 'Y': v.y = deg.y; break;
+        default: v.z = deg.z; break;
+        }
+        r = Mat4::rotateXYZ(v) * r;
+    }
+
+    return r;
+}
+
+// inverse of eulerToMatrix (R = Rc * Rb * Ra, a applied first); keeps the angles close to 'near'
+static Vec3
+matrixToEuler(const Mat4& R, int order, const Vec3& near)
+{
+    const char* o = kViewRotOrders[std::max( 0, std::min(5, order) )];
+    const int a = o[0] - 'X', b = o[1] - 'X', c = o[2] - 'X';
+    // even permutations of (0 1 2) keep the signs
+    const double s = ( (a == 0 && b == 1) || (a == 1 && b == 2) || (a == 2 && b == 0) ) ? 1. : -1.;
+    const double sb = std::max( -1., std::min(1., -s * R.m[c][a]) );
+    double ang[3];
+    ang[b] = std::asin(sb);
+    if (std::fabs(sb) < 0.9999999) {
+        ang[a] = std::atan2(s * R.m[c][b], R.m[c][c]);
+        ang[c] = std::atan2(s * R.m[b][a], R.m[a][a]);
+    } else {
+        // gimbal lock: put everything on the first angle
+        ang[c] = 0.;
+        ang[a] = std::atan2(-s * R.m[b][c], R.m[b][b]);
+    }
+    Vec3 e(ang[0] * kDeg, ang[1] * kDeg, ang[2] * kDeg);
+    // continuity with the previous values (no jumps of 360)
+    auto wrap = [](double v, double ref) {
+        while (v - ref > 180.) { v -= 360.; }
+        while (v - ref < -180.) { v += 360.; }
+
+        return v;
+    };
+    e.x = wrap(e.x, near.x); e.y = wrap(e.y, near.y); e.z = wrap(e.z, near.z);
+
+    return e;
+}
+
+static Mat4
+axisAngle(const Vec3& axis, double deg)
+{
+    const Vec3 k = normalize(axis);
+    const double t = deg / kDeg, c = std::cos(t), s = std::sin(t), C = 1. - c;
+    Mat4 m;
+    m.m[0][0] = c + k.x * k.x * C;       m.m[0][1] = k.x * k.y * C - k.z * s; m.m[0][2] = k.x * k.z * C + k.y * s;
+    m.m[1][0] = k.y * k.x * C + k.z * s; m.m[1][1] = c + k.y * k.y * C;       m.m[1][2] = k.y * k.z * C - k.x * s;
+    m.m[2][0] = k.z * k.x * C - k.y * s; m.m[2][1] = k.z * k.y * C + k.x * s; m.m[2][2] = c + k.z * k.z * C;
+
+    return m;
+}
+
+static Mat4
+linearPart(const Mat4& m)
+{
+    Mat4 r = m;
+    r.m[0][3] = r.m[1][3] = r.m[2][3] = 0.;
+
+    return r;
+}
+
+void
+Solv3DGLWidget::setGizmo(bool on, const Mat4& parentWorld, const Mat4& world, const Vec3& pivot, const std::string& node)
+{
+    if ( (_gDrag != ePartNone) && (node != _gNode) ) {
+        return; // the dragged node keeps its handle
     }
     _gizmoOn = on;
+    _gNode = node;
     _gParent = parentWorld;
     _gWorld = world;
     _gPivot = pivot;
     _gOrigin = world.point(pivot);
+}
+
+void
+Solv3DGLWidget::setManipMode(int m)
+{
+    if ( (m == _manipMode) && (m != 0) ) {
+        // pressing the active tool again resets its active part
+        const int defaults[4] = { ePartCenter, ePartCenter, ePartFree, ePartCenter };
+        _activePart[m] = defaults[m];
+    }
+    if ( (_manipMode != 0) && (m != _manipMode) ) {
+        _lastTool = _manipMode;
+    }
+    _manipMode = m;
+    update();
+}
+
+void
+Solv3DGLWidget::cycleSpace()
+{
+    _space = (_space + 1) % 3;
+    if (onSpaceChanged) {
+        onSpaceChanged(_space);
+    }
+    update();
 }
 
 bool
@@ -754,107 +1076,161 @@ Solv3DGLWidget::mouseRay(const QPoint& p, Vec3* o, Vec3* d) const
 }
 
 Vec3
-Solv3DGLWidget::gizmoAxis(int a) const
-{
-    Vec3 e;
-    (a == 0 ? e.x : (a == 1 ? e.y : e.z) ) = 1.;
-    if (_manipMode == 3) {
-        // scale handles follow the object's axes
-        const Vec3 v = _gWorld.vector(e);
-        const double l = std::sqrt( dot(v, v) );
-
-        return l > 1e-12 ? v * (1. / l) : e;
-    }
-
-    return e; // move / rotate: world axes
-}
-
-Vec3
-Solv3DGLWidget::viewForward() const
+Solv3DGLWidget::eyePos() const
 {
     Mat4 P, V;
     viewMatrices(&P, &V);
 
-    return normalize( Vec3(V.m[2][0], V.m[2][1], V.m[2][2]) ); // camera +Z in world (the plane normal)
+    return V.inverse().point( Vec3() );
+}
+
+void
+Solv3DGLWidget::gizmoAxes(Vec3 ax[3]) const
+{
+    if (_gLive) {
+        for (int i = 0; i < 3; ++i) {
+            ax[i] = _gLiveAx[i];
+        }
+
+        return;
+    }
+    const int t = tool();
+    const int sp = (t == 3) ? 0 : _space; // scale: always the object's own axes
+    if (sp == 1) {
+        ax[0] = Vec3(1, 0, 0); ax[1] = Vec3(0, 1, 0); ax[2] = Vec3(0, 0, 1);
+
+        return;
+    }
+    if (sp == 2) {
+        Mat4 P, V;
+        viewMatrices(&P, &V);
+        for (int i = 0; i < 3; ++i) {
+            ax[i] = normalize( Vec3(V.m[i][0], V.m[i][1], V.m[i][2]) );
+        }
+
+        return;
+    }
+    for (int i = 0; i < 3; ++i) {
+        Vec3 e;
+        (i == 0 ? e.x : (i == 1 ? e.y : e.z) ) = 1.;
+        const Vec3 v = _gWorld.vector(e);
+        const double l = std::sqrt( dot(v, v) );
+        ax[i] = l > 1e-12 ? v * (1. / l) : e;
+    }
 }
 
 double
-Solv3DGLWidget::gizmoSize() const
+Solv3DGLWidget::gizmoLength() const
 {
-    // constant size on screen: ~ 1/8 of the view height
     Mat4 P, V;
     viewMatrices(&P, &V);
-    const Vec3 c = V.point(_gOrigin);
-    const double depth = std::max(1e-6, -c.z);
-    const double pyy = std::max(1e-9, P.m[1][1]);
-    if (P.m[3][3] == 1.) { // orthographic
-
-        return 0.25 / pyy;
+    const double inv = 1. / std::max(1e-9, P.m[1][1]); // tan(fov / 2)
+    if (P.m[3][3] == 1.) { // orthographic: half height of the view = 1 / P11
+        return inv * 0.28 * _handleScale;
     }
+    const Vec3 d = eyePos() - _gOrigin;
 
-    return depth * 0.25 / pyy;
+    return std::sqrt( dot(d, d) ) * inv * 0.28 * _handleScale;
 }
 
-static double
-segDist(double px, double py, double ax, double ay, double bx, double by)
+static bool
+insidePoly(double px, double py, const double* x, const double* y, int n)
 {
-    const double ex = bx - ax, ey = by - ay, l2 = ex * ex + ey * ey;
-    double u = l2 > 1e-12 ? ( (px - ax) * ex + (py - ay) * ey ) / l2 : 0.;
-    u = std::max( 0., std::min(1., u) );
+    bool in = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+        if ( ( (y[i] > py) != (y[j] > py) ) && ( px < (x[j] - x[i]) * (py - y[i]) / (y[j] - y[i]) + x[i] ) ) {
+            in = !in;
+        }
+    }
 
-    return std::hypot(ax + u * ex - px, ay + u * ey - py);
+    return in;
 }
 
 int
-Solv3DGLWidget::gizmoHandle(const QPoint& p) const
+Solv3DGLWidget::hitPart(const QPoint& pt) const
 {
-    if ( !_gizmoOn || (_manipMode == 0) ) {
-        return 0;
+    if ( !gizmoVisible() ) {
+        return ePartNone;
     }
-    double ox, oy;
-    if ( !screenPoint(_gOrigin, &ox, &oy) ) {
-        return 0;
+    const double px = pt.x(), py = pt.y();
+    double cx, cy;
+    if ( !screenPoint(_gOrigin, &cx, &cy) ) {
+        return ePartNone;
     }
-    if ( (_manipMode != 2) && (std::hypot(p.x() - ox, p.y() - oy) < 9.) ) {
-        return 4;
-    }
-    const double S = gizmoSize();
-    int best = 0;
-    double bd = 8.;
-    for (int a = 0; a < 3; ++a) {
-        const Vec3 ax = gizmoAxis(a);
-        if (_manipMode == 2) {
-            // ring around the axis
-            Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
-            const Vec3 v = cross(ax, u);
-            double px0 = 0, py0 = 0;
-            bool have = false;
-            for (int i = 0; i <= 48; ++i) {
-                const double t = i * 2. * 3.14159265358979323846 / 48.;
-                const Vec3 w = _gOrigin + (u * std::cos(t) + v * std::sin(t) ) * S;
+    Vec3 ax[3];
+    gizmoAxes(ax);
+    const double L = gizmoLength();
+    const int t = tool();
+    if (t == 2) {
+        // rings: nearest segment within 9 px with an end on the front half
+        const Vec3 eye = eyePos();
+        int best = ePartNone;
+        double bd = 9.;
+        for (int k = 0; k < 3; ++k) {
+            const Vec3& u = ax[(k + 1) % 3];
+            const Vec3& v = ax[(k + 2) % 3];
+            double x0 = 0, y0 = 0;
+            bool f0 = false, have = false;
+            for (int i = 0; i <= 64; ++i) {
+                const double a = i * 2. * 3.14159265358979323846 / 64.;
+                const Vec3 w = _gOrigin + (u * std::cos(a) + v * std::sin(a) ) * L;
+                const bool front = dot(w - _gOrigin, eye - _gOrigin) >= 0.;
                 double x, y;
                 if ( !screenPoint(w, &x, &y) ) {
                     have = false;
                     continue;
                 }
-                if (have) {
-                    const double dd = segDist(p.x(), p.y(), px0, py0, x, y);
-                    if (dd < bd) {
-                        bd = dd;
-                        best = a + 1;
+                if ( have && (front || f0) ) {
+                    const double d = segDist(px, py, x0, y0, x, y);
+                    if (d < bd) {
+                        bd = d;
+                        best = k;
                     }
                 }
-                px0 = x; py0 = y; have = true;
+                x0 = x; y0 = y; f0 = front; have = true;
             }
-        } else {
-            double x, y;
-            if ( screenPoint(_gOrigin + ax * S, &x, &y) ) {
-                const double dd = segDist(p.x(), p.y(), ox, oy, x, y);
-                if (dd < bd) {
-                    bd = dd;
-                    best = a + 1;
-                }
+        }
+        if (best != ePartNone) {
+            return best;
+        }
+        double ex, ey;
+        if ( screenPoint(_gOrigin + ax[0] * L, &ex, &ey) && (std::hypot(px - cx, py - cy) < 0.85 * std::hypot(ex - cx, ey - cy) ) ) {
+            return ePartFree;
+        }
+
+        return ePartNone;
+    }
+    // move / scale / pivot
+    if (std::fabs(px - cx) + std::fabs(py - cy) < 12.) {
+        return ePartCenter;
+    }
+    if ( (t == 1) || (t == 3) ) {
+        for (int k = 0; k < 3; ++k) {
+            const Vec3& a = ax[(k + 1) % 3];
+            const Vec3& b = ax[(k + 2) % 3];
+            const double s1 = 0.36 * L, s2 = 0.56 * L;
+            const Vec3 q[4] = { _gOrigin + a * s1 + b * s1, _gOrigin + a * s2 + b * s1, _gOrigin + a * s2 + b * s2, _gOrigin + a * s1 + b * s2 };
+            double xs[4], ys[4];
+            bool ok = true;
+            for (int i = 0; i < 4 && ok; ++i) {
+                ok = screenPoint(q[i], &xs[i], &ys[i]);
             }
+            if ( ok && insidePoly(px, py, xs, ys, 4) ) {
+                return ePartPlaneX + k;
+            }
+        }
+    }
+    int best = ePartNone;
+    double bd = 9.;
+    for (int k = 0; k < 3; ++k) {
+        double ex, ey;
+        if ( !screenPoint(_gOrigin + ax[k] * L, &ex, &ey) ) {
+            continue;
+        }
+        const double d = segDist(px, py, cx, cy, ex, ey);
+        if (d < bd) {
+            bd = d;
+            best = k;
         }
     }
 
@@ -862,76 +1238,496 @@ Solv3DGLWidget::gizmoHandle(const QPoint& p) const
 }
 
 void
-Solv3DGLWidget::drawGizmo(const Mat4& /*P*/, const Mat4& V)
+Solv3DGLWidget::drawGizmo2D(QPainter& p)
 {
-    if ( !_gizmoOn || (_manipMode == 0) ) {
+    if ( !gizmoVisible() ) {
         return;
     }
-    loadMat(GL_MODELVIEW, V);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_LIGHTING);
-    glDisable(GL_TEXTURE_2D);
-    const double S = gizmoSize();
-    const float axc[3][3] = { { 0.93f, 0.33f, 0.31f }, { 0.4f, 0.85f, 0.42f }, { 0.36f, 0.55f, 1.f } };
-    const int hot = _gDrag ? _gDrag : _gHot;
-    for (int a = 0; a < 3; ++a) {
-        const Vec3 ax = gizmoAxis(a);
-        if (hot == a + 1) {
-            glColor4f(1.f, 0.85f, 0.3f, 1.f);
-        } else {
-            glColor4f(axc[a][0], axc[a][1], axc[a][2], 1.f);
+    double cx, cy;
+    if ( !screenPoint(_gOrigin, &cx, &cy) ) {
+        return;
+    }
+    Vec3 ax[3];
+    gizmoAxes(ax);
+    const double L = gizmoLength();
+    const int t = tool();
+    const int lit = (_gDrag != ePartNone) ? _gDrag : ( (_gHot != ePartNone) ? _gHot : _activePart[t] );
+    const QPointF c(cx, cy);
+    auto scr = [&](const Vec3& w, QPointF* o) -> bool {
+        double x, y;
+        if ( !screenPoint(w, &x, &y) ) {
+            return false;
         }
-        glLineWidth(hot == a + 1 ? 3.f : 2.f);
-        if (_manipMode == 2) {
-            Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
-            const Vec3 v = cross(ax, u);
-            glBegin(GL_LINE_LOOP);
-            for (int i = 0; i < 64; ++i) {
-                const double t = i * 2. * 3.14159265358979323846 / 64.;
-                const Vec3 w = _gOrigin + (u * std::cos(t) + v * std::sin(t) ) * S;
-                glVertex3d(w.x, w.y, w.z);
+        *o = QPointF(x, y);
+
+        return true;
+    };
+    p.setRenderHint(QPainter::Antialiasing, true);
+    if (t == 2) {
+        const Vec3 eye = eyePos();
+        // ghost axes of the drag start
+        if (_gDrag != ePartNone) {
+            QPen gp(QColor(200, 200, 200, 70), 1., Qt::DashLine);
+            p.setPen(gp);
+            for (int k = 0; k < 3; ++k) {
+                QPointF e;
+                if ( scr(_gC0 + _gAx0[k] * _gL0, &e) ) {
+                    p.drawLine(c, e);
+                }
             }
-            glEnd();
+        }
+        // trackball
+        QPointF e0;
+        double rad = L;
+        if ( scr(_gOrigin + ax[0] * L, &e0) ) {
+            rad = std::hypot(e0.x() - cx, e0.y() - cy);
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush( QColor(160, 160, 160, lit == ePartFree ? 38 : 14) );
+        p.drawEllipse(c, rad, rad);
+        p.setBrush(Qt::NoBrush);
+        for (int k = 0; k < 3; ++k) {
+            const Vec3& u = ax[(k + 1) % 3];
+            const Vec3& v = ax[(k + 2) % 3];
+            const QColor col = (lit == k) ? kActiveQ : kAxQ[k];
+            QPointF prev;
+            bool have = false;
+            for (int i = 0; i <= 64; ++i) {
+                const double a = i * 2. * 3.14159265358979323846 / 64.;
+                const Vec3 w = _gOrigin + (u * std::cos(a) + v * std::sin(a) ) * L;
+                QPointF q;
+                if ( !scr(w, &q) ) {
+                    have = false;
+                    continue;
+                }
+                if (have) {
+                    const Vec3 wm = _gOrigin + ( u * std::cos(a - 3.14159265358979323846 / 64.) + v * std::sin(a - 3.14159265358979323846 / 64.) ) * L;
+                    const bool front = dot(wm - _gOrigin, eye - _gOrigin) >= 0.;
+                    QColor cc = col;
+                    if (!front) {
+                        cc.setAlpha(60);
+                    }
+                    p.setPen( QPen(cc, front ? 2.2 : 1.2) );
+                    p.drawLine(prev, q);
+                }
+                prev = q;
+                have = true;
+            }
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush( (lit == ePartFree) && (_gDrag == ePartFree) ? kActiveQ : QColor(0xc8, 0xc8, 0xc8) );
+        p.drawEllipse(c, 5., 5.);
+
+        return;
+    }
+    if (t == 4) {
+        // pivot: dashed axes and a crosshair
+        for (int k = 0; k < 3; ++k) {
+            QPointF e;
+            if ( scr(_gOrigin + ax[k] * L, &e) ) {
+                p.setPen( QPen(lit == k ? kActiveQ : kAxQ[k], 2., Qt::DashLine) );
+                p.drawLine(c, e);
+            }
+        }
+        const QColor cc = (lit == ePartCenter) ? kActiveQ : QColor(220, 220, 220);
+        p.setPen( QPen(cc, 1.5) );
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(c, 9., 9.);
+        p.drawLine( QPointF(cx - 14., cy), QPointF(cx + 14., cy) );
+        p.drawLine( QPointF(cx, cy - 14.), QPointF(cx, cy + 14.) );
+
+        return;
+    }
+    // move / scale: plane squares, axes with arrow heads (move) or squares (scale), centre box
+    for (int k = 0; k < 3; ++k) {
+        const Vec3& a = ax[(k + 1) % 3];
+        const Vec3& b = ax[(k + 2) % 3];
+        const double s1 = 0.36 * L, s2 = 0.56 * L;
+        QPointF q[4];
+        if ( scr(_gOrigin + a * s1 + b * s1, &q[0]) && scr(_gOrigin + a * s2 + b * s1, &q[1]) &&
+             scr(_gOrigin + a * s2 + b * s2, &q[2]) && scr(_gOrigin + a * s1 + b * s2, &q[3]) ) {
+            const bool on = (lit == ePartPlaneX + k);
+            QColor f = on ? kActiveQ : kAxQ[k];
+            f.setAlpha(on ? 110 : 55);
+            p.setBrush(f);
+            p.setPen( QPen(on ? kActiveQ : kAxQ[k], 1.) );
+            p.drawPolygon(q, 4);
+        }
+    }
+    for (int k = 0; k < 3; ++k) {
+        QPointF e;
+        if ( !scr(_gOrigin + ax[k] * L, &e) ) {
             continue;
         }
-        const Vec3 e = _gOrigin + ax * S;
-        glBegin(GL_LINES);
-        glVertex3d(_gOrigin.x, _gOrigin.y, _gOrigin.z);
-        glVertex3d(e.x, e.y, e.z);
-        glEnd();
-        // tip: cone (move) or cube (scale), drawn as a few lines / a point
-        Vec3 u = std::fabs(ax.y) < 0.9 ? normalize( cross( ax, Vec3(0, 1, 0) ) ) : normalize( cross( ax, Vec3(1, 0, 0) ) );
-        const Vec3 v = cross(ax, u);
-        if (_manipMode == 1) {
-            const double r = S * 0.06, L = S * 0.2;
-            glBegin(GL_TRIANGLE_FAN);
-            const Vec3 tip = e + ax * L;
-            glVertex3d(tip.x, tip.y, tip.z);
-            for (int i = 0; i <= 12; ++i) {
-                const double t = i * 2. * 3.14159265358979323846 / 12.;
-                const Vec3 w = e + (u * std::cos(t) + v * std::sin(t) ) * r;
-                glVertex3d(w.x, w.y, w.z);
+        const QColor col = (lit == k) ? kActiveQ : kAxQ[k];
+        p.setPen( QPen(col, 2.2) );
+        p.drawLine(c, e);
+        const double dx = e.x() - cx, dy = e.y() - cy, len = std::hypot(dx, dy);
+        const double ux = len > 1e-6 ? dx / len : 1., uy = len > 1e-6 ? dy / len : 0.;
+        p.setPen( QPen(kOutlineQ, 1.) );
+        p.setBrush(col);
+        if (t == 1) {
+            const QPointF tip(e.x() + ux * 12., e.y() + uy * 12.);
+            const QPointF tri[3] = { tip, QPointF(e.x() - uy * 5., e.y() + ux * 5.), QPointF(e.x() + uy * 5., e.y() - ux * 5.) };
+            p.drawPolygon(tri, 3);
+        } else {
+            p.drawRect( QRectF(e.x() - 5., e.y() - 5., 10., 10.) );
+        }
+    }
+    p.setPen( QPen(kOutlineQ, 1.) );
+    p.setBrush( (lit == ePartCenter) ? QColor(0xff, 0xf2, 0xb0) : kActiveQ );
+    p.drawRect( QRectF(cx - 5., cy - 5., 10., 10.) );
+}
+
+std::string
+Solv3DGLWidget::snapLabel() const
+{
+    std::vector<std::string> s;
+    if ( held(Qt::Key_X) || _snapGrid ) { s.push_back("grid"); }
+    if ( held(Qt::Key_C) ) { s.push_back("edges"); }
+    if ( held(Qt::Key_V) ) { s.push_back( held(Qt::Key_Shift) ? "face centres" : "points" ); }
+    std::string r;
+    for (size_t i = 0; i < s.size(); ++i) {
+        r += (i ? ", " : "") + s[i];
+    }
+
+    return r;
+}
+
+void
+Solv3DGLWidget::drawHud(QPainter& p)
+{
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    QFont f = p.font();
+    f.setPointSizeF(9.);
+    p.setFont(f);
+    const char* tools[5] = { "select", "move", "rotate", "scale", "pivot" };
+    const char* spaces[3] = { "local", "global", "view" };
+    std::string top = tools[tool()];
+    if ( (tool() != 0) && (tool() != 3) ) {
+        top += std::string(" \xC2\xB7 ") + spaces[_space];
+    } else if (tool() == 3) {
+        top += " \xC2\xB7 local";
+    }
+    p.setPen( QColor(200, 200, 200, 200) );
+    p.drawText( QPointF(8., 16.), QString::fromUtf8( top.c_str() ) );
+    const std::string sn = snapLabel();
+    if ( !sn.empty() ) {
+        p.setPen(kActiveQ);
+        p.drawText( QPointF(8., height() - 8.), QString::fromUtf8( ("snap: " + sn).c_str() ) );
+    }
+}
+
+void
+Solv3DGLWidget::buildSnapData()
+{
+    _snapPts.clear(); _snapFaces.clear(); _snapEdges.clear();
+    _snapPtsScr.clear(); _snapFacesScr.clear(); _snapEdgesScr.clear();
+    const Scene* scenes[2] = { &_scene, &_templ };
+    size_t budget = 400000;
+    for (int si = 0; si < 2; ++si) {
+        for (const auto& kv : scenes[si]->prims()) {
+            const Prim& pr = kv.second;
+            if ( !pr.mesh || (pr.display == 0) || (pr.node == _gNode) || primHidden(*scenes[si], kv.first) ) {
+                continue;
             }
-            glEnd();
-        } else {
-            glPointSize(9.f);
-            glBegin(GL_POINTS);
-            glVertex3d(e.x, e.y, e.z);
-            glEnd();
+            const Mesh& m = *pr.mesh;
+            if (m.points.size() > budget) {
+                continue;
+            }
+            budget -= m.points.size();
+            const Mat4 W = scenes[si]->worldMatrix(kv.first);
+            std::vector<Vec3> wp( m.points.size() );
+            for (size_t i = 0; i < m.points.size(); ++i) {
+                wp[i] = W.point(m.points[i]);
+                _snapPts.push_back(wp[i]);
+            }
+            size_t base = 0;
+            for (int n : m.faceVertexCounts) {
+                if ( base + n > m.faceVertexIndices.size() ) {
+                    break;
+                }
+                Vec3 cs;
+                for (int k = 0; k < n; ++k) {
+                    const int ia = m.faceVertexIndices[base + k], ib = m.faceVertexIndices[base + (k + 1) % n];
+                    cs = cs + wp[ia];
+                    if (ia < ib) { // shared edges once
+                        _snapEdges.push_back( std::make_pair(wp[ia], wp[ib]) );
+                    }
+                }
+                if (n > 0) {
+                    _snapFaces.push_back( cs * (1. / n) );
+                }
+                base += n;
+            }
         }
     }
-    if (_manipMode != 2) {
-        glPointSize(hot == 4 ? 11.f : 9.f);
-        if (hot == 4) {
-            glColor4f(1.f, 0.85f, 0.3f, 1.f);
-        } else {
-            glColor4f(0.9f, 0.9f, 0.6f, 1.f);
+    // screen positions (the camera does not move during a drag)
+    auto proj = [&](const Vec3& w, std::vector<double>* out) {
+        double x, y;
+        if ( !screenPoint(w, &x, &y) ) {
+            x = y = -1e9;
         }
-        glBegin(GL_POINTS);
-        glVertex3d(_gOrigin.x, _gOrigin.y, _gOrigin.z);
-        glEnd();
+        out->push_back(x);
+        out->push_back(y);
+    };
+    for (const Vec3& w : _snapPts) { proj(w, &_snapPtsScr); }
+    for (const Vec3& w : _snapFaces) { proj(w, &_snapFacesScr); }
+    for (const auto& e : _snapEdges) { proj(e.first, &_snapEdgesScr); proj(e.second, &_snapEdgesScr); }
+}
+
+bool
+Solv3DGLWidget::snapTarget(const QPoint& mouse, Vec3* target) const
+{
+    const double mx = mouse.x(), my = mouse.y();
+    auto nearest = [&](const std::vector<Vec3>& pts, const std::vector<double>& scr) -> int {
+        int best = -1;
+        double bd = 25.;
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const double d = std::hypot(scr[i * 2] - mx, scr[i * 2 + 1] - my);
+            if (d < bd) {
+                bd = d;
+                best = (int)i;
+            }
+        }
+
+        return best;
+    };
+    if ( held(Qt::Key_V) && held(Qt::Key_Shift) ) {
+        const int i = nearest(_snapFaces, _snapFacesScr);
+        if (i >= 0) {
+            *target = _snapFaces[i];
+
+            return true;
+        }
+    } else if ( held(Qt::Key_V) ) {
+        const int i = nearest(_snapPts, _snapPtsScr);
+        if (i >= 0) {
+            *target = _snapPts[i];
+
+            return true;
+        }
     }
-    glEnable(GL_DEPTH_TEST);
+    if ( held(Qt::Key_C) ) {
+        int best = -1;
+        double bd = 25., bt = 0.;
+        for (size_t i = 0; i < _snapEdges.size(); ++i) {
+            double tt;
+            const double d = segDist(mx, my, _snapEdgesScr[i * 4], _snapEdgesScr[i * 4 + 1], _snapEdgesScr[i * 4 + 2], _snapEdgesScr[i * 4 + 3], &tt);
+            if (d < bd) {
+                bd = d;
+                best = (int)i;
+                bt = tt;
+            }
+        }
+        if (best >= 0) {
+            const auto& e = _snapEdges[best];
+            *target = e.first + (e.second - e.first) * bt;
+
+            return true;
+        }
+    }
+    if ( held(Qt::Key_X) || _snapGrid ) {
+        *target = Vec3( std::round(target->x), std::round(target->y), std::round(target->z) );
+
+        return true;
+    }
+
+    return false;
+}
+
+void
+Solv3DGLWidget::beginManip(int part, const QPoint& pos)
+{
+    if ( (part == ePartNone) || !onManipBegin || !onManipBegin(&_gStart) ) {
+        return;
+    }
+    const int t = tool();
+    _gDrag = part;
+    _activePart[t] = part;
+    _gMouse0 = pos;
+    _gParent0 = _gParent;
+    _gWorld0 = _gWorld;
+    _gC0 = _gOrigin;
+    gizmoAxes(_gAx0);
+    _gL0 = gizmoLength();
+    screenPoint(_gC0, &_gSx0, &_gSy0);
+    _gSegX = _gSegY = 0.;
+    if (part <= ePartZ) {
+        double ex, ey;
+        if ( screenPoint(_gC0 + _gAx0[part] * _gL0, &ex, &ey) ) {
+            _gSegX = ex - _gSx0;
+            _gSegY = ey - _gSy0;
+        }
+    }
+    if ( (part >= ePartPlaneX) && (part <= ePartPlaneZ) ) {
+        Vec3 ro, rd;
+        mouseRay(pos, &ro, &rd);
+        _gHit0 = rayPlane(ro, rd, _gC0, _gAx0[part - ePartPlaneX]);
+    }
+    if ( (t == 1) || (t == 4) ) {
+        buildSnapData();
+    }
+    _keyUsed = true;
+    update();
+}
+
+void
+Solv3DGLWidget::dragManip(const QPoint& pos)
+{
+    if ( (_gDrag == ePartNone) || !onManipSet ) {
+        return;
+    }
+    const int t = tool();
+    const double dx = pos.x() - _gMouse0.x(), dy = pos.y() - _gMouse0.y();
+    const Mat4 S = linearPart(_gParent0), S3inv = S.inverse();
+    const double segLen = std::hypot(_gSegX, _gSegY);
+    const double px = segLen > 1e-6 ? (dx * _gSegX + dy * _gSegY) / segLen : 0.;
+    Mat4 P, V;
+    viewMatrices(&P, &V);
+    if ( (t == 1) || (t == 4) ) {
+        Vec3 delta;
+        if (_gDrag <= ePartZ) {
+            delta = segLen > 1e-6 ? _gAx0[_gDrag] * (px / segLen * _gL0) : Vec3();
+        } else if (_gDrag <= ePartPlaneZ) {
+            Vec3 ro, rd;
+            mouseRay(pos, &ro, &rd);
+            delta = rayPlane(ro, rd, _gC0, _gAx0[_gDrag - ePartPlaneX]) - _gHit0;
+        } else {
+            // view plane: world units per pixel at the centre's depth
+            double k = 2. / ( std::max(1e-9, P.m[1][1]) * std::max(1, height()) );
+            if (P.m[3][3] != 1.) {
+                const Vec3 d = eyePos() - _gC0;
+                k *= std::sqrt( dot(d, d) );
+            }
+            const Vec3 right = normalize( Vec3(V.m[0][0], V.m[0][1], V.m[0][2]) ), up = normalize( Vec3(V.m[1][0], V.m[1][1], V.m[1][2]) );
+            delta = (right * dx - up * dy) * k;
+        }
+        Vec3 target = _gC0 + delta;
+        snapTarget(pos, &target);
+        if (t == 1) {
+            onManipSet(1, _gStart.translate + S3inv.vector(target - _gC0), 0.);
+        } else {
+            // pivot: the object stays in place
+            const Vec3 p2 = _gWorld0.inverse().point(target);
+            const Mat4 RS = linearPart( _gParent0.inverse() * _gWorld0 );
+            const Vec3 p0 = _gStart.pivot;
+            const Vec3 t2 = _gStart.translate + (p0 - p2) + RS.vector(p2 - p0);
+            onManipSet(5, p2, 0.);
+            onManipSet(1, t2, 0.);
+        }
+    } else if (t == 2) {
+        const Mat4 R0 = eulerToMatrix(_gStart.rotate, _gStart.rotOrder);
+        Mat4 Rn;
+        if (_gDrag <= ePartZ) {
+            const double a0 = std::atan2(_gMouse0.y() - _gSy0, _gMouse0.x() - _gSx0);
+            const double a1 = std::atan2(pos.y() - _gSy0, pos.x() - _gSx0);
+            double deg = -(a1 - a0) * kDeg; // screen y points down
+            while (deg > 180.) { deg -= 360.; }
+            while (deg < -180.) { deg += 360.; }
+            const Vec3 axView = V.vector(_gAx0[_gDrag]);
+            if (axView.z < 0.) {
+                deg = -deg;                  // the axis points away from the camera
+            }
+            if ( held(Qt::Key_J) ) {
+                deg = std::round(deg / 15.) * 15.;
+            }
+            Rn = axisAngle(S3inv.vector(_gAx0[_gDrag]), deg) * R0;
+        } else {
+            const Vec3 right = normalize( Vec3(V.m[0][0], V.m[0][1], V.m[0][2]) ), up = normalize( Vec3(V.m[1][0], V.m[1][1], V.m[1][2]) );
+            double ay = dx * 0.5, ax = dy * 0.5;
+            if ( held(Qt::Key_J) ) {
+                ay = std::round(ay / 15.) * 15.;
+                ax = std::round(ax / 15.) * 15.;
+            }
+            Rn = axisAngle(S3inv.vector(right), ax) * axisAngle(S3inv.vector(up), ay) * R0;
+        }
+        const Vec3 e = matrixToEuler(Rn, _gStart.rotOrder, _gStart.rotate);
+        onManipSet(2, e, 0.);
+        // the handle turns with the object (local space)
+        if (_space == 0) {
+            const Mat4 W = S * eulerToMatrix(e, _gStart.rotOrder);
+            for (int i = 0; i < 3; ++i) {
+                Vec3 u;
+                (i == 0 ? u.x : (i == 1 ? u.y : u.z) ) = 1.;
+                _gLiveAx[i] = normalize( W.vector(u) );
+            }
+            _gLive = true;
+        }
+    } else if (t == 3) {
+        if (_gDrag <= ePartZ) {
+            Vec3 s = _gStart.scale;
+            const double f = std::max( 0.001, 1. + (segLen > 1e-6 ? px / segLen : 0.) );
+            (_gDrag == 0 ? s.x : (_gDrag == 1 ? s.y : s.z) ) = std::max(0.001, (_gDrag == 0 ? s.x : (_gDrag == 1 ? s.y : s.z) ) * f);
+            onManipSet(3, s, 0.);
+        } else {
+            const double f = std::max(0.01, 1. + (dx - dy) / 150.);
+            if (_gDrag == ePartCenter) {
+                onManipSet(4, Vec3(), _gStart.uniform * f);
+            } else {
+                const int k = _gDrag - ePartPlaneX;
+                Vec3 s = _gStart.scale;
+                if (k != 0) { s.x *= f; }
+                if (k != 1) { s.y *= f; }
+                if (k != 2) { s.z *= f; }
+                onManipSet(3, s, 0.);
+            }
+        }
+    }
+    update();
+}
+
+void
+Solv3DGLWidget::endManip()
+{
+    if (_gDrag == ePartNone) {
+        return;
+    }
+    _gDrag = ePartNone;
+    _gMiddle = false;
+    _gLive = false;
+    if (onManipEnd) {
+        onManipEnd();
+    }
+    update();
+}
+
+void
+Solv3DGLWidget::centrePivot()
+{
+    if ( !_gizmoOn || _gNode.empty() || !onManipBegin || !onManipSet || !onManipBegin(&_gStart) ) {
+        return;
+    }
+    // bounding box of the node's geometry in its own space
+    const Mat4 inv = _gWorld.inverse();
+    Vec3 lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30);
+    bool any = false;
+    const Scene* scenes[2] = { &_scene, &_templ };
+    for (int si = 0; si < 2; ++si) {
+        for (const auto& kv : scenes[si]->prims()) {
+            if ( !kv.second.mesh || (kv.second.node != _gNode) ) {
+                continue;
+            }
+            const Mat4 M = inv * scenes[si]->worldMatrix(kv.first);
+            for (const Vec3& q : kv.second.mesh->points) {
+                const Vec3 l = M.point(q);
+                lo = Vec3( std::min(lo.x, l.x), std::min(lo.y, l.y), std::min(lo.z, l.z) );
+                hi = Vec3( std::max(hi.x, l.x), std::max(hi.y, l.y), std::max(hi.z, l.z) );
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        return;
+    }
+    const Vec3 p2 = (lo + hi) * 0.5;
+    const Mat4 RS = linearPart( _gParent.inverse() * _gWorld );
+    const Vec3 p0 = _gStart.pivot;
+    onManipSet(5, p2, 0.);
+    onManipSet(1, _gStart.translate + (p0 - p2) + RS.vector(p2 - p0), 0.);
+    if (onManipEnd) {
+        onManipEnd();
+    }
 }
 
 void
@@ -944,30 +1740,42 @@ Solv3DGLWidget::mousePressEvent(QMouseEvent* e)
     const bool alt = e->modifiers() & Qt::AltModifier;
     if (alt && (e->button() == Qt::LeftButton)) {
         _dragMode = 1;
-    } else if ( (alt && (e->button() == Qt::MiddleButton)) || (e->button() == Qt::MiddleButton) ) {
+    } else if (alt && (e->button() == Qt::MiddleButton)) {
         _dragMode = 2;
     } else if (alt && (e->button() == Qt::RightButton)) {
         _dragMode = 3;
+    } else if (e->button() == Qt::MiddleButton) {
+        // middle-drag drives the active part of the handle (else tracks the view)
+        if ( gizmoVisible() ) {
+            _gMiddle = true;
+            beginManip(_activePart[tool()], e->pos());
+            _moved = true;
+        } else {
+            _dragMode = 2;
+        }
+    } else if (e->button() == Qt::RightButton) {
+        QMenu m(this);
+        QAction* g = m.addAction( tr("snap to grid") );
+        g->setCheckable(true);
+        g->setChecked(_snapGrid);
+        QAction* sp = m.addAction( tr("handle space: %1").arg( QString::fromUtf8(_space == 0 ? "local" : _space == 1 ? "global" : "view") ) );
+        QAction* chosen = m.exec( e->globalPos() );
+        if (chosen == g) {
+            _snapGrid = !_snapGrid;
+        } else if (chosen == sp) {
+            cycleSpace();
+        }
+        update();
+
+        return;
     }
     if ( _dragMode && _locked && !_lookThrough.empty() ) {
         _dragMode = 0; // locked to the camera
     }
     if ( !_dragMode && (e->button() == Qt::LeftButton) ) {
-        const int h = gizmoHandle( e->pos() );
-        if ( h && onManipBegin && onManipBegin(&_gStart) ) {
-            _gDrag = h;
-            Vec3 ro, rd;
-            mouseRay(e->pos(), &ro, &rd);
-            if ( (_manipMode == 1 || _manipMode == 3) && (h <= 3) ) {
-                _gT0 = closestParam( _gOrigin, gizmoAxis(h - 1), ro, rd );
-            } else if ( (_manipMode == 1) && (h == 4) ) {
-                // plane through the gizmo, facing the view
-                _gAxisStart = rayPlane( ro, rd, _gOrigin, viewForward() );
-            } else if (_manipMode == 2) {
-                double ox, oy;
-                screenPoint(_gOrigin, &ox, &oy);
-                _gAng0 = std::atan2( -(e->pos().y() - oy), e->pos().x() - ox );
-            }
+        const int h = hitPart( e->pos() );
+        if (h != ePartNone) {
+            beginManip(h, e->pos());
             _moved = true; // no pick on release
         }
     }
@@ -982,61 +1790,13 @@ Solv3DGLWidget::mouseMoveEvent(QMouseEvent* e)
     if ( (e->pos() - _pressPos).manhattanLength() > 3 ) {
         _moved = true;
     }
-    if (_gDrag) {
-        Vec3 ro, rd;
-        mouseRay(e->pos(), &ro, &rd);
-        const Mat4 parentInv = _gParent.inverse();
-        if (_manipMode == 1) {
-            Vec3 dw;
-            if (_gDrag <= 3) {
-                const Vec3 ax = gizmoAxis(_gDrag - 1);
-                dw = ax * (closestParam(_gOrigin, ax, ro, rd) - _gT0);
-            } else {
-                dw = rayPlane( ro, rd, _gOrigin, viewForward() ) - _gAxisStart;
-            }
-            if (onManipSet) {
-                onManipSet(1, _gStart.translate + parentInv.vector(dw), 0.);
-            }
-        } else if (_manipMode == 2) {
-            double ox, oy;
-            screenPoint(_gOrigin, &ox, &oy);
-            double ang = std::atan2( -(e->pos().y() - oy), e->pos().x() - ox );
-            double da = (ang - _gAng0) * 180. / 3.14159265358979323846;
-            while (da > 180.) da -= 360.;
-            while (da < -180.) da += 360.;
-            // counter-clockwise on screen = positive around an axis pointing at the viewer
-            Mat4 P, V;
-            viewMatrices(&P, &V);
-            const Vec3 axView = V.vector( gizmoAxis(_gDrag - 1) );
-            if (axView.z < 0.) {
-                da = -da;
-            }
-            Vec3 r = _gStart.rotate;
-            (_gDrag == 1 ? r.x : (_gDrag == 2 ? r.y : r.z) ) += da;
-            if (onManipSet) {
-                onManipSet(2, r, 0.);
-            }
-        } else if (_manipMode == 3) {
-            if (_gDrag <= 3) {
-                const Vec3 ax = gizmoAxis(_gDrag - 1);
-                const double t = closestParam(_gOrigin, ax, ro, rd);
-                const double fct = std::fabs(_gT0) > 1e-9 ? std::max(0.001, t / _gT0) : 1.;
-                Vec3 sc = _gStart.scale;
-                (_gDrag == 1 ? sc.x : (_gDrag == 2 ? sc.y : sc.z) ) *= fct;
-                if (onManipSet) {
-                    onManipSet(3, sc, 0.);
-                }
-            } else if (onManipSet) {
-                const double fct = std::max(0.001, std::pow(1.01, (e->pos().x() - _pressPos.x()) - (e->pos().y() - _pressPos.y()) ) );
-                onManipSet(4, Vec3(), _gStart.uniform * fct);
-            }
-        }
-        update();
+    if (_gDrag != ePartNone) {
+        dragManip( e->pos() );
 
         return;
     }
     if (!_dragMode) {
-        const int h = gizmoHandle( e->pos() );
+        const int h = hitPart( e->pos() );
         if (h != _gHot) {
             _gHot = h;
             update();
@@ -1084,13 +1844,9 @@ Solv3DGLWidget::mouseMoveEvent(QMouseEvent* e)
 void
 Solv3DGLWidget::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (_gDrag) {
-        _gDrag = 0;
+    if (_gDrag != ePartNone) {
+        endManip();
         _dragMode = 0;
-        if (onManipEnd) {
-            onManipEnd();
-        }
-        update();
 
         return;
     }
@@ -1117,31 +1873,115 @@ Solv3DGLWidget::wheelEvent(QWheelEvent* e)
 }
 
 void
+Solv3DGLWidget::enterEvent(QEvent* e)
+{
+    // hotkeys go to the pane under the cursor
+    if ( window() && window()->isActiveWindow() ) {
+        setFocus(Qt::MouseFocusReason);
+    }
+    QOpenGLWidget::enterEvent(e);
+}
+
+void
+Solv3DGLWidget::focusOutEvent(QFocusEvent* e)
+{
+    _held.clear();
+    _keyDown.clear();
+    if (_pivotByD) {
+        _pivotMode = false;
+        _pivotByD = false;
+    }
+    update();
+    QOpenGLWidget::focusOutEvent(e);
+}
+
+void
 Solv3DGLWidget::keyPressEvent(QKeyEvent* e)
 {
-    const bool shift = e->modifiers() & Qt::ShiftModifier;
-    int preset = -1;
-    switch ( e->key() ) {
+    const int key = e->key();
+    if ( e->isAutoRepeat() ) {
+        if ( (key == Qt::Key_Plus) || (key == Qt::Key_Equal) || (key == Qt::Key_Minus) ) {
+            // size keys repeat
+        } else {
+            return;
+        }
+    }
+    _held.insert(key);
+    const Qt::KeyboardModifiers mods = e->modifiers();
+    const bool shift = mods & Qt::ShiftModifier;
+    const bool ctrl = mods & Qt::ControlModifier;
+    switch (key) {
     case Qt::Key_F:
+        frameSelected();
+
+        return;
     case Qt::Key_A:
         frameAll();
 
         return;
-    case Qt::Key_X: preset = shift ? 6 : 5; break;
-    case Qt::Key_C: preset = shift ? 2 : 1; break;
-    case Qt::Key_Z: preset = shift ? 4 : 3; break;
-    case Qt::Key_V: preset = 0; break;
+    case Qt::Key_X:
+    case Qt::Key_C:
+    case Qt::Key_Z:
+    case Qt::Key_V:
+        // views switch on release (when the key was not held for snapping during a drag)
+        _keyDown[key] = QPoint(shift ? 1 : 0, 0);
+        _keyUsed = (_gDrag != ePartNone);
+        update();
+
+        return;
+    case Qt::Key_J:
+    case Qt::Key_Shift:
+        update();
+
+        return;
     case Qt::Key_H:
         if (onLookThroughSelected) {
             onLookThroughSelected();
         }
 
         return;
+    case Qt::Key_P:
+        if (ctrl && shift) {
+            centrePivot();
+        }
+
+        return;
+    case Qt::Key_Insert:
+        _pivotMode = !_pivotMode;
+        _pivotByD = false;
+        update();
+
+        return;
+    case Qt::Key_D:
+        if (!_pivotMode) {
+            _pivotMode = true;
+            _pivotByD = true;
+            update();
+        }
+
+        return;
+    case Qt::Key_QuoteLeft:
+    case Qt::Key_AsciiTilde:
+        cycleSpace();
+
+        return;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+        _handleScale = std::min(4., _handleScale * 1.2);
+        update();
+
+        return;
+    case Qt::Key_Minus:
+        _handleScale = std::max(0.25, _handleScale / 1.2);
+        update();
+
+        return;
+    case Qt::Key_Y:
     case Qt::Key_Q:
     case Qt::Key_W:
     case Qt::Key_E:
     case Qt::Key_R: {
-        const int m = (e->key() == Qt::Key_Q) ? 0 : (e->key() == Qt::Key_W) ? 1 : (e->key() == Qt::Key_E) ? 2 : 3;
+        const int m = (key == Qt::Key_Y) ? _lastTool : (key == Qt::Key_Q) ? 0 : (key == Qt::Key_W) ? 1 : (key == Qt::Key_E) ? 2 : 3;
         setManipMode(m);
         if (onManipModeChanged) {
             onManipModeChanged(m);
@@ -1154,22 +1994,59 @@ Solv3DGLWidget::keyPressEvent(QKeyEvent* e)
 
         return;
     }
-    setPreset(preset);
-    if (onPresetChanged) {
-        onPresetChanged(preset);
-    }
 }
 
-// one undo step per manipulator drag
+void
+Solv3DGLWidget::keyReleaseEvent(QKeyEvent* e)
+{
+    if ( e->isAutoRepeat() ) {
+        return;
+    }
+    const int key = e->key();
+    _held.erase(key);
+    if ( (key == Qt::Key_D) && _pivotByD ) {
+        _pivotMode = false;
+        _pivotByD = false;
+    }
+    std::map<int, QPoint>::iterator it = _keyDown.find(key);
+    if ( it != _keyDown.end() ) {
+        const bool shift = it->second.x() != 0;
+        _keyDown.erase(it);
+        if (!_keyUsed) {
+            int preset = -1;
+            switch (key) {
+            case Qt::Key_X: preset = shift ? 6 : 5; break;
+            case Qt::Key_C: preset = shift ? 2 : 1; break;
+            case Qt::Key_Z: preset = shift ? 4 : 3; break;
+            case Qt::Key_V: preset = shift ? -1 : 0; break;
+            default: break;
+            }
+            if (preset >= 0) {
+                setPreset(preset);
+                if (onPresetChanged) {
+                    onPresetChanged(preset);
+                }
+            }
+        }
+        _keyUsed = false;
+    }
+    update();
+}
+
+// one undo step per manipulator drag (all the parameters the drag changed)
 class Solv3DManipUndo
     : public UndoCommand
 {
 public:
-    Solv3DManipUndo(const KnobDoublePtr& k, const std::vector<double>& before, const std::vector<double>& after, const std::string& what)
-        : UndoCommand("move " + what)
-        , _k(k)
-        , _before(before)
-        , _after(after)
+    struct Entry
+    {
+        KnobDoubleWPtr k;
+        std::vector<double> before, after;
+    };
+
+    Solv3DManipUndo(const std::vector<Entry>& e, const std::string& what)
+        : UndoCommand(what)
+        , _e(e)
         , _first(true)
     {}
 
@@ -1180,18 +2057,22 @@ public:
 
             return;
         }
-        set(_after);
+        for (const Entry& e : _e) {
+            set(e, e.after);
+        }
     }
 
     virtual void undo() OVERRIDE FINAL
     {
-        set(_before);
+        for (const Entry& e : _e) {
+            set(e, e.before);
+        }
     }
 
 private:
-    void set(const std::vector<double>& v)
+    static void set(const Entry& e, const std::vector<double>& v)
     {
-        KnobDoublePtr k = _k.lock();
+        KnobDoublePtr k = e.k.lock();
         if (!k) {
             return;
         }
@@ -1203,8 +2084,7 @@ private:
         k->endChanges();
     }
 
-    KnobDoubleWPtr _k;
-    std::vector<double> _before, _after;
+    std::vector<Entry> _e;
     bool _first;
 };
 
@@ -1235,8 +2115,12 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
     h->addSpacing(8);
     {
         const char* names[4] = { "select", "move", "rotate", "scale" };
-        const char* tips[4] = { "Select only (Q).", "Move (W): drag an arrow along its axis, the centre in the view plane.",
-                                "Rotate (E): drag a ring.", "Scale (R): drag a handle along its axis, the centre for uniform scale." };
+        const char* tips[4] = { "Select only (Q).",
+                                "Move (W): arrows along an axis, squares in a plane, the centre box in the view plane. "
+                                "Hold X grid / C edge / V point / Shift+V face centre to snap. Insert or hold D: edit the pivot.",
+                                "Rotate (E): drag a ring, inside the ball for free rotation. Hold J for 15 degree steps.",
+                                "Scale (R): handles along the object's axes, squares for two axes, the centre for uniform scale. "
+                                "Y: last tool. Middle-drag drives the last used part. +/-: handle size." };
         for (int i = 0; i < 4; ++i) {
             _manipBtn[i] = new QToolButton(bar);
             _manipBtn[i]->setText( QString::fromUtf8(names[i]) );
@@ -1247,6 +2131,10 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
             QObject::connect( _manipBtn[i], SIGNAL(clicked()), this, SLOT(onManipButton()) );
             h->addWidget(_manipBtn[i]);
         }
+        _spaceBtn = new QToolButton(bar);
+        _spaceBtn->setText( QString::fromUtf8("L") );
+        _spaceBtn->setToolTip( tr("Handle space: L local, G global, V view (` cycles). Scale always uses local.") );
+        h->addWidget(_spaceBtn);
     }
     h->addStretch(1);
     _display = new QComboBox(bar);
@@ -1281,6 +2169,10 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         }
     };
     _gl->onLookThroughSelected = [this]() { lookThroughSelected(); };
+    QObject::connect( _spaceBtn, &QToolButton::clicked, this, [this]() { _gl->cycleSpace(); } );
+    _gl->onSpaceChanged = [this](int sp) {
+        _spaceBtn->setText( QString::fromUtf8(sp == 0 ? "L" : sp == 1 ? "G" : "V") );
+    };
     _gl->onManipModeChanged = [this](int m) {
         for (int i = 0; i < 4; ++i) {
             _manipBtn[i]->setChecked(i == m);
@@ -1303,6 +2195,8 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         get3("pivot", &x->pivot);
         KnobDoublePtr u = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName("uniform_scale") );
         x->uniform = u ? u->getValue() : 1.;
+        KnobChoicePtr ro = std::dynamic_pointer_cast<KnobChoice>( n->getKnobByName("rot_order") );
+        x->rotOrder = ro ? ro->getValue() : 0;
         _manipStart = *x;
         _manipWhat = 0;
 
@@ -1313,24 +2207,39 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         if ( !n || (_manipWhat == 0) ) {
             return;
         }
-        const char* name = (_manipWhat == 1) ? "translate" : (_manipWhat == 2) ? "rotate" : (_manipWhat == 3) ? "scaling" : "uniform_scale";
-        KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(name) );
         NodeGuiIPtr ng = n->getNodeGui();
-        if (!k || !ng) {
+        if (!ng) {
             return;
         }
-        const Vec3 b = (_manipWhat == 1) ? _manipStart.translate : (_manipWhat == 2) ? _manipStart.rotate : _manipStart.scale;
-        std::vector<double> before, after;
-        if (_manipWhat == 4) {
-            before.push_back(_manipStart.uniform);
-            after.push_back( k->getValue() );
-        } else {
-            before.push_back(b.x); before.push_back(b.y); before.push_back(b.z);
-            for (int d = 0; d < 3; ++d) {
-                after.push_back( k->getValue(d) );
+        std::vector<Solv3DManipUndo::Entry> entries;
+        const char* names[5] = { "translate", "rotate", "scaling", "uniform_scale", "pivot" };
+        const Vec3 starts[5] = { _manipStart.translate, _manipStart.rotate, _manipStart.scale, Vec3(), _manipStart.pivot };
+        std::string label;
+        for (int i = 0; i < 5; ++i) {
+            if ( !( _manipWhat & (1 << i) ) ) {
+                continue;
             }
+            KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(names[i]) );
+            if (!k) {
+                continue;
+            }
+            Solv3DManipUndo::Entry e;
+            e.k = k;
+            if (i == 3) {
+                e.before.push_back(_manipStart.uniform);
+                e.after.push_back( k->getValue() );
+            } else {
+                e.before.push_back(starts[i].x); e.before.push_back(starts[i].y); e.before.push_back(starts[i].z);
+                for (int d = 0; d < 3; ++d) {
+                    e.after.push_back( k->getValue(d) );
+                }
+            }
+            entries.push_back(e);
+            label = label.empty() ? std::string(names[i]) : label + " + " + names[i];
         }
-        ng->pushUndoCommand( UndoCommandPtr( new Solv3DManipUndo(k, before, after, name) ) );
+        if ( !entries.empty() ) {
+            ng->pushUndoCommand( UndoCommandPtr( new Solv3DManipUndo(entries, "move " + label) ) );
+        }
         _manipWhat = 0;
     };
     _gl->onManipSet = [this](int what, const Vec3& v, double uniform) {
@@ -1338,12 +2247,12 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         if (!n) {
             return;
         }
-        const char* name = (what == 1) ? "translate" : (what == 2) ? "rotate" : (what == 3) ? "scaling" : "uniform_scale";
+        const char* name = (what == 1) ? "translate" : (what == 2) ? "rotate" : (what == 3) ? "scaling" : (what == 4) ? "uniform_scale" : "pivot";
         KnobDoublePtr k = std::dynamic_pointer_cast<KnobDouble>( n->getKnobByName(name) );
         if (!k) {
             return;
         }
-        _manipWhat = what;
+        _manipWhat |= 1 << (what - 1);
         // user edit: keys the value when the parameter is animated (auto key)
         const double vals[3] = { v.x, v.y, v.z };
         const int dims = (what == 4) ? 1 : 3;
@@ -1360,7 +2269,7 @@ Solv3DView::Solv3DView(ViewerTab* viewer, Gui* gui)
         _view->blockSignals(false);
     };
     _timer = new QTimer(this);
-    _timer->setInterval(120);
+    _timer->setInterval(40); // cheap check: the scene is rebuilt only when its inputs changed
     QObject::connect( _timer, SIGNAL(timeout()), this, SLOT(refresh()) );
     _timer->start();
 }
@@ -1409,19 +2318,51 @@ Solv3DView::refresh()
         return;
     }
     const double t = _gui->getApp()->getTimeLine()->currentFrame();
-    _gl->setTime(t);
-    Scene main, templ;
+    const NodesGuiList& selection = _gui->getSelectedNodes();
     ViewerInstance* vi = _viewer ? _viewer->getInternalNode() : 0;
+    Solv3DNode* up = 0;
     if (vi) {
         int a = -1, b = -1;
         vi->getActiveInputs(a, b);
         EffectInstancePtr in = (a >= 0) ? vi->getInput(a) : EffectInstancePtr();
-        if ( Solv3DNode* n = upstream3D(in) ) {
-            n->buildScene(t, &main);
+        up = upstream3D(in);
+    }
+    {
+        // signature of everything the scene depends on (node hashes change with any upstream parameter / link)
+        U64 sig = 1469598103934665603ULL;
+        auto mix = [&sig](U64 v) { sig = (sig ^ v) * 1099511628211ULL; };
+        U64 tb;
+        std::memcpy(&tb, &t, 8);
+        mix(tb);
+        mix( (U64)(uintptr_t)up );
+        if (up) {
+            mix( up->getHash() );
         }
+        for (NodesGuiList::const_iterator it = selection.begin(); it != selection.end(); ++it) {
+            NodePtr node = (*it) ? (*it)->getNode() : NodePtr();
+            EffectInstancePtr e = node ? node->getEffectInstance() : EffectInstancePtr();
+            if ( e && Solv3DNode::as3D(e) ) {
+                mix( (U64)(uintptr_t)e.get() );
+                mix( e->getHash() );
+            }
+        }
+        // safety net: rebuild at least every 2 s (textures / files changed on disk)
+        if ( (sig == _lastSig) && (++_idleTicks < 50) ) {
+            if ( _gl->texturePending() ) {
+                _gl->update();
+            }
+
+            return;
+        }
+        _lastSig = sig;
+        _idleTicks = 0;
+    }
+    _gl->setTime(t);
+    Scene main, templ;
+    if (up) {
+        up->buildScene(t, &main);
     }
     std::set<std::string> sel;
-    const NodesGuiList& selection = _gui->getSelectedNodes();
     for (NodesGuiList::const_iterator it = selection.begin(); it != selection.end(); ++it) {
         NodePtr node = (*it) ? (*it)->getNode() : NodePtr();
         EffectInstancePtr e = node ? node->getEffectInstance() : EffectInstancePtr();
@@ -1472,7 +2413,7 @@ Solv3DView::refresh()
                 if (pk) {
                     pivot = Vec3( pk->getValue(0), pk->getValue(1), pk->getValue(2) );
                 }
-                _gl->setGizmo( true, pw, scenes[si]->worldMatrix(kv.first), pivot );
+                _gl->setGizmo( true, pw, scenes[si]->worldMatrix(kv.first), pivot, name );
                 _gizmoNode = name;
                 gizmo = true;
                 break;

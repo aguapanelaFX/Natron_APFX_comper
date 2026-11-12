@@ -52,6 +52,8 @@
 #include <pxr/usd/usdShade/shader.h>
 #include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/base/plug/registry.h>
+#include <pxr/base/tf/errorMark.h>
+#include <pxr/usd/pcp/errors.h>
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -141,6 +143,7 @@ getOr(const UsdAttribute& a, UsdTimeCode t, T def)
 struct Stage
 {
     UsdStageRefPtr stage;
+    std::string diag;           // composition errors / warnings found at open
     std::vector<SolvUsdPrim> prims;
     std::deque<std::string> strings;
     std::deque<std::vector<float> > fbufs;
@@ -311,14 +314,28 @@ solvusd_open(const char* file, char* err, int errLen)
 {
     try {
         registerPlugins();
-        UsdStageRefPtr st = UsdStage::Open( std::string(file) );
+        TfErrorMark mark;
+        UsdStageRefPtr st = UsdStage::Open( std::string(file), UsdStage::LoadAll );
+        std::string diag;
+        for (TfErrorMark::Iterator it = mark.GetBegin(); it != mark.GetEnd(); ++it) {
+            if ( diag.size() < 2000 ) {
+                diag += it->GetCommentary() + "\n";
+            }
+        }
+        mark.Clear();
         if (!st) {
-            setErr(err, errLen, std::string("cannot open ") + file);
+            setErr(err, errLen, std::string("cannot open ") + file + (diag.empty() ? "" : ": " + diag) );
 
             return 0;
         }
+        for (const PcpErrorBasePtr& e : st->GetCompositionErrors() ) {
+            if ( e && (diag.size() < 2000) ) {
+                diag += e->ToString() + "\n";
+            }
+        }
         Stage* s = new Stage;
         s->stage = st;
+        s->diag = diag;
 
         return s;
     } catch (const std::exception& e) {
@@ -326,6 +343,18 @@ solvusd_open(const char* file, char* err, int errLen)
 
         return 0;
     }
+}
+
+SOLVUSD_API int
+solvusd_diagnostics(void* h, char* out, int len)
+{
+    Stage* s = static_cast<Stage*>(h);
+    if (!s) {
+        return 0;
+    }
+    setErr(out, len, s->diag);
+
+    return (int)s->diag.size();
 }
 
 SOLVUSD_API void

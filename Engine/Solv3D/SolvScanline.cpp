@@ -628,6 +628,11 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
     if (aov.shadow) {
         aov.shadow->assign( (size_t)std::max(0, W) * std::max(0, H), 0.f );
     }
+    const size_t npx = (size_t)std::max(0, W) * std::max(0, H);
+    if (aov.position) { aov.position->assign(npx * 3, 0.f); }
+    if (aov.normal) { aov.normal->assign(npx * 3, 0.f); }
+    if (aov.uv) { aov.uv->assign(npx * 2, 0.f); }
+    if (aov.motion) { aov.motion->assign(npx * 2, 0.f); }
     if ( (W <= 0) || (H <= 0) || scenes.empty() ) {
         return;
     }
@@ -983,6 +988,17 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         }
     }
     const int nSteps = (int)scenes.size();
+    // motion vectors: the scene one frame later, same triangles
+    Step nextStep;
+    const bool wantMotion = aov.motion && aov.motionNext;
+    if (wantMotion) {
+        buildStep(*aov.motionNext, nextStep);
+    }
+    const bool dataAov = aov.position || aov.normal || aov.uv || aov.motion;
+    std::vector<float> closest;
+    if (dataAov) {
+        closest.assign( npx, std::numeric_limits<float>::max() );
+    }
 
     EnvMips env;
     if ( environment && (environment->w > 0) && (environment->h > 0) ) {
@@ -1045,6 +1061,9 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         // motion blur: every sample has its own time; geometry (and camera, through the screen positions) is
         // interpolated between the two evaluated steps around it when they match (same triangles)
         const std::vector<Tri>* trisPtr = &stp.tris;
+        const std::vector<Tri>* velA = 0;   // motion between the two steps around this sample (smear)
+        const std::vector<Tri>* velB = 0;
+        double velScale = 0.;
         if (nSteps > 1) {
             const double u = std::min( 0.999999, sampleTime[si] ) * (nSteps - 1);
             const int i0 = std::min(nSteps - 2, (int)u);
@@ -1069,6 +1088,9 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                     }
                 }
                 trisPtr = &lerpTris;
+                velA = &A.tris;
+                velB = &B.tris;
+                velScale = (double)(nSteps - 1);   // screen motion per unit of shutter time
             } else if (&A == &B) {
                 trisPtr = &A.tris;
             }
@@ -1156,6 +1178,36 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                     }
                     if (dot(N, V) < 0.) {
                         N = N * -1.;                         // two-sided
+                    }
+                    if (dataAov) {
+                        const float zc = (float)( -stp.view.point(P).z );
+                        if ( zc < closest[k] ) {
+                            closest[k] = zc;
+                            if (aov.position) {
+                                float* d = &(*aov.position)[k * 3];
+                                d[0] = (float)P.x; d[1] = (float)P.y; d[2] = (float)P.z;
+                            }
+                            if (aov.normal) {
+                                float* d = &(*aov.normal)[k * 3];
+                                d[0] = (float)N.x; d[1] = (float)N.y; d[2] = (float)N.z;
+                            }
+                            if (aov.uv) {
+                                float* d = &(*aov.uv)[k * 2];
+                                d[0] = (float)uv.x; d[1] = (float)uv.y;
+                            }
+                            if (wantMotion && ( nextStep.tris.size() == tris.size() ) ) {
+                                const Tri& tn = nextStep.tris[ti];
+                                // screen barycentrics (not perspective-corrected) for the screen motion
+                                float* d = &(*aov.motion)[k * 2];
+                                double mx = 0., my = 0.;
+                                const double bb[3] = { b0, b1, b2 };
+                                for (int v = 0; v < 3; ++v) {
+                                    mx += bb[v] * (tn.sx[v] - t.sx[v]);
+                                    my += bb[v] * (tn.sy[v] - t.sy[v]);
+                                }
+                                d[0] = (float)mx; d[1] = (float)my;
+                            }
+                        }
                     }
                     float c[4] = { 0, 0, 0, 0 };
                     switch (s.output) {
@@ -1350,6 +1402,112 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                 }
             }
         });
+        // motion blur smear: each time sample covers 1 / nS of the shutter, so its colour is spread along the
+        // screen motion over that slice. Few samples then give a continuous streak instead of separate copies.
+        // Premultiplied colours scatter exactly; a target closer to the camera than the source keeps its own.
+        if ( velA && (nS > 1) ) {
+            std::vector<float> sm( sampleCol.size(), 0.f );
+            std::vector<float> stat( sampleCol.size(), 0.f ); // surfaces that do not move in this slice
+            std::vector<float> movedLen( triId.size(), 0.f ), movedDir( triId.size() * 2, 0.f );
+            const double slice = 1. / nS;
+            for (size_t k = 0; k < triId.size(); ++k) {
+                if (triId[k] < 0) {
+                    // nothing rendered here: keep what the shading pass wrote (transparent)
+                    for (int ch = 0; ch < 4; ++ch) {
+                        stat[k * 4 + ch] = sampleCol[k * 4 + ch];
+                    }
+                }
+            }
+            for (int y = 0; y < H; ++y) {
+                for (int x = 0; x < W; ++x) {
+                    const size_t k = (size_t)y * W + x;
+                    const int ti = triId[k];
+                    const float* c = &sampleCol[k * 4];
+                    if ( (ti < 0) || ( (size_t)ti >= velA->size() ) ) {
+                        continue;
+                    }
+                    const Tri& ta = (*velA)[ti];
+                    const Tri& tb = (*velB)[ti];
+                    const double b0 = bary[k * 2], b1 = bary[k * 2 + 1], b2 = 1. - b0 - b1;
+                    const double vx = ( b0 * (tb.sx[0] - ta.sx[0]) + b1 * (tb.sx[1] - ta.sx[1]) + b2 * (tb.sx[2] - ta.sx[2]) ) * velScale * slice;
+                    const double vy = ( b0 * (tb.sy[0] - ta.sy[0]) + b1 * (tb.sy[1] - ta.sy[1]) + b2 * (tb.sy[2] - ta.sy[2]) ) * velScale * slice;
+                    const double len = std::sqrt(vx * vx + vy * vy);
+                    if (len < 0.75) {
+                        float* d = &stat[k * 4];
+                        d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+                        continue;
+                    }
+                    movedLen[k] = (float)len;
+                    movedDir[k * 2] = (float)(vx / len);
+                    movedDir[k * 2 + 1] = (float)(vy / len);
+                    const int K = std::min( 64, (int)std::ceil(len * 1.5) );
+                    const float wk = 1.f / K;
+                    const float zs = depth[k];
+                    for (int q = 0; q < K; ++q) {
+                        const double f = ( (q + 0.5) / K ) - 0.5;
+                        const int xx = (int)std::floor(x + 0.5 + vx * f), yy = (int)std::floor(y + 0.5 + vy * f);
+                        if ( (xx < 0) || (xx >= W) || (yy < 0) || (yy >= H) ) {
+                            continue;
+                        }
+                        const size_t kk = (size_t)yy * W + xx;
+                        if ( (triId[kk] >= 0) && (depth[kk] < zs - 1e-5f) && (tris[triId[kk]].mesh != tris[ti].mesh) ) {
+                            continue;   // occluded by a closer surface at that pixel
+                        }
+                        float* d = &sm[kk * 4];
+                        d[0] += c[0] * wk; d[1] += c[1] * wk; d[2] += c[2] * wk; d[3] += c[3] * wk;
+                    }
+                }
+            }
+            // what is behind a moving surface is unknown in this pass: borrow the nearest still surface along the
+            // motion (the background the streak passes over), so the streak does not show holes
+            {
+                std::vector<float> fill(stat);
+                for (int y = 0; y < H; ++y) {
+                    for (int x = 0; x < W; ++x) {
+                        const size_t k = (size_t)y * W + x;
+                        const int ti = triId[k];
+                        if ( (ti < 0) || (movedLen[k] <= 0.f) ) {
+                            continue;
+                        }
+                        const double ux = movedDir[k * 2], uy = movedDir[k * 2 + 1];
+                        float accC[4] = { 0, 0, 0, 0 };
+                        int found = 0;
+                        for (int sgn = -1; sgn <= 1; sgn += 2) {
+                            for (int r = 1; r <= 160; ++r) {
+                                const int xx = (int)std::floor(x + 0.5 + sgn * ux * r), yy = (int)std::floor(y + 0.5 + sgn * uy * r);
+                                if ( (xx < 0) || (xx >= W) || (yy < 0) || (yy >= H) ) {
+                                    break;
+                                }
+                                const size_t kk = (size_t)yy * W + xx;
+                                if ( (triId[kk] < 0) || (movedLen[kk] <= 0.f) ) {
+                                    for (int ch = 0; ch < 4; ++ch) {
+                                        accC[ch] += stat[kk * 4 + ch];
+                                    }
+                                    ++found;
+                                    break;
+                                }
+                            }
+                        }
+                        if (found) {
+                            for (int ch = 0; ch < 4; ++ch) {
+                                fill[k * 4 + ch] = accC[ch] / found;
+                            }
+                        }
+                    }
+                }
+                stat.swap(fill);
+            }
+            // moving streaks over the still surfaces
+            for (size_t k = 0; k < triId.size(); ++k) {
+                float* d = &sm[k * 4];
+                const float* st0 = &stat[k * 4];
+                const float a = std::min(1.f, d[3]);
+                for (int ch = 0; ch < 4; ++ch) {
+                    d[ch] = std::min(ch == 3 ? 1.f : 1e30f, d[ch]) + st0[ch] * (1.f - a);
+                }
+            }
+            sampleCol.swap(sm);
+        }
         // filter pass (gather): every pixel takes the weighted samples around it
         runRows([&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {

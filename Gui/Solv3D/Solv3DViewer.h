@@ -31,6 +31,7 @@
 #include "Gui/GuiFwd.h"
 
 class QComboBox;
+class QPainter;
 class QToolButton;
 class QTimer;
 
@@ -57,19 +58,27 @@ public:
     int preset() const { return _preset; }
     void frameAll();
     void setTime(double t) { _time = t; }
+    bool texturePending() const { return (bool)_job; } // a preview render is running: repaint when it lands
 
-    // manipulator (W move, E rotate, R scale, Q none) on the selected node
+    // manipulator (Q select, W move, E rotate, R scale; Insert / hold D pivot edit) on the selected node
     struct Xform
     {
         Solv3D::Vec3 translate, rotate, scale = Solv3D::Vec3(1, 1, 1), pivot;
         double uniform = 1.;
+        int rotOrder = 0;   // the node's rotation order (0 XYZ .. 5 ZYX)
     };
-    void setGizmo(bool on, const Solv3D::Mat4& parentWorld, const Solv3D::Mat4& world, const Solv3D::Vec3& pivot);
-    void setManipMode(int m) { _manipMode = m; update(); }
+    void setGizmo(bool on, const Solv3D::Mat4& parentWorld, const Solv3D::Mat4& world, const Solv3D::Vec3& pivot,
+                  const std::string& node = std::string());
+    void setManipMode(int m);
     int manipMode() const { return _manipMode; }
+    void cycleSpace();                       // local -> global -> view
+    int space() const { return _space; }
+    void frameSelected();
     std::function<bool(Xform* out)> onManipBegin;                      // current knob values
-    std::function<void(int what, const Solv3D::Vec3& v, double uniform)> onManipSet; // 1 translate 2 rotate 3 scale 4 uniform
+    // 1 translate 2 rotate 3 scale 4 uniform 5 pivot
+    std::function<void(int what, const Solv3D::Vec3& v, double uniform)> onManipSet;
     std::function<void(int mode)> onManipModeChanged;
+    std::function<void(int space)> onSpaceChanged;
     std::function<void()> onManipEnd;                                    // drag finished (undo step)
 
     std::function<void(const std::string& node, bool add)> onPick;     // click on geometry
@@ -85,6 +94,9 @@ protected:
     virtual void mouseReleaseEvent(QMouseEvent* e) OVERRIDE FINAL;
     virtual void wheelEvent(QWheelEvent* e) OVERRIDE FINAL;
     virtual void keyPressEvent(QKeyEvent* e) OVERRIDE FINAL;
+    virtual void keyReleaseEvent(QKeyEvent* e) OVERRIDE FINAL;
+    virtual void focusOutEvent(QFocusEvent* e) OVERRIDE FINAL;
+    virtual void enterEvent(QEvent* e) OVERRIDE FINAL;
     virtual bool focusNextPrevChild(bool) OVERRIDE FINAL { return false; } // Tab reaches the viewer
 
 private:
@@ -95,14 +107,27 @@ private:
     std::string pick(const QPoint& p) const;
     void drawCameraIcon(bool sel, double ha, double va, double fl);
     void drawLightIcon(bool sel, const Solv3D::Light& L);
-    void drawGizmo(const Solv3D::Mat4& P, const Solv3D::Mat4& V);
-    // gizmo handle under the mouse: 1..3 axes, 4 centre, 0 none
-    int gizmoHandle(const QPoint& p) const;
     bool screenPoint(const Solv3D::Vec3& w, double* x, double* y) const; // widget pixels, y down
     void mouseRay(const QPoint& p, Solv3D::Vec3* o, Solv3D::Vec3* d) const;
-    Solv3D::Vec3 gizmoAxis(int a) const;
-    double gizmoSize() const;
-    Solv3D::Vec3 viewForward() const;
+
+    // manipulator internals (see the manipulator spec)
+    enum Part { ePartNone = -1, ePartX = 0, ePartY, ePartZ, ePartPlaneX, ePartPlaneY, ePartPlaneZ, ePartCenter, ePartFree };
+    int tool() const { return _pivotMode ? 4 : _manipMode; } // 4 = pivot
+    bool gizmoVisible() const { return _gizmoOn && ( (_manipMode != 0) || _pivotMode ); }
+    void gizmoAxes(Solv3D::Vec3 ax[3]) const;                 // unit world axes for the current tool / space
+    double gizmoLength() const;                                // L (world units, constant on screen)
+    Solv3D::Vec3 eyePos() const;
+    int hitPart(const QPoint& p) const;
+    void drawGizmo2D(QPainter& p);
+    void drawHud(QPainter& p);
+    void beginManip(int part, const QPoint& pos);
+    void dragManip(const QPoint& pos);
+    void endManip();
+    void buildSnapData();
+    bool snapTarget(const QPoint& mouse, Solv3D::Vec3* target) const;
+    std::string snapLabel() const;
+    bool held(int key) const { return _held.count(key) != 0; }
+    void centrePivot();
 
     Solv3D::Scene _scene, _templ;
     std::set<std::string> _selected;
@@ -120,14 +145,33 @@ private:
     bool _moved = false;
 
     // manipulator
-    int _manipMode = 1;
+    int _manipMode = 1, _lastTool = 1;
+    int _space = 0;                  // 0 local, 1 global, 2 view
+    bool _pivotMode = false, _pivotByD = false;
+    double _handleScale = 1.;
+    int _activePart[5] = { ePartCenter, ePartCenter, ePartFree, ePartCenter, ePartCenter }; // per tool (4 = pivot)
+    std::set<int> _held;             // keys held down
+    bool _snapGrid = false;          // grid snap always on (right-click menu)
     bool _gizmoOn = false;
+    std::string _gNode;
     Solv3D::Mat4 _gParent, _gWorld;
     Solv3D::Vec3 _gPivot, _gOrigin;
-    int _gHot = 0, _gDrag = 0;
+    int _gHot = ePartNone, _gDrag = ePartNone;
+    bool _gMiddle = false;           // dragging with the middle button (active part)
+    // drag start
     Xform _gStart;
-    Solv3D::Vec3 _gAxisStart;   // axis-parameter / plane point at press
-    double _gT0 = 0., _gAng0 = 0.;
+    QPoint _gMouse0;
+    Solv3D::Mat4 _gParent0, _gWorld0;
+    Solv3D::Vec3 _gC0, _gAx0[3], _gHit0;
+    double _gL0 = 1., _gSx0 = 0., _gSy0 = 0., _gSegX = 0., _gSegY = 0.;
+    Solv3D::Vec3 _gLiveAx[3];        // rotate: axes following the drag
+    bool _gLive = false;
+    std::map<int, QPoint> _keyDown;  // view keys: switch the view on release when not used for snapping
+    bool _keyUsed = false;
+    // snapping data (world, built at drag start)
+    std::vector<Solv3D::Vec3> _snapPts, _snapFaces;
+    std::vector<std::pair<Solv3D::Vec3, Solv3D::Vec3> > _snapEdges;
+    std::vector<double> _snapPtsScr, _snapFacesScr, _snapEdgesScr; // screen x, y pairs
 
     // texture previews (key: the image node)
     struct Tex
@@ -138,6 +182,21 @@ private:
         bool pending = false;
     };
     std::map<const void*, Tex> _tex;
+
+    // GPU mesh cache: triangulated vertex buffers keyed by mesh content (survives scene rebuilds)
+    struct GpuMesh
+    {
+        unsigned int vbo = 0, lineVbo = 0;
+        int triVerts = 0, lineVerts = 0;
+        bool hasN = false, hasUV = false;
+        int lastUse = 0;
+    };
+    std::map<U64, GpuMesh> _gpu;
+    std::map<const Solv3D::Mesh*, U64> _meshKey; // mesh of the current scenes -> content key
+    int _frameNo = 0;
+    U64 meshKey(const Solv3D::Mesh* m);
+    GpuMesh* gpuMesh(const Solv3D::Mesh& m);
+    void indexMeshes(const Solv3D::Scene& s, std::map<const Solv3D::Mesh*, U64>* out);
     std::shared_ptr<Solv3DTexJob> _job;
 };
 
@@ -180,8 +239,11 @@ private:
     QToolButton* _lock;
     QToolButton* _gridBtn;
     QToolButton* _manipBtn[4];
+    QToolButton* _spaceBtn;
     QTimer* _timer;
     std::vector<std::string> _cams;
+    U64 _lastSig = 0;   // scene inputs at the last rebuild: unchanged = no rebuild, no repaint
+    int _idleTicks = 0;
 };
 
 NATRON_NAMESPACE_EXIT

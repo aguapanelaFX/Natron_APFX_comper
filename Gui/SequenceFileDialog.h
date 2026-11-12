@@ -428,6 +428,8 @@ public Q_SLOTS:
     ///if it is a eFileDialogModeSave then it will append the file extension to what the user typed in
     ///when editing is finished.
     void onSelectionLineEditing(const QString &);
+    void onLiveFilterEdited(const QString &);  // open mode: typing a name filters the list
+    void reapplyLiveFilter();
 
     ///slot called when the file extension combobox changed
     void onFileExtensionComboChanged(int index);
@@ -550,6 +552,7 @@ private:
 
     QStringList _filters;
     SequenceDialogView* _view;
+    QString _liveFilter;
     std::unique_ptr<SequenceItemDelegate> _itemDelegate;
     FileSystemModelPtr _model;
 

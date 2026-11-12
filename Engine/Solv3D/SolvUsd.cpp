@@ -11,7 +11,12 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QLibrary>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "../../tools/usdbridge/solvusd.h"
 
@@ -20,6 +25,7 @@ namespace Solv3D {
 namespace {
 typedef int (*FnVersion)(void);
 typedef void* (*FnOpen)(const char*, char*, int);
+typedef int (*FnDiag)(void*, char*, int);
 typedef void (*FnInfo)(void*, double*, double*, double*, double*, int*);
 typedef int (*FnEval)(void*, double);
 typedef const SolvUsdPrim* (*FnPrim)(void*, int);
@@ -38,6 +44,7 @@ struct Bridge
     FnVersion version = 0;
     FnOpen open = 0;
     FnInfo info = 0;
+    FnDiag diag = 0;
     FnEval eval = 0;
     FnPrim prim = 0;
     FnClose close = 0;
@@ -61,6 +68,17 @@ struct Bridge
             dirs << QCoreApplication::applicationDirPath();
         }
         for (const QString& d : dirs) {
+#ifdef _WIN32
+            // plain LoadLibrary does not search the bridge folder for usd_ms/tbb/CRT:
+            // preload with the altered search path so its dependencies resolve next to it
+            const QString full = QDir::toNativeSeparators( d + QString::fromUtf8("/solvusd.dll") );
+            if ( QFile::exists(full) ) {
+                HMODULE h = LoadLibraryExW( (LPCWSTR)full.utf16(), NULL, LOAD_WITH_ALTERED_SEARCH_PATH );
+                if (!h) {
+                    why = "USD bridge failed to load (Windows error " + std::to_string( (unsigned long)GetLastError() ) + ")";
+                }
+            }
+#endif
             lib.setFileName( d + QString::fromUtf8("/solvusd") );
             if ( lib.load() ) {
                 break;
@@ -71,13 +89,16 @@ struct Bridge
             lib.load();
         }
         if ( !lib.isLoaded() ) {
-            why = "USD bridge not installed (solvusd library missing): " + lib.errorString().toStdString();
+            if ( why.empty() ) {
+                why = "USD bridge not installed (solvusd library missing): " + lib.errorString().toStdString();
+            }
 
             return false;
         }
         version = (FnVersion)lib.resolve("solvusd_version");
         open = (FnOpen)lib.resolve("solvusd_open");
         info = (FnInfo)lib.resolve("solvusd_info");
+        diag = (FnDiag)lib.resolve("solvusd_diagnostics");
         eval = (FnEval)lib.resolve("solvusd_eval");
         prim = (FnPrim)lib.resolve("solvusd_prim");
         close = (FnClose)lib.resolve("solvusd_close");
@@ -85,11 +106,12 @@ struct Bridge
         wFrame = (FnWriteFrame)lib.resolve("solvusd_write_frame");
         wEnd = (FnWriteEnd)lib.resolve("solvusd_write_end");
         if ( !version || !open || !info || !eval || !prim || !close || !wBegin || !wFrame || !wEnd || (version() != SOLVUSD_VERSION) ) {
-            why = "USD bridge version mismatch";
+            why = "USD bridge version mismatch (app expects " + std::to_string(SOLVUSD_VERSION) + ")";
 
             return false;
         }
         ok = true;
+        why.clear();
 
         return true;
     }
@@ -182,8 +204,50 @@ usdTimeRange(const std::string& file, double* start, double* end, double* fps)
     return true;
 }
 
+std::string
+usdDiagnostics(const std::string& file)
+{
+    Bridge& b = bridge();
+    std::lock_guard<std::mutex> l(b.m);
+    if ( !b.load() || !b.diag ) {
+        return std::string();
+    }
+    std::string err;
+    void* st = b.stageFor(file, &err);
+    if (!st) {
+        return err;
+    }
+    char buf[2048] = { 0 };
+    b.diag(st, buf, (int)sizeof(buf) );
+
+    return std::string(buf);
+}
+
 bool
-readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error)
+usdStageUnits(const std::string& file, double* metersPerUnit, bool* zUp, std::string* error)
+{
+    Bridge& b = bridge();
+    std::lock_guard<std::mutex> l(b.m);
+    if ( !b.load() ) {
+        *error = b.why;
+
+        return false;
+    }
+    void* st = b.stageFor(file, error);
+    if (!st) {
+        return false;
+    }
+    double s0 = 0, s1 = 0, fps = 24, mpu = 0.01;
+    int z = 0;
+    b.info(st, &s0, &s1, &fps, &mpu, &z);
+    *metersPerUnit = mpu;
+    *zUp = z != 0;
+
+    return true;
+}
+
+bool
+readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits)
 {
     Bridge& b = bridge();
     std::lock_guard<std::mutex> l(b.m);
@@ -200,12 +264,12 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
     int zUp = 0;
     b.info(st, &s0, &s1, &fps, &mpu, &zUp);
     // to SOLVFX scale (cm) and Y up, applied on the top level prims
-    const double k = (mpu > 0.) ? mpu / 0.01 : 1.;
+    const double k = keepUnits ? 1. : ( (mpu > 0.) ? mpu / 0.01 : 1. );
     Mat4 unit = Mat4::scale( Vec3(k, k, k) );
     if (zUp) {
         unit = Mat4::rotateXYZ( Vec3(-90, 0, 0) ) * unit;
     }
-    const bool convert = (std::fabs(k - 1.) > 1e-9) || zUp;
+    const bool convert = !keepUnits && ( (std::fabs(k - 1.) > 1e-9) || zUp );
     const int n = b.eval(st, timeCode);
     for (int i = 0; i < n; ++i) {
         const SolvUsdPrim* p = b.prim(st, i);

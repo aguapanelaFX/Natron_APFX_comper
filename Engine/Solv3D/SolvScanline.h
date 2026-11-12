@@ -71,6 +71,12 @@ struct ScanlineAOV
     std::vector<float>* depth = nullptr;  // closest surface: 1/z (far = 0) or distance along the view axis
     bool depthInverse = true;
     std::vector<float>* shadow = nullptr; // 0 lit .. 1 fully in shadow (anti-aliased)
+    // data passes of the closest surface (not filtered, so values stay exact)
+    std::vector<float>* position = nullptr; // world position, 3 per pixel
+    std::vector<float>* normal = nullptr;   // world normal (facing the camera), 3 per pixel
+    std::vector<float>* uv = nullptr;       // texture uv, 2 per pixel
+    std::vector<float>* motion = nullptr;   // screen motion in pixels to the next frame, 2 per pixel
+    const Scene* motionNext = nullptr;      // the scene one frame later (motion vectors)
 };
 
 // motion blur: 'steps' are the scene at sub-frame times across the shutter (one = no blur). Samples are

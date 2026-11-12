@@ -549,6 +549,14 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
     QObject::connect( _selectionLineEdit, SIGNAL(textChanged(QString)), this, SLOT(autoCompleteFileName(QString)) );
     if (_dialogMode == eFileDialogModeSave) {
         QObject::connect( _selectionLineEdit, SIGNAL(textEdited(QString)), this, SLOT(onSelectionLineEditing(QString)) );
+    } else {
+        // typing a name shows only the matching files / folders (case insensitive, anywhere in the name)
+        QObject::connect( _selectionLineEdit, SIGNAL(textEdited(QString)), this, SLOT(onLiveFilterEdited(QString)) );
+        if ( _view->model() ) {
+            QObject::connect( _view->model(), SIGNAL(rowsInserted(QModelIndex,int,int)), this, SLOT(reapplyLiveFilter()) );
+            QObject::connect( _view->model(), SIGNAL(modelReset()), this, SLOT(reapplyLiveFilter()) );
+            QObject::connect( _view->model(), SIGNAL(layoutChanged()), this, SLOT(reapplyLiveFilter()) );
+        }
     }
     QObject::connect( _view, SIGNAL(customContextMenuRequested(QPoint)),
                       this, SLOT(showContextMenu(QPoint)) );
@@ -1659,6 +1667,7 @@ void
 SequenceFileDialog::pathChanged(const QString &newPath)
 {
     updateUpButton(newPath);
+    _liveFilter.clear();
 
     _favoriteView->selectUrl( QUrl::fromLocalFile(newPath) );
     setHistory( _lookInCombobox->history() );
@@ -2706,6 +2715,39 @@ SequenceFileDialog::onSelectionLineEditing(const QString & text)
     }
     QString textCpy = text;
     updateFileExtensionCombo(QtCompat::removeFileExtension(textCpy));
+}
+
+void
+SequenceFileDialog::onLiveFilterEdited(const QString & text)
+{
+    // a path being typed (separators) keeps the normal behaviour
+    QString t = text.trimmed();
+    if ( t.contains( QLatin1Char('/') ) || t.contains( QLatin1Char('\\') ) ) {
+        t.clear();
+    }
+    _liveFilter = t;
+    reapplyLiveFilter();
+}
+
+void
+SequenceFileDialog::reapplyLiveFilter()
+{
+    QAbstractItemModel* m = _view ? _view->model() : 0;
+    if (!m) {
+        return;
+    }
+    const QModelIndex root = _view->rootIndex();
+    const int n = m->rowCount(root);
+    for (int r = 0; r < n; ++r) {
+        bool show = true;
+        if ( !_liveFilter.isEmpty() ) {
+            const QString name = m->index(r, 0, root).data(Qt::DisplayRole).toString();
+            show = name.contains(_liveFilter, Qt::CaseInsensitive);
+        }
+        if ( _view->isRowHidden(r, root) == show ) {
+            _view->setRowHidden(r, root, !show);
+        }
+    }
 }
 
 void

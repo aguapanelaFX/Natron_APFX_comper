@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define SOLVUSD_VERSION 1
+#define SOLVUSD_VERSION 2
 
 enum SolvUsdPrimType { SOLVUSD_XFORM = 0, SOLVUSD_MESH = 1, SOLVUSD_CAMERA = 2, SOLVUSD_LIGHT = 3 };
 enum SolvUsdLightType { SOLVUSD_POINT = 0, SOLVUSD_SPOT = 1, SOLVUSD_DISTANT = 2, SOLVUSD_DOME = 3 };
@@ -68,6 +68,8 @@ SOLVUSD_API int solvusd_version(void);
 
 /* reading */
 SOLVUSD_API void* solvusd_open(const char* file, char* err, int errLen);
+// composition errors / warnings collected when the stage was opened (missing payloads, references...)
+SOLVUSD_API int solvusd_diagnostics(void* stage, char* out, int len);
 SOLVUSD_API void solvusd_info(void* stage, double* start, double* end, double* fps, double* metersPerUnit, int* zUp);
 /* evaluates the stage at a time code; returns the number of prims (valid until the next eval / close) */
 SOLVUSD_API int solvusd_eval(void* stage, double timeCode);

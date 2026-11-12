@@ -20,7 +20,12 @@ namespace Solv3D {
 
 bool usdAvailable(std::string* why = 0);
 // reads the stage at a time code (frames); prims go under 'root' ("" = at the top)
-bool readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error);
+// keepUnits: leave the file scale / up axis as is (no cm / Y up conversion)
+bool readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits = false);
+// composition errors / warnings of a stage (missing payloads / references)
+std::string usdDiagnostics(const std::string& file);
+// metersPerUnit and up axis of a stage (for the ReadGeo status)
+bool usdStageUnits(const std::string& file, double* metersPerUnit, bool* zUp, std::string* error);
 bool usdTimeRange(const std::string& file, double* start, double* end, double* fps);
 // writes one or more frames (time code, scene); one frame = static file
 bool writeUsd(const std::string& file, const std::vector<std::pair<double, const Scene*> >& frames, double fps, std::string* error);
