@@ -15,6 +15,10 @@ on:
         description: 'OpenUSD version for the bridge (git tag)'
         type: string
         default: 'v25.05'
+      bridge_only:
+        description: 'Only build / test the USD bridge (skip the installers)'
+        type: boolean
+        default: false
   push:
     paths-ignore:
       - 'tools/MINGW-packages/**'
@@ -107,7 +111,8 @@ jobs:
           $d = "C:\pkg\usdbridge"
           New-Item -ItemType Directory -Force $d | Out-Null
           Copy-Item C:\bb\Release\solvusd.dll $d
-          Get-ChildItem C:\usd\lib\*.dll, C:\usd\bin\*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination $d
+          Get-ChildItem C:\usd\lib\*.dll, C:\usd\bin\*.dll -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch "_debug|_preview|tbbmalloc_proxy" } | Copy-Item -Destination $d
           # USD plugins (file formats, schemas): next to usd_ms.dll, in "usd"
           Copy-Item -Recurse C:\usd\lib\usd "$d\usd"
           # MSVC runtime
@@ -116,6 +121,24 @@ jobs:
           if ($crt) { Get-ChildItem "$($crt.FullName)\*.dll" | Copy-Item -Destination $d } else { Write-Host "MSVC runtime folder not found" }
           Get-ChildItem $d
           Compress-Archive -Path $d -DestinationPath "$env:RUNNER_TEMP\$env:BRIDGE_ZIP" -Force
+
+      - name: Diagnose (load each DLL alone, list dependencies)
+        if: steps.check.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition @"
+          using System; using System.Runtime.InteropServices;
+          public static class W {
+            [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryExW(string f, IntPtr h, uint flags);
+          }
+          "@
+          $d = "C:\pkg\usdbridge"
+          cmd /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat`" >nul && dumpbin /nologo /dependents $d\usd_ms.dll $d\solvusd.dll"
+          foreach ($n in @("vcruntime140.dll","msvcp140.dll","tbb.dll","tbbmalloc.dll","usd_ms.dll","solvusd.dll")) {
+            $h = [W]::LoadLibraryExW("$d\$n", [IntPtr]::Zero, 8)
+            $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Host ("load {0}: {1}" -f $n, $(if ($h -ne [IntPtr]::Zero) { "ok" } else { "FAILED error $e" }))
+          }
 
       - name: Smoke test (write + read a file)
         if: steps.check.outputs.build == 'true'
@@ -160,7 +183,7 @@ jobs:
   win-installer:
     name: Windows Installer
     needs: usd-bridge
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !inputs.bridge_only }}
     runs-on: windows-2022
     defaults:
       run:
@@ -382,7 +405,7 @@ jobs:
 
   win-installer-breakpad:
     name: Windows Installer (with Breakpad crash reporting)
-    if: ${{ !inputs.test_build }}
+    if: ${{ !inputs.test_build && !inputs.bridge_only }}
     runs-on: windows-2022
     defaults:
       run:
