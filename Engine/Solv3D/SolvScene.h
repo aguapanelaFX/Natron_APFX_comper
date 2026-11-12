@@ -161,7 +161,7 @@ struct Prim
 // rotations applied in the order of the letters (order 0 XYZ .. 5 ZYX, XYZ = X first), degrees
 Mat4 eulerMatrix(const Vec3& deg, int order);
 // inverse of eulerMatrix; angles kept close to 'near' (no 360 jumps)
-Vec3 matrixEuler(const Mat4& rotation, int order, const Vec3& near = Vec3());
+Vec3 matrixEuler(const Mat4& rotation, int order, const Vec3& nearDeg = Vec3());
 // M = T * R * S (no shear): translate, rotation (euler in 'order'), scale
 void decompose(const Mat4& m, int order, const Vec3& nearRot, Vec3* t, Vec3* r, Vec3* s);
 

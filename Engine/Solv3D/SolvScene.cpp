@@ -83,7 +83,7 @@ eulerMatrix(const Vec3& deg, int order)
 }
 
 Vec3
-matrixEuler(const Mat4& R, int order, const Vec3& near)
+matrixEuler(const Mat4& R, int order, const Vec3& nearDeg)
 {
     const char* o = kEulerOrders[std::max( 0, std::min(5, order) )];
     const int a = o[0] - 'X', b = o[1] - 'X', c = o[2] - 'X';
@@ -106,7 +106,7 @@ matrixEuler(const Mat4& R, int order, const Vec3& near)
 
         return v;
     };
-    e.x = wrap(e.x, near.x); e.y = wrap(e.y, near.y); e.z = wrap(e.z, near.z);
+    e.x = wrap(e.x, nearDeg.x); e.y = wrap(e.y, nearDeg.y); e.z = wrap(e.z, nearDeg.z);
 
     return e;
 }
