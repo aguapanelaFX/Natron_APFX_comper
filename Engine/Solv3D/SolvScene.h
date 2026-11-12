@@ -65,6 +65,7 @@ struct Material
     double specular = 0.;            // reflection weight (dielectric)
     double roughness = 0.2;
     double ior = 1.5;
+    double opacity = 1.;             // multiplies the alpha
 };
 
 // image projected through a camera (Project3D): texture coordinates from world positions
@@ -89,6 +90,7 @@ struct Mesh
     std::vector<Vec2> st;        // faceVarying uvs or empty
     Vec3 displayColor = Vec3(0.18, 0.18, 0.18);
     std::shared_ptr<void> texture; // opaque image handle (resolved by the renderer), null = none
+    std::string textureFile;       // diffuse texture file from the source file (USD), loaded by the reader node
     Material material;
     std::vector<Projection> projections;
 
@@ -109,6 +111,10 @@ struct Camera
     double winRoll = 0.;                 // window: roll (degrees)
     double focusDistance = 2., fStop = 16.; // depth of field (stored, used by the renderer later)
     double iconScale = 1.;               // 3D viewer: size of the camera icon (display only)
+    bool iconWorldScale = false;         // 3D viewer: icon at world size (off: same size on screen)
+    double shutter = 0.5;                // frames
+    int shutterOffset = 0;               // 0 centred, 1 start, 2 end, 3 custom
+    double shutterCustom = 0.;           // custom start (frames, relative to the frame)
 
     // projection to normalised device coordinates (x, y in -1..1), aspect = image width / height
     Mat4 projection(double aspect) const;
@@ -141,6 +147,7 @@ struct Prim
     int display = 4;          // viewer: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
     int render = 4;           // ScanlineRender: 0 off, 1 wireframe, 2 solid, 3 solid + lines, 4 textured, 5 textured + lines
     bool selectable = true;   // can be picked in the 3D viewer
+    bool editable = true;     // the 3D viewer handles can move it
     bool castShadow = true;   // blocks light (lights with shadows on)
     bool receiveShadow = true;
     std::string node;         // script name of the node that made the prim (viewer selection / highlight)
@@ -150,6 +157,13 @@ struct Prim
     std::shared_ptr<Light> light;
     std::map<std::string, std::string> attributes; // free attributes (USD "custom" attributes)
 };
+
+// rotations applied in the order of the letters (order 0 XYZ .. 5 ZYX, XYZ = X first), degrees
+Mat4 eulerMatrix(const Vec3& deg, int order);
+// inverse of eulerMatrix; angles kept close to 'near' (no 360 jumps)
+Vec3 matrixEuler(const Mat4& rotation, int order, const Vec3& near = Vec3());
+// M = T * R * S (no shear): translate, rotation (euler in 'order'), scale
+void decompose(const Mat4& m, int order, const Vec3& nearRot, Vec3* t, Vec3* r, Vec3* s);
 
 std::string parentPath(const std::string& path);
 std::string leafName(const std::string& path);

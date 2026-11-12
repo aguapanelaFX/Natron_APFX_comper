@@ -145,6 +145,7 @@ SOURCES += \
     KnobGuiParametric.cpp \
     KnobGuiPrivate.cpp \
     KnobGuiSeparator.cpp \
+    KnobGuiSceneGraph.cpp \
     KnobGuiString.cpp \
     KnobGuiTable.cpp \
     KnobGuiValue.cpp \
@@ -299,6 +300,7 @@ HEADERS += \
     KnobGuiGroup.h \
     KnobGuiParametric.h \
     KnobGuiSeparator.h \
+    KnobGuiSceneGraph.h \
     KnobGuiString.h \
     KnobGuiTable.h \
     KnobGuiValue.h \

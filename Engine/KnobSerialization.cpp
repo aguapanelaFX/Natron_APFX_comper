@@ -163,6 +163,8 @@ KnobSerialization::createKnob(const std::string & typeName,
         ret = std::make_shared<KnobPath>((KnobHolder*)NULL, std::string(), dimension, false);
     } else if ( typeName == KnobLayers::typeNameStatic() ) {
         ret = std::make_shared<KnobLayers>((KnobHolder*)NULL, std::string(), dimension, false);
+    } else if ( typeName == KnobSceneGraph::typeNameStatic() ) {
+        ret = std::make_shared<KnobSceneGraph>((KnobHolder*)NULL, std::string(), dimension, false);
     } else if ( typeName == KnobFile::typeNameStatic() ) {
         ret = std::make_shared<KnobFile>((KnobHolder*)NULL, std::string(), dimension, false);
     } else if ( typeName == KnobOutputFile::typeNameStatic() ) {

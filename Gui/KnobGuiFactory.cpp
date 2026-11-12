@@ -41,6 +41,7 @@
 #include "Gui/KnobGuiButton.h"
 #include "Gui/KnobGuiChoice.h"
 #include "Gui/KnobGuiSeparator.h"
+#include "Gui/KnobGuiSceneGraph.h"
 #include "Gui/KnobGuiGroup.h"
 #include "Gui/KnobGuiColor.h"
 #include "Gui/KnobGuiString.h"
@@ -97,6 +98,7 @@ KnobGuiFactory::loadBultinKnobs()
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobOutputFile, KnobGuiOutputFile>() );
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobChoice, KnobGuiChoice>() );
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobSeparator, KnobGuiSeparator>() );
+    _loadedKnobs.insert( knobGuiFactoryEntry<KnobSceneGraph, KnobGuiSceneGraph>() );
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobGroup, KnobGuiGroup>() );
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobColor, KnobGuiColor>() );
     _loadedKnobs.insert( knobGuiFactoryEntry<KnobString, KnobGuiString>() );

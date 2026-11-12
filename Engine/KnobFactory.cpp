@@ -93,6 +93,7 @@ KnobFactory::loadBultinKnobs()
     _loadedKnobs.insert( knobFactoryEntry<KnobPath>() );
     _loadedKnobs.insert( knobFactoryEntry<KnobPage>() );
     _loadedKnobs.insert( knobFactoryEntry<KnobLayers>() );
+    _loadedKnobs.insert( knobFactoryEntry<KnobSceneGraph>() );
 }
 
 KnobHelperPtr KnobFactory::createKnob(const std::string &id,

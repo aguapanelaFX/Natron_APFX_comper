@@ -398,6 +398,41 @@ Solv3DGLWidget::textureFor(const std::shared_ptr<void>& handle)
 {
     Solv3DTexRef* ref = static_cast<Solv3DTexRef*>( handle.get() );
     EffectInstancePtr e = ref ? ref->effect.lock() : EffectInstancePtr();
+    if ( !e && ref && ref->image && (ref->image->w > 0) ) {
+        // texture file of the geometry: upload once (a small display copy, at most 1024 px)
+        const TexImage& im = *ref->image;
+        Tex& t = _tex[im.data.data()];
+        if (!t.id) {
+            const int step = std::max( 1, std::max(im.w, im.h) / 1024 );
+            const int w = std::max(1, im.w / step), h = std::max(1, im.h / step);
+            std::vector<unsigned char> px( (size_t)w * h * 4 );
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    const float* sp = &im.data[( (size_t)(y * step) * im.w + (size_t)(x * step) ) * 4];
+                    unsigned char* d = &px[( (size_t)y * w + x ) * 4];
+                    for (int c = 0; c < 4; ++c) {
+                        float v = sp[c];
+                        if (c < 3) {
+                            v = (sp[3] > 1e-6f) ? v / sp[3] : 0.f;               // unpremultiply
+                            v = std::pow(std::max(0.f, v), 1.f / 2.2f);          // display
+                        }
+                        d[c] = (unsigned char)std::max( 0.f, std::min(255.f, v * 255.f + 0.5f) );
+                    }
+                }
+            }
+            GLuint id = 0;
+            glGenTextures(1, &id);
+            glBindTexture(GL_TEXTURE_2D, id);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindTexture(GL_TEXTURE_2D, 0);
+            t.id = id;
+        }
+
+        return t.id;
+    }
     NodePtr n = e ? e->getNode() : NodePtr();
     if (!n) {
         return 0;
@@ -578,7 +613,15 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
         } else if ( (p.type == PrimType::Camera) && p.camera && (kv.first != _lookThrough) ) {
             glMatrixMode(GL_MODELVIEW);
             glPushMatrix();
-            const double is = std::max(0.01, p.camera->iconScale);
+            double is = std::max(0.01, p.camera->iconScale);
+            if (!p.camera->iconWorldScale) {
+                // same size on screen
+                Mat4 PP, VV;
+                viewMatrices(&PP, &VV);
+                const Vec3 cv = VV.point( W.point( Vec3() ) );
+                const double depth = (PP.m[3][3] == 1.) ? 1. / std::max(1e-9, PP.m[1][1]) * 3. : std::max(1e-3, -cv.z) / std::max(1e-9, PP.m[1][1]);
+                is *= depth * 0.06;
+            }
             glScaled(is, is, is);
             drawCameraIcon(sel, p.camera->horizontalAperture, p.camera->verticalAperture, p.camera->focalLength);
             glPopMatrix();
@@ -2399,11 +2442,14 @@ Solv3DView::refresh()
             continue;
         }
         const std::string name = node->getFullyQualifiedName();
-        const std::string leaf = makeValidName( node->getScriptName_mt_safe() );
+        const std::string own = Solv3DNode::as3D(e)->primPath();
         const Scene* scenes[2] = { &main, &templ };
         for (int si = 0; si < 2 && !gizmo; ++si) {
             for (const auto& kv : scenes[si]->prims()) {
-                if ( (kv.second.node != name) || (leafName(kv.first) != leaf) ) {
+                // the node's own prim (its path ends like the node's prim path: it can sit under a parent)
+                const bool ownPrim = (kv.first == own) ||
+                                     ( (kv.first.size() > own.size()) && (kv.first.compare(kv.first.size() - own.size(), own.size(), own) == 0) );
+                if ( (kv.second.node != name) || !ownPrim || !kv.second.editable ) {
                     continue;
                 }
                 const std::string parent = parentPath(kv.first);
@@ -2452,11 +2498,12 @@ Solv3DView::lookThroughSelected()
             continue;
         }
         const std::string name = node->getFullyQualifiedName();
+        EffectInstancePtr ce = node->getEffectInstance();
+        const std::string own = ( ce && Solv3DNode::as3D(ce) ) ? Solv3DNode::as3D(ce)->primPath() : std::string();
         for (size_t i = 0; i < _cams.size(); ++i) {
-            // the camera prim of a Camera node is "/<name>" (possibly under a parent)
+            // the camera prim of a Camera node is its prim path (possibly under a parent)
             const std::string& c = _cams[i];
-            const std::string leaf = leafName(c);
-            if ( leaf == makeValidName( node->getScriptName_mt_safe() ) ) {
+            if ( !own.empty() && (c.size() >= own.size()) && (c.compare(c.size() - own.size(), own.size(), own) == 0) ) {
                 _view->setCurrentIndex( (int)i + 1 );
 
                 return;

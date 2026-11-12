@@ -89,6 +89,7 @@ SOURCES += \
     Solv3D/SolvScanline.cpp \
     Solv3D/SolvAlembic.cpp \
     Solv3D/SolvUsd.cpp \
+    Solv3D/SolvTexFile.cpp \
     Solv3D/Solv3DNodes.cpp \
     SolvfxPathVars.cpp \
     EffectInstance.cpp \
@@ -256,6 +257,8 @@ HEADERS += \
     Solv3D/SolvLineAlign.h \
     Solv3D/SolvAlembic.h \
     Solv3D/SolvUsd.h \
+    Solv3D/SolvTexFile.h \
+    Solv3D/stb_image.h \
     Solv3D/SolvVanishingCamera.h \
     Solv3D/Solv3DNodes.h \
     SolvfxPathVars.h \

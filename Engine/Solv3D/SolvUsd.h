@@ -21,7 +21,12 @@ namespace Solv3D {
 bool usdAvailable(std::string* why = 0);
 // reads the stage at a time code (frames); prims go under 'root' ("" = at the top)
 // keepUnits: leave the file scale / up axis as is (no cm / Y up conversion)
-bool readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits = false);
+// edits: lines "u <path>" (payload not loaded), "d <path>" (deactivated), "h <path>" (invisible)
+bool readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits = false,
+             const std::string& edits = std::string());
+// prim tree lines: path TAB type TAB kind TAB purpose TAB flags (a arc, P payload, l loaded, i instance, p prototype,
+// o over only, x inactive, h invisible)
+bool usdSceneTree(const std::string& file, const std::string& edits, std::string* out, std::string* error);
 // composition errors / warnings of a stage (missing payloads / references)
 std::string usdDiagnostics(const std::string& file);
 // metersPerUnit and up axis of a stage (for the ReadGeo status)

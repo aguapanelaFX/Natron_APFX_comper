@@ -50,6 +50,10 @@
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usdShade/shader.h>
+#include <pxr/usd/usdGeom/subset.h>
+#include <pxr/usd/usdGeom/scope.h>
+#include <pxr/usd/usd/modelAPI.h>
+#include <sstream>
 #include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/base/plug/registry.h>
 #include <pxr/base/tf/errorMark.h>
@@ -310,7 +314,7 @@ solvusd_version(void)
 }
 
 SOLVUSD_API void*
-solvusd_open(const char* file, char* err, int errLen)
+solvusd_open2(const char* file, const char* edits, char* err, int errLen)
 {
     try {
         registerPlugins();
@@ -333,6 +337,38 @@ solvusd_open(const char* file, char* err, int errLen)
                 diag += e->ToString() + "\n";
             }
         }
+        // edits from the node (session layer: the file is never changed)
+        if (edits && *edits) {
+            std::istringstream in(edits);
+            std::string line;
+            st->SetEditTarget( st->GetSessionLayer() );
+            while ( std::getline(in, line) ) {
+                if ( (line.size() < 3) || (line[1] != ' ') ) {
+                    continue;
+                }
+                const SdfPath path( line.substr(2) );
+                if ( path.IsEmpty() || !path.IsAbsolutePath() ) {
+                    continue;
+                }
+                if (line[0] == 'u') {
+                    st->Unload(path);
+                    continue;
+                }
+                UsdPrim prim = st->GetPrimAtPath(path);
+                if (!prim) {
+                    continue;
+                }
+                if (line[0] == 'd') {
+                    prim.SetActive(false);
+                } else if (line[0] == 'h') {
+                    UsdGeomImageable im(prim);
+                    if (im) {
+                        im.CreateVisibilityAttr().Set(UsdGeomTokens->invisible);
+                    }
+                }
+            }
+            mark.Clear();
+        }
         Stage* s = new Stage;
         s->stage = st;
         s->diag = diag;
@@ -343,6 +379,72 @@ solvusd_open(const char* file, char* err, int errLen)
 
         return 0;
     }
+}
+
+SOLVUSD_API void*
+solvusd_open(const char* file, char* err, int errLen)
+{
+    return solvusd_open2(file, "", err, errLen);
+}
+
+SOLVUSD_API int
+solvusd_tree(void* h, char* out, int len)
+{
+    Stage* s = static_cast<Stage*>(h);
+    if (!s) {
+        return 0;
+    }
+    std::string r;
+    for ( UsdPrim prim : UsdPrimRange::Stage( s->stage, UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate) ) ) {
+        if ( prim.GetPath() == SdfPath::AbsoluteRootPath() ) {
+            continue;
+        }
+        std::string type = prim.GetTypeName().GetString();
+        TfToken kind;
+        UsdModelAPI(prim).GetKind(&kind);
+        std::string purpose;
+        UsdGeomImageable im(prim);
+        if (im) {
+            TfToken pu;
+            im.GetPurposeAttr().Get(&pu);
+            purpose = pu.GetString();
+        }
+        std::string f;
+        if ( prim.HasAuthoredReferences() || prim.HasAuthoredPayloads() || prim.HasAuthoredInherits() ||
+             prim.HasAuthoredSpecializes() || prim.HasVariantSets() ) {
+            f += 'a';
+        }
+        if ( prim.HasAuthoredPayloads() ) {
+            f += 'P';
+        }
+        if ( prim.IsLoaded() ) {
+            f += 'l';
+        }
+        if ( prim.IsInstance() ) {
+            f += 'i';
+        }
+        if ( prim.IsInPrototype() || prim.IsInstanceProxy() ) {
+            f += 'p';
+        }
+        if (prim.GetSpecifier() == SdfSpecifierOver) {
+            f += 'o';
+        }
+        if ( !prim.IsActive() ) {
+            f += 'x';
+        }
+        if (im) {
+            TfToken v;
+            if ( im.GetVisibilityAttr().Get(&v) && (v == UsdGeomTokens->invisible) ) {
+                f += 'h';
+            }
+        }
+        r += prim.GetPath().GetString() + "\t" + type + "\t" + kind.GetString() + "\t" + purpose + "\t" + f + "\n";
+    }
+    if ( out && ( len > (int)r.size() ) ) {
+        std::memcpy( out, r.c_str(), r.size() + 1 );
+    }
+
+    return (int)r.size() + 1;
 }
 
 SOLVUSD_API int
@@ -401,6 +503,14 @@ solvusd_eval(void* h, double timeCode)
         }
         toLocal(m, p.local);
         p.diffuseTexture = "";
+        {
+            TfToken kind, pu;
+            UsdModelAPI(prim).GetKind(&kind);
+            UsdGeomImageable(prim).GetPurposeAttr().Get(&pu, t);
+            p.kind = s->keep( kind.GetString() );
+            p.purpose = s->keep( pu.GetString() );
+            p.typeName = s->keep( prim.GetTypeName().GetString() );
+        }
 
         if ( prim.IsA<UsdGeomMesh>() ) {
             UsdGeomMesh mesh(prim);
@@ -490,6 +600,101 @@ solvusd_eval(void* h, double timeCode)
                 p.uvs = s->fbufs.back().data();
             }
             readMaterial(prim, t, s, &p);
+            // material subsets (GeomSubset, family materialBind): each becomes a child mesh with its material
+            std::vector<UsdGeomSubset> subs = UsdShadeMaterialBindingAPI(prim).GetMaterialBindSubsets();
+            if ( !subs.empty() ) {
+                const std::vector<float> Nall = N, UVall = UV;
+                std::vector<size_t> start( C.size() + 1, 0 );
+                for (size_t f = 0; f < C.size(); ++f) {
+                    start[f + 1] = start[f] + C[f];
+                }
+                std::vector<char> used(C.size(), 0);
+                std::vector<SolvUsdPrim> children;
+                for (UsdGeomSubset& sub : subs) {
+                    VtIntArray fi;
+                    sub.GetIndicesAttr().Get(&fi, t);
+                    TfToken et;
+                    sub.GetElementTypeAttr().Get(&et);
+                    if ( fi.empty() || (et != UsdGeomTokens->face) ) {
+                        continue;
+                    }
+                    s->ibufs.push_back( std::vector<int>() );
+                    std::vector<int>& sc = s->ibufs.back();
+                    s->ibufs.push_back( std::vector<int>() );
+                    std::vector<int>& si = s->ibufs.back();
+                    std::vector<float> sn, su;
+                    for (int f : fi) {
+                        if ( (f < 0) || ( (size_t)f >= C.size() ) || used[f] ) {
+                            continue;
+                        }
+                        used[f] = 1;
+                        sc.push_back(C[f]);
+                        for (size_t k = start[f]; k < start[f + 1]; ++k) {
+                            si.push_back(I[k]);
+                            if ( !Nall.empty() ) { sn.insert( sn.end(), Nall.begin() + k * 3, Nall.begin() + k * 3 + 3 ); }
+                            if ( !UVall.empty() ) { su.insert( su.end(), UVall.begin() + k * 2, UVall.begin() + k * 2 + 2 ); }
+                        }
+                    }
+                    if ( sc.empty() ) {
+                        continue;
+                    }
+                    SolvUsdPrim c = p;
+                    c.path = s->keep( sub.GetPath().GetString() );
+                    GfMatrix4d id(1.);
+                    toLocal(id, c.local);
+                    c.nFaces = (int)sc.size();
+                    c.faceCounts = sc.data();
+                    c.nIndices = (int)si.size();
+                    c.indices = si.data();
+                    c.normals = 0;
+                    c.uvs = 0;
+                    if ( !sn.empty() ) { s->fbufs.push_back(sn); c.normals = s->fbufs.back().data(); }
+                    if ( !su.empty() ) { s->fbufs.push_back(su); c.uvs = s->fbufs.back().data(); }
+                    if ( UsdShadeMaterialBindingAPI( sub.GetPrim() ).ComputeBoundMaterial() ) {
+                        readMaterial(sub.GetPrim(), t, s, &c);
+                    }
+                    c.typeName = s->keep("GeomSubset");
+                    children.push_back(c);
+                }
+                if ( !children.empty() ) {
+                    // the faces left in the mesh itself
+                    s->ibufs.push_back( std::vector<int>() );
+                    std::vector<int>& rc = s->ibufs.back();
+                    s->ibufs.push_back( std::vector<int>() );
+                    std::vector<int>& ri = s->ibufs.back();
+                    std::vector<float> rn, ru;
+                    for (size_t f = 0; f < C.size(); ++f) {
+                        if (used[f]) {
+                            continue;
+                        }
+                        rc.push_back(C[f]);
+                        for (size_t k = start[f]; k < start[f + 1]; ++k) {
+                            ri.push_back(I[k]);
+                            if ( !Nall.empty() ) { rn.insert( rn.end(), Nall.begin() + k * 3, Nall.begin() + k * 3 + 3 ); }
+                            if ( !UVall.empty() ) { ru.insert( ru.end(), UVall.begin() + k * 2, UVall.begin() + k * 2 + 2 ); }
+                        }
+                    }
+                    if ( rc.empty() ) {
+                        p.type = SOLVUSD_XFORM; // all faces are in the subsets
+                        p.nPoints = 0;
+                        p.nFaces = p.nIndices = 0;
+                    } else {
+                        p.nFaces = (int)rc.size();
+                        p.faceCounts = rc.data();
+                        p.nIndices = (int)ri.size();
+                        p.indices = ri.data();
+                        p.normals = 0;
+                        p.uvs = 0;
+                        if ( !rn.empty() ) { s->fbufs.push_back(rn); p.normals = s->fbufs.back().data(); }
+                        if ( !ru.empty() ) { s->fbufs.push_back(ru); p.uvs = s->fbufs.back().data(); }
+                    }
+                    s->prims.push_back(p);
+                    for (const SolvUsdPrim& c : children) {
+                        s->prims.push_back(c);
+                    }
+                    continue;
+                }
+            }
         } else if ( prim.IsA<UsdGeomCamera>() ) {
             UsdGeomCamera cam(prim);
             p.type = SOLVUSD_CAMERA;
@@ -639,10 +844,24 @@ solvusd_write_frame(void* h, double timeCode, const SolvUsdPrim* prims, int n)
                 prim = UsdLuxSphereLight::Define(w->stage, path).GetPrim();
             }
             break;
-        default: prim = UsdGeomXform::Define(w->stage, path).GetPrim(); break;
+        default:
+            if ( p.typeName && (std::string(p.typeName) == "Scope") ) {
+                prim = UsdGeomScope::Define(w->stage, path).GetPrim();
+            } else {
+                prim = UsdGeomXform::Define(w->stage, path).GetPrim();
+            }
+            break;
         }
         if (!prim) {
             continue;
+        }
+        if (first) {
+            if (p.kind && *p.kind) {
+                UsdModelAPI(prim).SetKind( TfToken(p.kind) );
+            }
+            if ( p.purpose && *p.purpose && (std::string(p.purpose) != "default") ) {
+                UsdGeomImageable(prim).CreatePurposeAttr().Set( TfToken(p.purpose) );
+            }
         }
         // transform: one matrix op
         UsdGeomXformable xf(prim);

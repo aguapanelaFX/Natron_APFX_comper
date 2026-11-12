@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define SOLVUSD_VERSION 2
+#define SOLVUSD_VERSION 3
 
 enum SolvUsdPrimType { SOLVUSD_XFORM = 0, SOLVUSD_MESH = 1, SOLVUSD_CAMERA = 2, SOLVUSD_LIGHT = 3 };
 enum SolvUsdLightType { SOLVUSD_POINT = 0, SOLVUSD_SPOT = 1, SOLVUSD_DISTANT = 2, SOLVUSD_DOME = 3 };
@@ -62,12 +62,23 @@ typedef struct SolvUsdPrim
     float lightColor[3];
     float intensity, exposure, radius, angle, coneAngle, coneSoftness;
     int shadows;
+
+    /* USD prim attributes ("" when not set) */
+    const char* kind;         /* model kind: component, assembly, group, subcomponent */
+    const char* purpose;      /* default, render, proxy, guide */
+    const char* typeName;     /* Xform prims: "Xform" or "Scope" (writing) */
 } SolvUsdPrim;
 
 SOLVUSD_API int solvusd_version(void);
 
 /* reading */
 SOLVUSD_API void* solvusd_open(const char* file, char* err, int errLen);
+/* opens with edits, one per line: "u <path>" payload not loaded, "d <path>" deactivated, "h <path>" invisible */
+SOLVUSD_API void* solvusd_open2(const char* file, const char* edits, char* err, int errLen);
+/* the whole prim tree (also inactive / not loaded prims), one line per prim:
+   path TAB type TAB kind TAB purpose TAB flags   (flags: a arc, P payload, l loaded, i instance, p prototype,
+   o only 'over', x inactive, h invisible). Returns the length needed (call again with a bigger buffer). */
+SOLVUSD_API int solvusd_tree(void* stage, char* out, int len);
 // composition errors / warnings collected when the stage was opened (missing payloads, references...)
 SOLVUSD_API int solvusd_diagnostics(void* stage, char* out, int len);
 SOLVUSD_API void solvusd_info(void* stage, double* start, double* end, double* fps, double* metersPerUnit, int* zUp);

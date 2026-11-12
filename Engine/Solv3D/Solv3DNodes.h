@@ -15,10 +15,12 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "Engine/EffectInstance.h"
 #include "Engine/EngineFwd.h"
 #include "Engine/Solv3D/SolvScene.h"
+#include "Engine/Solv3D/SolvScanline.h"
 
 #define PLUGINID_SOLV3D_CARD           "com.aguapanelafx.solv3d.Card"
 #define PLUGINID_SOLV3D_CUBE           "com.aguapanelafx.solv3d.Cube"
@@ -45,26 +47,52 @@ NATRON_NAMESPACE_ENTER
 struct Solv3DTexRef
 {
     EffectInstanceWPtr effect;
+    std::shared_ptr<Solv3D::TexImage> image; // texture file of the geometry (no node), used when effect is empty
 };
 
 // transform knobs shared by the 3D nodes: transform order, rotation order, translate / rotate / scale /
-// uniform scale / pivot translate / pivot rotate
+// uniform scale / skew / pivot translate / pivot rotate, and the read-only local matrix
 struct Solv3DXformKnobs
 {
     KnobChoiceWPtr order, rotOrder;
-    KnobDoubleWPtr translate, rotate, scale, uniform, pivot, pivotRotate;
+    KnobDoubleWPtr translate, rotate, scale, uniform, skew, pivot, pivotRotate;
+    KnobDoubleWPtr matrixRows[4];
 
-    void create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder = 4 /* ZXY */);
+    void create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder = 4 /* ZXY */, bool matrixGroup = true);
     Solv3D::Mat4 matrix(double time) const;
+    void refreshMatrix(double time) const;
 };
 
-// display / render / selectable knobs of the geometry nodes
+// path of the prim and USD prim attributes (top of the main page)
+struct Solv3DPrimKnobs
+{
+    KnobStringWPtr path;
+    KnobChoiceWPtr parentType, kind, purpose, visibility;
+
+    void create(EffectInstance* fx, const KnobPagePtr& page, int defaultKind, bool attributes = true);
+    // kind / purpose / visibility on the node's prim, type of the parents it creates
+    void apply(Solv3D::Scene* scene, double time, const std::string& primPath) const;
+};
+
+// Display page of the cameras, lights and axes
+struct Solv3DDisplayKnobs
+{
+    KnobChoiceWPtr display;
+    KnobBoolWPtr selectable, editable, worldScale;
+    KnobDoubleWPtr iconSize;
+
+    void create(EffectInstance* fx, int defaultDisplay, bool icon, bool worldScaleKnob);
+    void apply(Solv3D::Prim* p, double time) const;
+};
+
+// display (Display page) and mesh attributes (render / shadows, main page) of the geometry nodes
 struct Solv3DGeoKnobs
 {
     KnobChoiceWPtr display, render;
-    KnobBoolWPtr selectable, castShadow, receiveShadow;
+    KnobBoolWPtr selectable, editable, castShadow, receiveShadow;
 
-    void create(EffectInstance* fx, const KnobPagePtr& page);
+    void create(EffectInstance* fx, const KnobPagePtr& page); // mesh attributes group on 'page'
+    void createDisplay(EffectInstance* fx);                   // the Display page
     // stamps the settings and the owner node on every prim of the scene under 'root' ("" = all)
     void apply(Solv3D::Scene* scene, double time, const std::string& nodeName, const std::string& root) const;
 };
@@ -85,9 +113,14 @@ public:
     static bool inputScene(EffectInstance* fx, int inputNb, double time, Solv3D::Scene* scene);
     static Solv3DNode* as3D(const EffectInstancePtr& e);
 
-    // prim path of this node ("/<script name>")
+    // prim path of this node: the 'path' parameter ({nodename} = the script name), else "/<script name>"
     std::string primPath() const;
     std::string nodeName() const;
+
+    // read-only matrix groups follow the transform
+    virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE;
+    void registerXform(const Solv3DXformKnobs* x) { _xforms.push_back(x); }
+    void refreshMatrices();
 
     // ---- EffectInstance boilerplate
     virtual int getMajorVersion() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
@@ -106,6 +139,8 @@ public:
 
 protected:
     void projectFormat(RectD* rod) const;
+    std::vector<const Solv3DXformKnobs*> _xforms;
+    KnobDoubleWPtr _worldRows[4];   // optional read-only world matrix (cameras)
 };
 
 // Card / Cube / Sphere / Cylinder (one class, the shape is fixed per plugin)
@@ -133,11 +168,12 @@ public:
 
 private:
     Kind _kind;
+    Solv3DPrimKnobs _prim;
     Solv3DXformKnobs _xf;
     Solv3DGeoKnobs _geo;
     KnobChoiceWPtr _orientation;
     KnobBoolWPtr _imageAspect;
-    KnobDoubleWPtr _size;
+    KnobDoubleWPtr _size, _z, _lensFocal, _lensAperture, _opacity;
     KnobIntWPtr _rows, _cols;
     KnobColorWPtr _color;
     KnobBoolWPtr _lit;
@@ -174,8 +210,10 @@ public:
 
 private:
     Kind _kind;
+    Solv3DPrimKnobs _prim;
+    Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
-    KnobChoiceWPtr _display, _falloff, _shadowQuality, _shadowRes;
+    KnobChoiceWPtr _falloff, _shadowQuality, _shadowRes;
     KnobColorWPtr _color;
     KnobDoubleWPtr _intensity, _cone, _penumbra, _softness, _bias;
     KnobBoolWPtr _castShadows;
@@ -197,7 +235,7 @@ class Solv3DCamera
     : public Solv3DNode
 {
 public:
-    explicit Solv3DCamera(NodePtr n) : Solv3DNode(n) {}
+    explicit Solv3DCamera(NodePtr n);
 
     static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DCamera(n); }
 
@@ -212,10 +250,26 @@ public:
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
 
 private:
+    // camera of the import file at 'time' (world matrix + values); false when not importing / not found
+    bool fileCamera(double time, Solv3D::Mat4* world, Solv3D::Camera* cam, std::string* error);
+    void snapshot(bool range);
+    void refreshSourcePrims();
+
+    Solv3DPrimKnobs _prim;
+    Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
-    KnobChoiceWPtr _display, _projection, _preset;
+    KnobDoubleWPtr _parentT, _parentR, _parentS;
+    KnobBoolWPtr _parentSync;
+    KnobChoiceWPtr _projection, _preset, _shutterOffset, _sourcePick;
     KnobDoubleWPtr _focal, _hAperture, _vAperture, _near, _far;
-    KnobDoubleWPtr _winTranslate, _winScale, _winRoll, _focusDist, _fStop, _iconSize;
+    KnobDoubleWPtr _winTranslate, _winScale, _winRoll, _focusDist, _fStop;
+    KnobDoubleWPtr _worldToMeters, _shutter, _shutterCustom, _shutterBias;
+    KnobBoolWPtr _liveRead, _useSceneScale, _importFile, _eulerFilter;
+    KnobButtonWPtr _snapFrame, _snapRange, _reload;
+    KnobStringWPtr _sourcePrim;
+    KnobFileWPtr _file;
+    struct FileCache;
+    std::shared_ptr<FileCache> _fcache;
 };
 
 // null transform (locator): parent of cameras, lights and other axes through their axis input
@@ -237,9 +291,9 @@ public:
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
 
 private:
+    Solv3DPrimKnobs _prim;
+    Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
-    KnobChoiceWPtr _display;
-    KnobDoubleWPtr _size;
 };
 
 // 2D node: solves a camera from vanishing lines drawn on the plate; "export" creates a Camera
@@ -378,10 +432,16 @@ private:
 
     struct Cache;
     std::shared_ptr<Cache> _cache;
+    void refreshTree();
+    std::string edits() const;
+
     Solv3DXformKnobs _xf;
     Solv3DGeoKnobs _geo;
     KnobChoiceWPtr _units;
-    KnobButtonWPtr _setRange;
+    KnobButtonWPtr _setRange, _reload;
+    KnobIntWPtr _range;
+    KnobDoubleWPtr _timeScale;
+    KnobSceneGraphWPtr _graph;
     KnobFileWPtr _file;
     KnobIntWPtr _frameOffset;
     KnobBoolWPtr _lit;
@@ -496,7 +556,7 @@ private:
     KnobBoolWPtr _aovDepth, _aovShadow, _aovPosition, _aovNormal, _aovUV, _aovMotion;
     KnobDoubleWPtr _filterWidth, _ambient, _shutter, _shutterCustom;
     KnobIntWPtr _overscan, _mbSamples;
-    KnobBoolWPtr _texFilter, _transparency, _zBuffer;
+    KnobBoolWPtr _texFilter, _transparency, _zBuffer, _shutterFromCam;
 };
 
 NATRON_NAMESPACE_EXIT

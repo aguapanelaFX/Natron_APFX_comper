@@ -681,11 +681,17 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         if ( (p.type != PrimType::Mesh) || !p.mesh || !p.visible || (p.render == 0) ) {
             continue;
         }
-        // hidden parent hides children
+        // hidden parent hides children; proxy / guide purposes are not rendered (purpose is inherited)
         bool hidden = false;
-        for (std::string par = parentPath(kv.first); !par.empty(); par = parentPath(par)) {
+        auto notRendered = [](const Prim* q) {
+            std::map<std::string, std::string>::const_iterator it = q->attributes.find("purpose");
+
+            return ( it != q->attributes.end() ) && ( (it->second == "proxy") || (it->second == "guide") );
+        };
+        hidden = notRendered(&p);
+        for (std::string par = parentPath(kv.first); !par.empty() && !hidden; par = parentPath(par)) {
             const Prim* pp = scene.find(par);
-            if (pp && !pp->visible) {
+            if ( pp && ( !pp->visible || notRendered(pp) ) ) {
                 hidden = true;
                 break;
             }
@@ -1393,6 +1399,12 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         } else if (edgeDistance(t, pxs, pys) <= kLineHalfWidth) {
                             c[0] = c[1] = c[2] = 0.02f;
                             c[3] = 1.f;
+                        }
+                    }
+                    if ( (s.output == ScanlineOutput::RGBA) && (t.mesh->material.opacity < 1.) ) {
+                        const float op = (float)std::max(0., t.mesh->material.opacity);
+                        for (int ch = 0; ch < 4; ++ch) {
+                            c[ch] *= op;
                         }
                     }
                     float* o = &sampleCol[k * 4];

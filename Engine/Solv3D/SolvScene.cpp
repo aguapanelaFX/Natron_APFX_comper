@@ -62,6 +62,74 @@ Mat4 Mat4::rotateXYZ(const Vec3& d)
     return Z * Y * X;
 }
 
+static const char* kEulerOrders[6] = { "XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX" };
+
+Mat4
+eulerMatrix(const Vec3& deg, int order)
+{
+    const char* o = kEulerOrders[std::max( 0, std::min(5, order) )];
+    Mat4 r;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 v;
+        switch (o[i]) {
+        case 'X': v.x = deg.x; break;
+        case 'Y': v.y = deg.y; break;
+        default: v.z = deg.z; break;
+        }
+        r = Mat4::rotateXYZ(v) * r;
+    }
+
+    return r;
+}
+
+Vec3
+matrixEuler(const Mat4& R, int order, const Vec3& near)
+{
+    const char* o = kEulerOrders[std::max( 0, std::min(5, order) )];
+    const int a = o[0] - 'X', b = o[1] - 'X', c = o[2] - 'X';
+    const double sg = ( (a == 0 && b == 1) || (a == 1 && b == 2) || (a == 2 && b == 0) ) ? 1. : -1.;
+    const double sb = std::max( -1., std::min(1., -sg * R.m[c][a]) );
+    double ang[3];
+    ang[b] = std::asin(sb);
+    if (std::fabs(sb) < 0.9999999) {
+        ang[a] = std::atan2(sg * R.m[c][b], R.m[c][c]);
+        ang[c] = std::atan2(sg * R.m[b][a], R.m[a][a]);
+    } else {
+        ang[c] = 0.;
+        ang[a] = std::atan2(-sg * R.m[b][c], R.m[b][b]);
+    }
+    const double k = 180. / kPi;
+    Vec3 e(ang[0] * k, ang[1] * k, ang[2] * k);
+    auto wrap = [](double v, double ref) {
+        while (v - ref > 180.) { v -= 360.; }
+        while (v - ref < -180.) { v += 360.; }
+
+        return v;
+    };
+    e.x = wrap(e.x, near.x); e.y = wrap(e.y, near.y); e.z = wrap(e.z, near.z);
+
+    return e;
+}
+
+void
+decompose(const Mat4& m, int order, const Vec3& nearRot, Vec3* t, Vec3* r, Vec3* s)
+{
+    *t = Vec3(m.m[0][3], m.m[1][3], m.m[2][3]);
+    Vec3 col[3];
+    double len[3];
+    for (int c = 0; c < 3; ++c) {
+        col[c] = Vec3(m.m[0][c], m.m[1][c], m.m[2][c]);
+        len[c] = std::sqrt( dot(col[c], col[c]) );
+    }
+    Mat4 R;
+    for (int c = 0; c < 3; ++c) {
+        const double l = len[c] > 1e-12 ? len[c] : 1.;
+        R.m[0][c] = col[c].x / l; R.m[1][c] = col[c].y / l; R.m[2][c] = col[c].z / l;
+    }
+    *s = Vec3(len[0], len[1], len[2]);
+    *r = matrixEuler(R, order, nearRot);
+}
+
 Mat4 Mat4::trs(const Vec3& t, const Vec3& r, const Vec3& s, const Vec3& pivot)
 {
     return translate(t) * translate(pivot) * rotateXYZ(r) * scale(s) * translate(pivot * -1.);

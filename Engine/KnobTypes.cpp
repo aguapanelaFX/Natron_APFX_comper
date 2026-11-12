@@ -2575,6 +2575,36 @@ KnobTable::removeRow(int index)
     setTable(table);
 }
 
+const std::string KnobSceneGraph::_typeNameStr("SceneGraph");
+const std::string&
+KnobSceneGraph::typeNameStatic()
+{
+    return _typeNameStr;
+}
+
+void
+KnobSceneGraph::setTree(const std::string& tree, const std::string& message)
+{
+    QMutexLocker l(&_treeMutex);
+    _tree = tree;
+    _message = message;
+    ++_rev;
+}
+
+std::string
+KnobSceneGraph::getTree(int* revision, std::string* message) const
+{
+    QMutexLocker l(&_treeMutex);
+    if (revision) {
+        *revision = _rev;
+    }
+    if (message) {
+        *message = _message;
+    }
+
+    return _tree;
+}
+
 const std::string KnobLayers::_typeNameStr("Layers");
 const std::string&
 KnobLayers::typeNameStatic()

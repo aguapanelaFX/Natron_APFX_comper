@@ -38,6 +38,7 @@
 #include "Engine/Solv3D/SolvVanishingCamera.h"
 #include "Engine/Solv3D/SolvCameraPresets.h"
 #include "Engine/Solv3D/SolvLineAlign.h"
+#include "Engine/Solv3D/SolvTexFile.h"
 #include "Engine/Solv3D/SolvUsd.h"
 
 NATRON_NAMESPACE_ENTER
@@ -184,7 +185,7 @@ rotationInOrder(const Vec3& deg, int order)
 }
 
 void
-Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder)
+Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder, bool matrixGroup)
 {
     order = makeChoice(fx, page, "xform_order", "transform order", std::vector<std::string>(kXformOrders, kXformOrders + 6), 0,
                        "Order of scale (S), rotation (R) and translation (T): SRT = scale first, then rotate, then move.", false);
@@ -194,8 +195,30 @@ Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaul
     rotate = makeDouble(fx, page, "rotate", "rotate", 3, 0., -180., 180., "Degrees.");
     scale = makeDouble(fx, page, "scaling", "scale", 3, 1., 0., 4.);
     uniform = makeDouble(fx, page, "uniform_scale", "uniform scale", 1, 1., 0., 10.);
+    skew = makeDouble(fx, page, "skew", "skew", 3, 0., -1., 1., "Shear: x along y, y along z, x along z.");
     pivot = makeDouble(fx, page, "pivot", "pivot translate", 3, 0., -10., 10., "Centre of rotation and scale.");
     pivotRotate = makeDouble(fx, page, "pivot_rotate", "pivot rotate", 3, 0., -180., 180., "Orientation of the rotation and scale axes.");
+    if (matrixGroup) {
+        KnobGroupPtr g = makeGroup(fx, page, "local_matrix", "Local Matrix", false);
+        for (int r = 0; r < 4; ++r) {
+            const std::string n = "local_matrix_" + std::to_string(r);
+            KnobDoublePtr k = AppManager::createKnob<KnobDouble>( fx, std::string(""), 4 );
+            k->setName(n);
+            k->setAnimationEnabled(false);
+            k->setEvaluateOnChange(false);
+            k->setIsPersistent(false);
+            k->setAllDimensionsEnabled(false);
+            k->setHintToolTip( std::string("Local matrix (read only), row ") + std::to_string(r) + ".");
+            for (int d = 0; d < 4; ++d) {
+                k->setDefaultValue(r == d ? 1. : 0., d);
+            }
+            g->addKnob(k);
+            matrixRows[r] = k;
+        }
+    }
+    if ( Solv3DNode* n = dynamic_cast<Solv3DNode*>(fx) ) {
+        n->registerXform(this);
+    }
 }
 
 Mat4
@@ -209,7 +232,12 @@ Solv3DXformKnobs::matrix(double t) const
     const Mat4 Pr = rotationInOrder(getV3(pivotRotate, t), ro), Pri = Pr.inverse();
     const Mat4 T = Mat4::translate( getV3(translate, t) );
     const Mat4 R = P * Pr * rotationInOrder(getV3(rotate, t), ro) * Pri * Pi;
-    const Mat4 S = P * Pr * Mat4::scale(getV3(scale, t) * u) * Pri * Pi;
+    Mat4 K;
+    const Vec3 sk = getV3(skew, t);
+    K.m[0][1] = sk.x;
+    K.m[1][2] = sk.y;
+    K.m[0][2] = sk.z;
+    const Mat4 S = P * Pr * Mat4::scale(getV3(scale, t) * u) * K * Pri * Pi;
     Mat4 m;
     const char* o = kXformOrders[std::max( 0, std::min(5, xo) )];
     for (int i = 0; i < 3; ++i) {
@@ -219,19 +247,139 @@ Solv3DXformKnobs::matrix(double t) const
     return m;
 }
 
+static void
+setMatrixRows(const KnobDoubleWPtr rows[4], const Mat4& m)
+{
+    for (int r = 0; r < 4; ++r) {
+        KnobDoublePtr k = rows[r].lock();
+        if (!k) {
+            continue;
+        }
+        k->beginChanges();
+        for (int d = 0; d < 4; ++d) {
+            if (k->getValue(d) != m.m[r][d]) {
+                k->setValue(m.m[r][d], ViewSpec::all(), d);
+            }
+        }
+        k->endChanges();
+    }
+}
+
+void
+Solv3DXformKnobs::refreshMatrix(double t) const
+{
+    setMatrixRows( matrixRows, matrix(t) );
+}
+
 static const char* kDisplayModes[6] = { "off", "wireframe", "solid", "solid+lines", "textured", "textured+lines" };
 
+// ---------------------------------------------------------------- prim path / attributes
+static const char* kKinds[5] = { "none", "component", "subcomponent", "assembly", "group" };
+static const char* kPurposes[4] = { "default", "render", "proxy", "guide" };
+
+void
+Solv3DPrimKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultKind, bool attributes)
+{
+    KnobStringPtr ps = AppManager::createKnob<KnobString>( fx, std::string(attributes ? "path" : "output prim path") );
+    ps->setName("path");
+    ps->setDefaultValue("{nodename}");
+    ps->setAnimationEnabled(false);
+    ps->setHintToolTip( std::string("Path of the prim in the scene ('/' separates levels). {nodename} is the name of the node. "
+                                    "Example: /world/{nodename}.") );
+    page->addKnob(ps);
+    path = ps;
+    const char* pt[2] = { "Xform", "Scope" };
+    parentType = makeChoice(fx, page, "create_parents_type", "create missing parents", std::vector<std::string>(pt, pt + 2), 0,
+                            "Type of the parent prims made for a path with several levels (Xform can move, Scope only groups).");
+    if (!attributes) {
+        return;
+    }
+    KnobGroupPtr g = makeGroup(fx, page, "prim_attributes", "Primitive Attributes", true);
+    kind = makeChoice(fx, g, "kind", "kind", std::vector<std::string>(kKinds, kKinds + 5), defaultKind,
+                      "USD model kind, written to files (component = an asset, subcomponent = a part of one).");
+    purpose = makeChoice(fx, g, "purpose", "purpose", std::vector<std::string>(kPurposes, kPurposes + 4), 0,
+                         "default: everywhere. render: renders only. proxy: viewer stand-in, not rendered. guide: helper, not rendered.");
+    const char* vis[2] = { "inherited", "invisible" };
+    visibility = makeChoice(fx, g, "visibility", "visibility", std::vector<std::string>(vis, vis + 2), 0,
+                            "invisible hides the prim and everything under it (viewer and render).");
+}
+
+void
+Solv3DPrimKnobs::apply(Scene* scene, double t, const std::string& pp) const
+{
+    Prim* p = scene->find(pp);
+    if (!p) {
+        return;
+    }
+    if ( kind.lock() ) {
+        const int k = kind.lock()->getValueAtTime(t);
+        if (k > 0) {
+            p->attributes["kind"] = kKinds[std::min(4, k)];
+        }
+        const int pu = purpose.lock()->getValueAtTime(t);
+        p->attributes["purpose"] = kPurposes[std::max( 0, std::min(3, pu) )];
+        if (visibility.lock()->getValueAtTime(t) == 1) {
+            p->visible = false;
+        }
+    }
+    const char* ptype = ( parentType.lock() && (parentType.lock()->getValueAtTime(t) == 1) ) ? "Scope" : "Xform";
+    for (std::string par = parentPath(pp); !par.empty() && (par != "/"); par = parentPath(par)) {
+        Prim* q = scene->find(par);
+        if ( q && q->node.empty() && (q->type == PrimType::Xform) && !q->attributes.count("typeName") ) {
+            q->attributes["typeName"] = ptype;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Display page
+void
+Solv3DDisplayKnobs::create(EffectInstance* fx, int defaultDisplay, bool icon, bool worldScaleKnob)
+{
+    KnobPagePtr page = makePage(fx, "Display");
+    display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), defaultDisplay,
+                         "How it is drawn in the 3D viewer. off hides it.");
+    selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
+    editable = makeBool(fx, page, "editable", "editable", true, "The 3D viewer handles can move it.");
+    if (worldScaleKnob) {
+        worldScale = makeBool(fx, page, "display_world_scale", "display at world scale", false,
+                              "On: the icon has a size in the scene (gets small far away). Off: the same size on screen.");
+    }
+    if (icon) {
+        iconSize = makeDouble(fx, page, "icon_size", "icon size", 1, 1., 0.1, 10., "Size of the icon in the 3D viewer (display only).");
+    }
+}
+
+void
+Solv3DDisplayKnobs::apply(Prim* p, double t) const
+{
+    if (!p) {
+        return;
+    }
+    p->display = display.lock() ? display.lock()->getValueAtTime(t) : 1;
+    p->selectable = selectable.lock() ? selectable.lock()->getValueAtTime(t) : true;
+    p->editable = editable.lock() ? editable.lock()->getValueAtTime(t) : true;
+}
+
+// ---------------------------------------------------------------- geometry display / mesh attributes
 void
 Solv3DGeoKnobs::create(EffectInstance* fx, const KnobPagePtr& page)
 {
-    display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
-                         "How it is drawn in the 3D viewer (does not change the render).", false);
-    selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
-    castShadow = makeBool(fx, page, "cast_shadow", "cast shadow", true, "Blocks the light of lights with shadows on.", false);
-    receiveShadow = makeBool(fx, page, "receive_shadow", "receive shadow", true, "Shadows fall on it.");
-    render = makeChoice(fx, page, "render_mode", "render", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
+    KnobGroupPtr g = makeGroup(fx, page, "mesh_attributes", "Mesh Attributes", false);
+    castShadow = makeBool(fx, g, "cast_shadow", "cast shadow", true, "Blocks the light of lights with shadows on.", false);
+    receiveShadow = makeBool(fx, g, "receive_shadow", "receive shadow", true, "Shadows fall on it.");
+    render = makeChoice(fx, g, "render_mode", "render", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
                         "How ScanlineRender draws it: off, wireframe (edges in the colour), solid (colour, no texture / projections), "
                         "solid+lines, textured (everything), textured+lines (dark edges over the surface).");
+}
+
+void
+Solv3DGeoKnobs::createDisplay(EffectInstance* fx)
+{
+    KnobPagePtr page = makePage(fx, "Display");
+    display = makeChoice(fx, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 4,
+                         "How it is drawn in the 3D viewer (does not change the render).");
+    selectable = makeBool(fx, page, "selectable", "selectable", true, "Can be picked with a click in the 3D viewer.");
+    editable = makeBool(fx, page, "editable", "editable", true, "The 3D viewer handles can move it.");
 }
 
 void
@@ -240,6 +388,7 @@ Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std
     const int d = display.lock() ? display.lock()->getValueAtTime(t) : 4;
     const int r = render.lock() ? render.lock()->getValueAtTime(t) : 4;
     const bool sel = selectable.lock() ? selectable.lock()->getValueAtTime(t) : true;
+    const bool ed = editable.lock() ? editable.lock()->getValueAtTime(t) : true;
     const bool cs = castShadow.lock() ? castShadow.lock()->getValueAtTime(t) : true;
     const bool rs = receiveShadow.lock() ? receiveShadow.lock()->getValueAtTime(t) : true;
     for (auto& kv : scene->prims()) {
@@ -250,6 +399,7 @@ Solv3DGeoKnobs::apply(Scene* scene, double t, const std::string& node, const std
         kv.second.display = d;
         kv.second.render = r;
         kv.second.selectable = sel;
+        kv.second.editable = ed;
         kv.second.castShadow = cs;
         kv.second.receiveShadow = rs;
         kv.second.node = node;
@@ -323,7 +473,62 @@ Solv3DNode::render(const RenderActionArgs& args)
 std::string
 Solv3DNode::primPath() const
 {
-    return "/" + makeValidName( getNode()->getScriptName_mt_safe() );
+    const std::string name = makeValidName( getNode()->getScriptName_mt_safe() );
+    KnobIPtr k = const_cast<Solv3DNode*>(this)->getKnobByName("path");
+    KnobString* ks = dynamic_cast<KnobString*>( k.get() );
+    std::string v = ks ? ks->getValue() : std::string();
+    if ( v.empty() ) {
+        return "/" + name;
+    }
+    for (size_t i = v.find("{nodename}"); i != std::string::npos; i = v.find("{nodename}")) {
+        v.replace(i, 10, name);
+    }
+    std::string out;
+    std::string part;
+    for (size_t i = 0; i <= v.size(); ++i) {
+        if ( (i == v.size()) || (v[i] == '/') ) {
+            if ( !part.empty() ) {
+                out += "/" + makeValidName(part);
+            }
+            part.clear();
+        } else {
+            part += v[i];
+        }
+    }
+
+    return out.empty() ? "/" + name : out;
+}
+
+bool
+Solv3DNode::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double, bool)
+{
+    const std::string& n = k->getName();
+    if ( (n.compare(0, 12, "local_matrix") == 0) || (n.compare(0, 12, "world_matrix") == 0) ) {
+        return false;
+    }
+    refreshMatrices();
+
+    return false;
+}
+
+void
+Solv3DNode::refreshMatrices()
+{
+    if ( !getApp() ) {
+        return;
+    }
+    const double t = getApp()->getTimeLine()->currentFrame();
+    for (const Solv3DXformKnobs* x : _xforms) {
+        x->refreshMatrix(t);
+    }
+    if ( _worldRows[0].lock() ) {
+        Scene s;
+        buildScene(t, &s);
+        const std::string pp = primPath();
+        if ( s.find(pp) ) {
+            setMatrixRows( _worldRows, s.worldMatrix(pp) );
+        }
+    }
 }
 
 std::string
@@ -436,18 +641,19 @@ void
 Solv3DPrimitive::initializeKnobs()
 {
     KnobPagePtr page = makePage( this, getPluginLabel().c_str() );
-    _geo.create(this, page);
-    makeDivider(this, page, "geo_divider");
+    _prim.create(this, page, 2 /* subcomponent */);
+    makeDivider(this, page, "prim_divider");
+    KnobGroupPtr topo = makeGroup(this, page, "mesh_topology", "Mesh Topology", true);
     if (_kind == eCard) {
         const char* orients[3] = { "XY", "YZ", "ZX" };
-        _orientation = makeChoice(this, page, "orientation", "orientation", std::vector<std::string>(orients, orients + 3), 0,
+        _orientation = makeChoice(this, topo, "orientation", "orientation", std::vector<std::string>(orients, orients + 3), 0,
                                   "Plane of the card: XY faces +Z (default), YZ faces +X, ZX faces +Y (a floor).", false);
-        _imageAspect = makeBool(this, page, "image_aspect", "image aspect", true,
+        _imageAspect = makeBool(this, topo, "image_aspect", "image aspect", true,
                                 "Card height follows the img input proportions (width = size). Off: square.");
     }
     // Maya scale (1 unit = 1 cm): plane / cube 1, sphere radius 1, cylinder radius 1 height 2
     const double defSize = ( (_kind == eSphere) || (_kind == eCylinder) ) ? 2. : 1.;
-    _size = makeDouble(this, page, "size", "size", 1, defSize, 0., 10., "Overall size of the shape (width; sphere and cylinder: diameter).");
+    _size = makeDouble(this, topo, "size", "size", 1, defSize, 0., 10., "Overall size of the shape (width; sphere and cylinder: diameter).");
     if ( (_kind == eCard) || (_kind == eSphere) || (_kind == eCylinder) ) {
         KnobIntPtr r = AppManager::createKnob<KnobInt>( this, std::string("rows/columns") );
         r->setName("rows");
@@ -456,28 +662,39 @@ Solv3DPrimitive::initializeKnobs()
         r->setDisplayMaximum(64);
         r->setHintToolTip( std::string("Subdivisions (rows, then columns on the next field).") );
         r->setAddNewLine(false);
-        page->addKnob(r);
+        topo->addKnob(r);
         _rows = r;
         KnobIntPtr c = AppManager::createKnob<KnobInt>( this, std::string("") );
         c->setName("columns");
         c->setDefaultValue(_kind == eCard ? 1 : 48);
         c->setDisplayMinimum(1);
         c->setDisplayMaximum(128);
-        page->addKnob(c);
+        topo->addKnob(c);
         _cols = c;
     }
+    if (_kind == eCard) {
+        _z = makeDouble(this, topo, "z", "z", 1, 0., 0., 100.,
+                        "Distance of the card in front of its origin (along -Z, like a camera looks). With the lens-in values the card "
+                        "grows with the distance, so it keeps filling the view of a camera at the origin. 0 = off.");
+        _lensFocal = makeDouble(this, topo, "lens_in_focal", "lens-in focal", 1, 1., 0.1, 100., "Focal length of the camera the card fits (with z).");
+        _lensAperture = makeDouble(this, topo, "lens_in_haperture", "lens-in haperture", 1, 1., 0.1, 100., "Horizontal aperture of the camera the card fits (with z).");
+    }
+    _geo.create(this, page);
+    KnobGroupPtr co = makeGroup(this, page, "color_opacity", "Color/Opacity", false);
     KnobColorPtr col = AppManager::createKnob<KnobColor>( this, std::string("color"), 3 );
     col->setName("color");
     for (int d = 0; d < 3; ++d) {
         col->setDefaultValue(1., d);
     }
     col->setHintToolTip( std::string("Multiplies the texture (the colour of the shape without texture).") );
-    page->addKnob(col);
+    co->addKnob(col);
     _color = col;
-    _lit = makeBool(this, page, "lit", "lit", _kind != eCard,
-                    "Off: the texture is shown as is (like a card). On: simple shading from the camera.");
+    _opacity = makeDouble(this, co, "opacity", "opacity", 1, 1., 0., 1., "Multiplies the alpha.");
+    _lit = makeBool(this, co, "lit", "lit", _kind != eCard,
+                    "Off: the texture is shown as is (like a card). On: shaded by the lights.");
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
+    _geo.createDisplay(this);
 }
 
 void
@@ -504,23 +721,35 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
             }
         }
         m = makeCard(size, h, rows, cols);
+        // lens-in: pushed back along -Z and scaled to keep the same size in a camera at the origin
+        const double z = _z.lock() ? _z.lock()->getValueAtTime(t) : 0.;
+        Mat4 lens;
+        if (z > 0.) {
+            const double f = std::max(1e-6, _lensFocal.lock()->getValueAtTime(t) );
+            const double k = z * _lensAperture.lock()->getValueAtTime(t) / f;
+            lens = Mat4::translate( Vec3(0, 0, -z) ) * Mat4::scale( Vec3(k, k, k) );
+        }
         const int o = _orientation.lock() ? _orientation.lock()->getValueAtTime(t) : 0;
         if (o == 1) {
             orient = Mat4::rotateXYZ( Vec3(0, 90, 0) );   // faces +X
         } else if (o == 2) {
             orient = Mat4::rotateXYZ( Vec3(-90, 0, 0) );  // faces +Y (floor)
         }
+        orient = orient * lens;
         break;
     }
     }
     m->texture = texRef(img);
     KnobColorPtr c = _color.lock();
     m->material.baseColor = Vec3( c->getValueAtTime(t, 0), c->getValueAtTime(t, 1), c->getValueAtTime(t, 2) );
+    m->material.opacity = _opacity.lock()->getValueAtTime(t);
     m->material.emission = _lit.lock()->getValueAtTime(t) ? 0. : 1.;
-    Prim& p = scene->define(primPath(), PrimType::Mesh);
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Mesh);
     p.mesh = m;
     p.local = _xf.matrix(t) * orient;
-    _geo.apply( scene, t, nodeName(), primPath() );
+    _geo.apply( scene, t, nodeName(), pp );
+    _prim.apply(scene, t, pp);
 }
 
 // ============================================================================ Lights
@@ -568,8 +797,8 @@ void
 Solv3DLight::initializeKnobs()
 {
     KnobPagePtr page = makePage( this, getPluginLabel().c_str() );
-    _display = makeChoice(this, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 1,
-                          "off hides the light in the 3D viewer.");
+    _prim.create(this, page, 0);
+    makeDivider(this, page, "prim_divider");
     KnobColorPtr col = AppManager::createKnob<KnobColor>( this, std::string("color"), 3 );
     col->setName("color");
     for (int d = 0; d < 3; ++d) {
@@ -603,6 +832,7 @@ Solv3DLight::initializeKnobs()
     }
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page, 4);
+    _disp.create(this, 1, false, false);
 }
 
 void
@@ -627,52 +857,316 @@ Solv3DLight::buildScene(double t, Scene* scene)
         L->shadowResolution = 1024 << _shadowRes.lock()->getValueAtTime(t);
         L->shadowBias = _bias.lock()->getValueAtTime(t);
     }
-    Prim& p = scene->define(primPath(), PrimType::Light);
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Light);
     p.light = L;
     p.local = axisParent(this, 0, t) * _xf.matrix(t);
-    p.display = _display.lock()->getValueAtTime(t);
+    _disp.apply(&p, t);
     p.node = nodeName();
+    _prim.apply(scene, t, pp);
 }
 
 // ============================================================================ Camera
+struct Solv3DCamera::FileCache
+{
+    std::mutex m;
+    std::string file, key;
+    double time = -1e30;
+    Scene scene;
+    std::string error;
+};
+
+Solv3DCamera::Solv3DCamera(NodePtr n)
+    : Solv3DNode(n)
+    , _fcache( std::make_shared<FileCache>() )
+{
+}
+
 std::string
 Solv3DCamera::getPluginDescription() const
 {
     return "3D camera. Focal length and film back (apertures) in mm, perspective or orthographic, clipping planes, "
-           "window (shift / zoom / roll of the image) and depth of field values. Look through it in the 3D viewer; "
-           "ScanlineRender and Project3D use it through their cam input. A camera can be made from vanishing lines "
-           "with the VanishingCamera node.";
+           "window (shift / zoom / roll of the image), shutter and depth of field. It can read a camera from a USD or "
+           "Alembic file (Import/Export tab): live, or copied into the parameters with 'snapshot'. Look through it in the "
+           "3D viewer; ScanlineRender and Project3D use it through their cam input. The axis input parents it.";
 }
 
 void
 Solv3DCamera::initializeKnobs()
 {
+    // ---- Camera
     KnobPagePtr page = makePage(this, "Camera");
-    _display = makeChoice(this, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 1,
-                          "off hides the camera in the 3D viewer.", false);
-    _iconSize = makeDouble(this, page, "icon_size", "icon size", 1, 1., 0.1, 10., "Size of the camera icon in the 3D viewer (display only).");
-    makeDivider(this, page, "xform_divider");
-    _xf.create(this, page, 4);
-
-    KnobPagePtr proj = makePage(this, "Projection");
+    _liveRead = makeBool(this, page, "live_read", "live read", true,
+                         "With 'import from file' on: reads the camera from the file at every frame. Off: uses the parameters "
+                         "(fill them with 'snapshot').", false);
+    {
+        KnobButtonPtr b = AppManager::createKnob<KnobButton>( this, std::string("snapshot frame") );
+        b->setName("snapshot_frame");
+        b->setHintToolTip( std::string("Copies the file camera at the current frame into the parameters.") );
+        b->setAddNewLine(false);
+        page->addKnob(b);
+        _snapFrame = b;
+        KnobButtonPtr r = AppManager::createKnob<KnobButton>( this, std::string("snapshot range") );
+        r->setName("snapshot_range");
+        r->setHintToolTip( std::string("Keys the file camera into the parameters over the project frame range, then turns live read off.") );
+        page->addKnob(r);
+        _snapRange = r;
+    }
+    KnobStringPtr sp = AppManager::createKnob<KnobString>( this, std::string("source prim") );
+    sp->setName("source_prim");
+    sp->setAnimationEnabled(false);
+    sp->setHintToolTip( std::string("Path of the camera in the file. Empty: the first camera. Pick one in the list next to it.") );
+    sp->setAddNewLine(false);
+    page->addKnob(sp);
+    _sourcePrim = sp;
+    {
+        std::vector<std::string> none(1, "cameras in the file");
+        _sourcePick = makeChoice(this, page, "source_pick", "", none, 0, "Cameras found in the import file.");
+        _sourcePick.lock()->setIsPersistent(false);
+        _sourcePick.lock()->setEvaluateOnChange(false);
+    }
+    makeDivider(this, page, "camera_divider");
     const char* pm[2] = { "perspective", "orthographic" };
-    _projection = makeChoice(this, proj, "projection", "projection", std::vector<std::string>(pm, pm + 2), 0,
+    _projection = makeChoice(this, page, "projection", "projection", std::vector<std::string>(pm, pm + 2), 0,
                              "Orthographic: the horizontal aperture is the width of the view in tenths of a scene unit (USD).");
-    _preset = makePresetChoice(this, proj);
-    KnobGroupPtr fr = makeGroup(this, proj, "frustum", "Frustum", true);
+    _worldToMeters = makeDouble(this, page, "world_to_meters", "world to meters", 1, 1., 0.001, 100.,
+                                "Imported file: meters per unit of the file (1 = the file is in meters). Used when 'use scene scale' is off.");
+    _worldToMeters.lock()->setAddNewLine(false);
+    _useSceneScale = makeBool(this, page, "use_scene_scale", "use scene scale", true,
+                              "Imported file: use the units stored in the file (USD metersPerUnit) to convert to 1 unit = 1 cm.");
+    _preset = makePresetChoice(this, page);
+    KnobGroupPtr fr = makeGroup(this, page, "frustum", "Frustum", true);
     // defaults: 35 mm lens on a full frame film back (Maya default camera)
     _focal = makeDouble(this, fr, "focal", "focal length", 1, 35., 5., 200., "mm");
     _hAperture = makeDouble(this, fr, "haperture", "horiz aperture", 1, 36., 1., 70., "Film back width (mm). The image width fits it.");
     _vAperture = makeDouble(this, fr, "vaperture", "vert aperture", 1, 24., 1., 70., "Film back height (mm), kept for export: the image height follows the format.");
     _near = makeDouble(this, fr, "near", "clipping near", 1, 0.1, 0.001, 10.);
     _far = makeDouble(this, fr, "far", "clipping far", 1, 10000., 10., 100000.);
-    KnobGroupPtr win = makeGroup(this, proj, "window", "Window", true);
+    KnobGroupPtr win = makeGroup(this, page, "window", "Window", true);
     _winTranslate = makeDouble(this, win, "win_translate", "translate", 2, 0., -1., 1., "Shifts the image (1 = half the frame).");
     _winScale = makeDouble(this, win, "win_scale", "scale", 2, 1., 0.1, 4., "Zooms the image (2 = shows twice the area).");
     _winRoll = makeDouble(this, win, "winroll", "roll", 1, 0., -45., 45., "Rolls the image (degrees).");
-    KnobGroupPtr dof = makeGroup(this, proj, "dof", "Depth of Field", false);
+    KnobGroupPtr shg = makeGroup(this, page, "shutter_group", "Shutter", true);
+    _shutter = makeDouble(this, shg, "shutter", "length", 1, 0.5, 0., 2., "Shutter length in frames (0.5 = 180 degrees). "
+                          "ScanlineRender uses it when 'shutter from camera' is on.");
+    const char* so[4] = { "centred", "start", "end", "custom" };
+    _shutterOffset = makeChoice(this, shg, "shutter_offset", "offset", std::vector<std::string>(so, so + 4), 1,
+                                "centred: around the frame. start: from the frame on. end: up to the frame. custom: starts at the value below.");
+    _shutterCustom = makeDouble(this, shg, "shutter_custom_offset", "", 1, 0., -1., 1., "Custom shutter start (frames, relative to the frame).");
+    _shutterBias = makeDouble(this, shg, "shutter_bias", "bias", 1, 0., -1., 1.,
+                              "Weights the samples toward the start (negative) or the end (positive) of the shutter. Stored and exported.");
+    KnobGroupPtr dof = makeGroup(this, page, "dof", "Depth of Field", true);
     _focusDist = makeDouble(this, dof, "focal_point", "focal distance", 1, 2., 0.1, 100., "Distance in focus (stored with the camera and exported).");
     _fStop = makeDouble(this, dof, "fstop", "f-stop", 1, 16., 0.7, 32.);
+
+    // ---- Position
+    KnobPagePtr pos = makePage(this, "Position");
+    KnobGroupPtr par = makeGroup(this, pos, "parent_xform", "Local Parent Xform", true);
+    _parentSync = makeBool(this, par, "parent_xform_sync", "parent xform sync", true,
+                           "On: the parent transform below is applied above the local transform. Off: ignored.");
+    _parentT = makeDouble(this, par, "parent_translate", "parent translate", 3, 0., -10., 10.);
+    _parentR = makeDouble(this, par, "parent_rotate", "parent rotate", 3, 0., -180., 180., "Degrees, in the rotation order below.");
+    _parentS = makeDouble(this, par, "parent_scale", "parent scale", 3, 1., 0., 4.);
+    makeDivider(this, pos, "xform_divider");
+    _xf.create(this, pos, 4);
+    {
+        KnobGroupPtr g = makeGroup(this, pos, "world_matrix", "World Matrix", false);
+        for (int r = 0; r < 4; ++r) {
+            KnobDoublePtr k = AppManager::createKnob<KnobDouble>( this, std::string(""), 4 );
+            k->setName( "world_matrix_" + std::to_string(r) );
+            k->setAnimationEnabled(false);
+            k->setEvaluateOnChange(false);
+            k->setIsPersistent(false);
+            k->setAllDimensionsEnabled(false);
+            for (int d = 0; d < 4; ++d) {
+                k->setDefaultValue(r == d ? 1. : 0., d);
+            }
+            g->addKnob(k);
+            _worldRows[r] = k;
+        }
+    }
+
+    // ---- Import/Export
+    KnobPagePtr io = makePage(this, "Import/Export");
+    _importFile = makeBool(this, io, "import_from_file", "import from file", false,
+                           "Read the camera from a .usd / .usda / .usdc / .usdz or .abc file.");
+    KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string("file path") );
+    f->setName("import_file");
+    f->setAnimationEnabled(false);
+    f->setAddNewLine(false);
+    io->addKnob(f);
+    _file = f;
+    {
+        KnobButtonPtr r = AppManager::createKnob<KnobButton>( this, std::string("reload") );
+        r->setName("reload");
+        r->setHintToolTip( std::string("Reads the file again (after it changed on disk).") );
+        io->addKnob(r);
+        _reload = r;
+    }
+    _eulerFilter = makeBool(this, io, "euler_filter", "rotations euler filter", true,
+                            "Snapshot range: keeps the rotations continuous (no 360 degree jumps between frames).");
+    makeDivider(this, io, "export_divider");
+    _prim.create(this, io, 0, false);
+
+    // ---- Display
+    _disp.create(this, 1, true, true);
+}
+
+bool
+Solv3DCamera::fileCamera(double t, Mat4* world, Camera* cam, std::string* error)
+{
+    if ( !_importFile.lock()->getValueAtTime(t) ) {
+        return false;
+    }
+    const std::string file = _file.lock()->getValue();
+    if ( file.empty() ) {
+        return false;
+    }
+    std::string lower = file;
+    std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
+    const bool isUsd = lower.find(".usd") != std::string::npos;
+    const bool sceneScale = _useSceneScale.lock()->getValueAtTime(t);
+    const std::string key = file + (sceneScale ? "|s" : "|k");
+    std::lock_guard<std::mutex> l(_fcache->m);
+    if ( (_fcache->key != key) || (_fcache->time != t) ) {
+        _fcache->scene = Scene();
+        _fcache->error.clear();
+        bool ok;
+        if (isUsd) {
+            ok = readUsd(file, t, "", &_fcache->scene, &_fcache->error, !sceneScale);
+        } else {
+            const double fps = std::max( 1., getApp()->getProjectFrameRate() );
+            ok = readAlembic(file, t / fps, "", &_fcache->scene, &_fcache->error);
+        }
+        if ( !ok && _fcache->error.empty() ) {
+            _fcache->error = "cannot read " + file;
+        }
+        _fcache->key = key;
+        _fcache->time = t;
+    }
+    if ( !_fcache->error.empty() ) {
+        *error = _fcache->error;
+
+        return false;
+    }
+    std::string path = _sourcePrim.lock()->getValue();
+    if ( path.empty() ) {
+        path = _fcache->scene.firstCamera();
+    }
+    const Prim* p = _fcache->scene.find(path);
+    if ( !p || !p->camera ) {
+        *error = path.empty() ? "no camera in the file" : "no camera at " + path;
+
+        return false;
+    }
+    *world = _fcache->scene.worldMatrix(path);
+    *cam = *p->camera;
+    if (!sceneScale || !isUsd) {
+        // file units -> cm
+        const double k = sceneScale ? 1. : _worldToMeters.lock()->getValueAtTime(t) * 100.;
+        for (int r = 0; r < 3; ++r) {
+            world->m[r][3] *= k;
+        }
+        cam->nearClip *= k;
+        cam->farClip *= k;
+        cam->focusDistance *= k;
+    }
+
+    return true;
+}
+
+void
+Solv3DCamera::refreshSourcePrims()
+{
+    std::vector<std::string> names(1, "cameras in the file");
+    if ( _importFile.lock()->getValue() && !_file.lock()->getValue().empty() ) {
+        Mat4 w;
+        Camera c;
+        std::string err;
+        const double t = getApp()->getTimeLine()->currentFrame();
+        fileCamera(t, &w, &c, &err);
+        std::lock_guard<std::mutex> l(_fcache->m);
+        for (const std::string& cp : _fcache->scene.pathsOfType(PrimType::Camera)) {
+            names.push_back(cp);
+        }
+        if ( !err.empty() ) {
+            setPersistentMessage(eMessageTypeError, err);
+        } else {
+            clearPersistentMessage(false);
+        }
+    } else {
+        clearPersistentMessage(false);
+    }
+    std::vector<ChoiceOption> o;
+    for (const std::string& n : names) {
+        o.push_back( ChoiceOption(n, n, "") );
+    }
+    _sourcePick.lock()->populateChoices(o);
+}
+
+void
+Solv3DCamera::snapshot(bool range)
+{
+    double first = getApp()->getTimeLine()->currentFrame(), last = first;
+    if (range) {
+        getApp()->getProject()->getFrameRange(&first, &last);
+    }
+    const int ro = _xf.rotOrder.lock()->getValue();
+    const bool filter = _eulerFilter.lock()->getValue();
+    KnobDoublePtr tk = _xf.translate.lock(), rk = _xf.rotate.lock(), sk = _xf.scale.lock();
+    Vec3 prevR;
+    bool havePrev = false;
+    std::string err;
+    beginChanges();
+    for (double f = first; f <= last + 1e-9; f += 1.) {
+        Mat4 w;
+        Camera c;
+        if ( !fileCamera(f, &w, &c, &err) ) {
+            continue;
+        }
+        Vec3 T, R, S;
+        decompose(w, ro, (filter && havePrev) ? prevR : Vec3(), &T, &R, &S);
+        prevR = R;
+        havePrev = true;
+        auto put = [&](const KnobDoublePtr& k, int d, double v) {
+            if (range) {
+                k->setValueAtTime(f, v, ViewSpec::all(), d);
+            } else if ( k->isAnimated(d) ) {
+                k->setValueAtTime(f, v, ViewSpec::all(), d);
+            } else {
+                k->setValue(v, ViewSpec::all(), d);
+            }
+        };
+        const double tv[3] = { T.x, T.y, T.z }, rv[3] = { R.x, R.y, R.z }, sv[3] = { S.x, S.y, S.z };
+        for (int d = 0; d < 3; ++d) {
+            put(tk, d, tv[d]);
+            put(rk, d, rv[d]);
+            put(sk, d, sv[d]);
+        }
+        put(_focal.lock(), 0, c.focalLength);
+        put(_hAperture.lock(), 0, c.horizontalAperture);
+        put(_vAperture.lock(), 0, c.verticalAperture);
+        put(_near.lock(), 0, c.nearClip);
+        put(_far.lock(), 0, c.farClip);
+        put(_focusDist.lock(), 0, c.focusDistance);
+        put(_fStop.lock(), 0, c.fStop);
+    }
+    // the snapshot holds the whole transform: plain SRT, no pivot / parent
+    _xf.order.lock()->setValue(0);
+    for (int d = 0; d < 3; ++d) {
+        _xf.pivot.lock()->setValue(0., ViewSpec::all(), d);
+        _xf.pivotRotate.lock()->setValue(0., ViewSpec::all(), d);
+        _xf.skew.lock()->setValue(0., ViewSpec::all(), d);
+    }
+    _xf.uniform.lock()->setValue(1.);
+    _projection.lock()->setValue(0);
+    if (range) {
+        _liveRead.lock()->setValue(false);
+    }
+    endChanges();
+    if ( !err.empty() && !havePrev ) {
+        setPersistentMessage(eMessageTypeError, err);
+    }
 }
 
 void
@@ -693,17 +1187,47 @@ Solv3DCamera::buildScene(double t, Scene* scene)
     c->winRoll = _winRoll.lock()->getValueAtTime(t);
     c->focusDistance = _focusDist.lock()->getValueAtTime(t);
     c->fStop = _fStop.lock()->getValueAtTime(t);
-    c->iconScale = _iconSize.lock()->getValueAtTime(t);
-    Prim& p = scene->define(primPath(), PrimType::Camera);
+    c->shutter = _shutter.lock()->getValueAtTime(t);
+    c->shutterOffset = _shutterOffset.lock()->getValueAtTime(t);
+    c->shutterCustom = _shutterCustom.lock()->getValueAtTime(t);
+    c->iconScale = _disp.iconSize.lock()->getValueAtTime(t);
+    c->iconWorldScale = _disp.worldScale.lock()->getValueAtTime(t);
+    Mat4 local = _xf.matrix(t);
+    if ( _parentSync.lock()->getValueAtTime(t) ) {
+        const int ro = _xf.rotOrder.lock()->getValueAtTime(t);
+        local = Mat4::translate( getV3(_parentT, t) ) * rotationInOrder(getV3(_parentR, t), ro) * Mat4::scale( getV3(_parentS, t) ) * local;
+    }
+    if ( _liveRead.lock()->getValueAtTime(t) ) {
+        Mat4 w;
+        Camera fc;
+        std::string err;
+        if ( fileCamera(t, &w, &fc, &err) ) {
+            local = w;
+            c->projectionMode = fc.projectionMode;
+            c->focalLength = fc.focalLength;
+            c->horizontalAperture = fc.horizontalAperture;
+            c->verticalAperture = fc.verticalAperture;
+            c->horizontalApertureOffset = fc.horizontalApertureOffset;
+            c->verticalApertureOffset = fc.verticalApertureOffset;
+            c->nearClip = fc.nearClip;
+            c->farClip = fc.farClip;
+            c->focusDistance = fc.focusDistance;
+            c->fStop = fc.fStop;
+        }
+    }
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Camera);
     p.camera = c;
-    p.local = axisParent(this, 0, t) * _xf.matrix(t);
-    p.display = _display.lock()->getValueAtTime(t);
+    p.local = axisParent(this, 0, t) * local;
+    _disp.apply(&p, t);
     p.node = nodeName();
+    _prim.apply(scene, t, pp);
 }
 
 bool
-Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec /*view*/, double /*time*/, bool /*mainThread*/)
+Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool mainThread)
 {
+    Solv3DNode::knobChanged(k, reason, view, time, mainThread);
     if ( (k == _preset.lock().get()) && (reason != eValueChangedReasonTimeChanged) ) {
         const int i = _preset.lock()->getValue();
         if ( (i > 0) && (i < kCameraPresetCount) ) {
@@ -714,6 +1238,34 @@ Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec /*vi
                 _focal.lock()->setValue(p.focal);
             }
         }
+
+        return true;
+    }
+    if ( ( k == _file.lock().get() ) || ( k == _importFile.lock().get() ) || ( k == _reload.lock().get() ) ||
+         ( k == _useSceneScale.lock().get() ) ) {
+        {
+            std::lock_guard<std::mutex> l(_fcache->m);
+            _fcache->key.clear();
+        }
+        refreshSourcePrims();
+
+        return true;
+    }
+    if ( (k == _sourcePick.lock().get()) && (reason == eValueChangedReasonUserEdited) ) {
+        const int i = _sourcePick.lock()->getValue();
+        if (i > 0) {
+            _sourcePrim.lock()->setValue( _sourcePick.lock()->getEntry(i).id );
+        }
+
+        return true;
+    }
+    if ( k == _snapFrame.lock().get() ) {
+        snapshot(false);
+
+        return true;
+    }
+    if ( k == _snapRange.lock().get() ) {
+        snapshot(true);
 
         return true;
     }
@@ -733,21 +1285,22 @@ void
 Solv3DAxis::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "Axis");
-    _display = makeChoice(this, page, "display", "display", std::vector<std::string>(kDisplayModes, kDisplayModes + 6), 1,
-                          "off hides the axis in the 3D viewer.", false);
-    _size = makeDouble(this, page, "icon_size", "icon size", 1, 1., 0.1, 10., "Size of the axis in the 3D viewer (display only).");
+    _prim.create(this, page, 0);
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
+    _disp.create(this, 1, true, false);
 }
 
 void
 Solv3DAxis::buildScene(double t, Scene* scene)
 {
-    Prim& p = scene->define(primPath(), PrimType::Xform);
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Xform);
     p.local = axisParent(this, 0, t) * _xf.matrix(t);
-    p.display = _display.lock()->getValueAtTime(t);
+    _disp.apply(&p, t);
     p.node = nodeName();
-    p.axisSize = _size.lock()->getValueAtTime(t);
+    p.axisSize = _disp.iconSize.lock()->getValueAtTime(t);
+    _prim.apply(scene, t, pp);
 }
 
 // ============================================================================ VanishingCamera
@@ -1688,25 +2241,42 @@ void
 Solv3DReadGeo::initializeKnobs()
 {
     KnobPagePtr page = makePage(this, "ReadGeo");
-    _geo.create(this, page);
-    makeDivider(this, page, "geo_divider");
     KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string("file") );
     f->setName("file");
     f->setHintToolTip( std::string(".obj, .abc, .usd, .usda, .usdc or .usdz file") );
     f->setAnimationEnabled(false);
     page->addKnob(f);
     _file = f;
-    KnobIntPtr off = AppManager::createKnob<KnobInt>( this, std::string("frame offset") );
+    KnobButtonPtr rl = AppManager::createKnob<KnobButton>( this, std::string("reload") );
+    rl->setName("reload");
+    rl->setHintToolTip( std::string("Reads the file again (after it changed on disk).") );
+    page->addKnob(rl);
+    _reload = rl;
+    makeDivider(this, page, "file_divider");
+    KnobIntPtr fr = AppManager::createKnob<KnobInt>( this, std::string("frame range"), 2 );
+    fr->setName("frame_range");
+    fr->setDefaultValue(1, 0);
+    fr->setDefaultValue(100, 1);
+    fr->setAnimationEnabled(false);
+    fr->disableSlider();
+    fr->setHintToolTip( std::string("Frames of the animation (filled from the file, after the time mapping). The timeline uses it.") );
+    fr->setAddNewLine(false);
+    page->addKnob(fr);
+    _range = fr;
+    KnobButtonPtr sr = AppManager::createKnob<KnobButton>( this, std::string("set project range") );
+    sr->setName("set_project_range");
+    sr->setHintToolTip( std::string("Sets the project frame range to this frame range.") );
+    page->addKnob(sr);
+    _setRange = sr;
+    KnobIntPtr off = AppManager::createKnob<KnobInt>( this, std::string("time offset") );
     off->setName("frame_offset");
     off->setDefaultValue(0);
-    off->disableSlider();
+    off->setDisplayMinimum(-100);
+    off->setDisplayMaximum(100);
+    off->setHintToolTip( std::string("Frame of the file = frame * scale + offset.") );
     page->addKnob(off);
     _frameOffset = off;
-    KnobBoolPtr lit = AppManager::createKnob<KnobBool>( this, std::string("lit") );
-    lit->setName("lit");
-    lit->setDefaultValue(true);
-    page->addKnob(lit);
-    _lit = lit;
+    _timeScale = makeDouble(this, page, "time_scale", "time scale", 1, 1., 0., 4., "Frame of the file = frame * scale + offset (2 = twice as fast).");
     {
         std::vector<std::string> u;
         u.push_back("convert");
@@ -1715,37 +2285,109 @@ Solv3DReadGeo::initializeKnobs()
                             "USD files. convert: to 1 unit = 1 cm, Y up, from the file's metersPerUnit and up axis. "
                             "keep file units: use the file values as they are.");
     }
-    KnobButtonPtr sr = AppManager::createKnob<KnobButton>( this, std::string("set project range") );
-    sr->setName("set_project_range");
-    sr->setHintToolTip( std::string("Sets the project frame range to the animation range of the file") );
-    page->addKnob(sr);
-    _setRange = sr;
     KnobStringPtr info = AppManager::createKnob<KnobString>( this, std::string("status") );
     info->setName("status");
     info->setAsLabel();
     info->setIsPersistent(false);
     page->addKnob(info);
     _info = info;
+    makeDivider(this, page, "geo_divider");
+    KnobBoolPtr lit = AppManager::createKnob<KnobBool>( this, std::string("lit") );
+    lit->setName("lit");
+    lit->setDefaultValue(true);
+    lit->setHintToolTip( std::string("Off: textures are shown as they are (no shading).") );
+    page->addKnob(lit);
+    _lit = lit;
+    _geo.create(this, page);
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
+
+    KnobPagePtr sg = makePage(this, "Scene Graph");
+    KnobSceneGraphPtr g = AppManager::createKnob<KnobSceneGraph>( this, std::string("") );
+    g->setName("scene_graph");
+    g->setAnimationEnabled(false);
+    g->setEvaluateOnChange(true);
+    sg->addKnob(g);
+    _graph = g;
+
+    _geo.createDisplay(this);
+}
+
+std::string
+Solv3DReadGeo::edits() const
+{
+    KnobSceneGraphPtr g = _graph.lock();
+
+    return g ? g->getValue() : std::string();
+}
+
+void
+Solv3DReadGeo::refreshTree()
+{
+    KnobSceneGraphPtr g = _graph.lock();
+    if (!g) {
+        return;
+    }
+    const std::string file = _file.lock()->getValue();
+    std::string tree, err;
+    if ( !file.empty() && (file.find(".usd") != std::string::npos) ) {
+        if ( !usdSceneTree(file, edits(), &tree, &err) ) {
+            tree.clear();
+        }
+    } else if ( !file.empty() ) {
+        // other formats: the prims as read
+        Scene sc;
+        const double t = getApp()->getTimeLine()->currentFrame();
+        std::string lower = file;
+        std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
+        const bool ok = (lower.find(".abc") != std::string::npos) ?
+                        readAlembic(file, t / std::max( 1., getApp()->getProjectFrameRate() ), "", &sc, &err) :
+                        readObj(file, "", &sc, &err);
+        if (ok) {
+            for (const auto& kv : sc.prims()) {
+                const char* ty = kv.second.mesh ? "Mesh" : kv.second.camera ? "Camera" : kv.second.light ? "Light" : "Xform";
+                tree += kv.first + "\t" + ty + "\t\t\tl\n";
+            }
+        }
+    }
+    g->setTree(tree, err);
 }
 
 bool
-Solv3DReadGeo::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double, bool)
+Solv3DReadGeo::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool mainThread)
 {
-    if ( ( k == _file.lock().get() ) || ( k == _units.lock().get() ) ) {
+    Solv3DNode::knobChanged(k, reason, view, time, mainThread);
+    if ( ( k == _file.lock().get() ) || ( k == _units.lock().get() ) || ( k == _reload.lock().get() ) ||
+         ( k == _graph.lock().get() ) ) {
         {
             std::lock_guard<std::mutex> l(_cache->m);
             _cache->file.clear();
         }
+        if ( k == _file.lock().get() ) {
+            double a, b;
+            if ( fileRange(&a, &b) ) {
+                _range.lock()->setValue( (int)std::floor(a), ViewSpec::all(), 0 );
+                _range.lock()->setValue( (int)std::ceil(b), ViewSpec::all(), 1 );
+            }
+        }
+        refreshTree();
         refreshStatus();
 
         return true;
     }
-    if ( k == _setRange.lock().get() ) {
+    if ( ( k == _frameOffset.lock().get() ) || ( k == _timeScale.lock().get() ) ) {
         double a, b;
-        if ( fileRange(&a, &b) ) {
-            getApp()->getProject()->solvfxSetFrameRange( (int)std::floor(a), (int)std::ceil(b) );
+        if ( (reason == eValueChangedReasonUserEdited) && fileRange(&a, &b) ) {
+            _range.lock()->setValue( (int)std::floor(a), ViewSpec::all(), 0 );
+            _range.lock()->setValue( (int)std::ceil(b), ViewSpec::all(), 1 );
+        }
+
+        return true;
+    }
+    if ( k == _setRange.lock().get() ) {
+        KnobIntPtr r = _range.lock();
+        if ( r->getValue(1) >= r->getValue(0) ) {
+            getApp()->getProject()->solvfxSetFrameRange( r->getValue(0), r->getValue(1) );
         }
 
         return true;
@@ -1757,7 +2399,9 @@ Solv3DReadGeo::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double, b
 void
 Solv3DReadGeo::onKnobsLoaded()
 {
+    refreshTree();
     refreshStatus();
+    refreshMatrices();
 }
 
 bool
@@ -1781,9 +2425,11 @@ Solv3DReadGeo::fileRange(double* first, double* last)
     if ( !ok || (s1 <= s0) ) {
         return false;
     }
+    // file frame = frame * scale + offset
     const double off = _frameOffset.lock()->getValue();
-    *first = s0 - off;
-    *last = s1 - off;
+    const double sc = std::max(1e-6, _timeScale.lock()->getValue() );
+    *first = (s0 - off) / sc;
+    *last = (s1 - off) / sc;
 
     return true;
 }
@@ -1791,6 +2437,13 @@ Solv3DReadGeo::fileRange(double* first, double* last)
 void
 Solv3DReadGeo::getFrameRange(double* first, double* last)
 {
+    KnobIntPtr r = _range.lock();
+    if ( r && ( r->getValue(1) > r->getValue(0) ) && !_file.lock()->getValue().empty() ) {
+        *first = r->getValue(0);
+        *last = r->getValue(1);
+
+        return;
+    }
     if ( !fileRange(first, last) ) {
         EffectInstance::getFrameRange(first, last);
     }
@@ -1819,7 +2472,8 @@ Solv3DReadGeo::refreshStatus()
     const double t = getApp()->getTimeLine()->currentFrame();
     bool ok;
     if (isUsd) {
-        ok = readUsd(file, t, "", &sc, &err, _units.lock()->getValue() == 1);
+        ok = readUsd(file, t * _timeScale.lock()->getValue() + _frameOffset.lock()->getValue(), "", &sc, &err,
+                     _units.lock()->getValue() == 1, edits() );
     } else if (isAbc) {
         ok = readAlembic(file, t / std::max( 1., getApp()->getProjectFrameRate() ), "", &sc, &err);
     } else {
@@ -1877,7 +2531,8 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
     std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
     const bool isAbc = lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".abc") == 0;
     const bool isUsd = (lower.find(".usd") != std::string::npos) && (lower.rfind(".usd") >= lower.size() - 5);
-    const double ft = t + _frameOffset.lock()->getValueAtTime(t);
+    const double ft = t * _timeScale.lock()->getValueAtTime(t) + _frameOffset.lock()->getValueAtTime(t);
+    const std::string ed = edits();
     Scene loaded;
     {
         std::lock_guard<std::mutex> l(_cache->m);
@@ -1886,7 +2541,7 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
             _cache->error.clear();
             bool ok;
             if (isUsd) {
-                ok = readUsd(file, ft, "/geo", &_cache->scene, &_cache->error, _units.lock()->getValue() == 1);
+                ok = readUsd(file, ft, "/geo", &_cache->scene, &_cache->error, _units.lock()->getValue() == 1, ed);
             } else if (isAbc) {
                 const double fps = std::max( 1., getApp()->getProjectFrameRate() );
                 ok = readAlembic(file, ft / fps, "/geo", &_cache->scene, &_cache->error);
@@ -1909,6 +2564,15 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
             m->material.emission = lit ? 0. : 1.;
             if (img) {
                 m->texture = texRef(img);
+            } else if ( !m->textureFile.empty() ) {
+                // texture of the file's material
+                std::string terr;
+                std::shared_ptr<TexImage> ti = loadTextureFile(m->textureFile, &terr);
+                if (ti) {
+                    std::shared_ptr<Solv3DTexRef> r = std::make_shared<Solv3DTexRef>();
+                    r->image = ti;
+                    m->texture = r;
+                }
             }
             kv.second.mesh = m;
         }
@@ -2247,6 +2911,8 @@ Solv3DScanline::initializeKnobs()
     _shutterOffset = makeChoice(this, ms, "shutter_offset", "shutter offset", std::vector<std::string>(so, so + 4), 0,
                                 "centred: around the frame. start: from the frame on. end: up to the frame. custom: starts at 'offset'.", false);
     _shutterCustom = makeDouble(this, ms, "shutter_custom_offset", "", 1, 0., -1., 1., "Custom shutter start (frames, relative to the frame).");
+    _shutterFromCam = makeBool(this, ms, "shutter_from_camera", "shutter from camera", false,
+                               "Use the shutter length / offset of the render camera (Camera > Shutter) instead of the values above.");
 
     // AOVs
     KnobPagePtr aovp = makePage(this, "AOVs");
@@ -2454,9 +3120,18 @@ Solv3DScanline::render(const RenderActionArgs& args)
     const int mbSamples = std::max( 1, _mbSamples.lock()->getValueAtTime(t) );
     std::vector<Scene> mbScenes;
     if (mbSamples > 1) {
-        const double sh = _shutter.lock()->getValueAtTime(t);
-        const int om = _shutterOffset.lock()->getValueAtTime(t);
-        const double start = (om == 0) ? -sh * 0.5 : (om == 1) ? 0. : (om == 2) ? -sh : _shutterCustom.lock()->getValueAtTime(t);
+        double sh = _shutter.lock()->getValueAtTime(t);
+        int om = _shutterOffset.lock()->getValueAtTime(t);
+        double custom = _shutterCustom.lock()->getValueAtTime(t);
+        if ( _shutterFromCam.lock()->getValueAtTime(t) ) {
+            const Prim* cp = scene.find(camPath);
+            if (cp && cp->camera) {
+                sh = cp->camera->shutter;
+                om = cp->camera->shutterOffset;
+                custom = cp->camera->shutterCustom;
+            }
+        }
+        const double start = (om == 0) ? -sh * 0.5 : (om == 1) ? 0. : (om == 2) ? -sh : custom;
         const int nSteps = std::min(mbSamples, 9);
         mbScenes.resize(nSteps);
         for (int i = 0; i < nSteps; ++i) {
@@ -2473,6 +3148,12 @@ Solv3DScanline::render(const RenderActionArgs& args)
             return;
         }
         EffectInstancePtr e = ref->effect.lock();
+        if ( !e && ref->image ) {
+            // texture file of the geometry: already loaded
+            texCache[ ref->image.get() ] = ref->image;
+
+            return;
+        }
         // keyed by the image node: every motion blur step makes its own handles
         if ( !e || texCache.count( e.get() ) ) {
             return;
@@ -2588,7 +3269,8 @@ Solv3DScanline::render(const RenderActionArgs& args)
                         [&](const std::shared_ptr<void>& h) -> const TexImage* {
                             Solv3DTexRef* ref = static_cast<Solv3DTexRef*>( h.get() );
                             EffectInstancePtr e = ref ? ref->effect.lock() : EffectInstancePtr();
-                            std::map<const void*, std::shared_ptr<TexImage> >::const_iterator it = texCache.find( e.get() );
+                            const void* key = e ? (const void*)e.get() : (ref ? (const void*)ref->image.get() : 0);
+                            std::map<const void*, std::shared_ptr<TexImage> >::const_iterator it = texCache.find(key);
                             return it == texCache.end() ? (const TexImage*)0 : it->second.get();
                         },
                         envTex.get(), &buf, aov);

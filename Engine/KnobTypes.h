@@ -1210,6 +1210,59 @@ private:
     static const std::string _typeNameStr;
 };
 
+/**
+ * @brief SOLVFX: scene graph of a 3D file (shown as a tree in the panel). The value (saved) holds the user
+ * edits, one per line: "u <path>" payload not loaded, "d <path>" deactivated, "h <path>" invisible.
+ * The tree itself (not saved) is set by the node: one line per prim, path TAB type TAB kind TAB purpose TAB flags.
+ **/
+class KnobSceneGraph
+    : public KnobStringBase
+{
+public:
+
+    static KnobHelper * BuildKnob(KnobHolder* holder,
+                                  const std::string &label,
+                                  int dimension,
+                                  bool declaredByPlugin = true)
+    {
+        return new KnobSceneGraph(holder, label, dimension, declaredByPlugin);
+    }
+
+    KnobSceneGraph(KnobHolder* holder,
+                   const std::string &label,
+                   int dimension,
+                   bool declaredByPlugin)
+        : KnobStringBase(holder, label, dimension, declaredByPlugin)
+        , _rev(0)
+    {
+    }
+
+    virtual ~KnobSceneGraph() {}
+
+    static const std::string & typeNameStatic() WARN_UNUSED_RETURN;
+
+    void setTree(const std::string& tree, const std::string& message);
+    // revision changes every time the tree is set
+    std::string getTree(int* revision, std::string* message) const;
+
+private:
+
+    virtual bool canAnimate() const OVERRIDE FINAL
+    {
+        return false;
+    }
+
+    virtual const std::string & typeName() const OVERRIDE FINAL
+    {
+        return typeNameStatic();
+    }
+
+    static const std::string _typeNameStr;
+    mutable QMutex _treeMutex;
+    std::string _tree, _message;
+    int _rev;
+};
+
 NATRON_NAMESPACE_EXIT
 
 #endif // NATRON_ENGINE_KNOBTYPES_H

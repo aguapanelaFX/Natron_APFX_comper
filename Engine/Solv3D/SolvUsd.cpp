@@ -25,6 +25,8 @@ namespace Solv3D {
 namespace {
 typedef int (*FnVersion)(void);
 typedef void* (*FnOpen)(const char*, char*, int);
+typedef void* (*FnOpen2)(const char*, const char*, char*, int);
+typedef int (*FnTree)(void*, char*, int);
 typedef int (*FnDiag)(void*, char*, int);
 typedef void (*FnInfo)(void*, double*, double*, double*, double*, int*);
 typedef int (*FnEval)(void*, double);
@@ -43,6 +45,8 @@ struct Bridge
     QLibrary lib;
     FnVersion version = 0;
     FnOpen open = 0;
+    FnOpen2 open2 = 0;
+    FnTree tree = 0;
     FnInfo info = 0;
     FnDiag diag = 0;
     FnEval eval = 0;
@@ -97,6 +101,8 @@ struct Bridge
         }
         version = (FnVersion)lib.resolve("solvusd_version");
         open = (FnOpen)lib.resolve("solvusd_open");
+        open2 = (FnOpen2)lib.resolve("solvusd_open2");
+        tree = (FnTree)lib.resolve("solvusd_tree");
         info = (FnInfo)lib.resolve("solvusd_info");
         diag = (FnDiag)lib.resolve("solvusd_diagnostics");
         eval = (FnEval)lib.resolve("solvusd_eval");
@@ -105,7 +111,7 @@ struct Bridge
         wBegin = (FnWriteBegin)lib.resolve("solvusd_write_begin");
         wFrame = (FnWriteFrame)lib.resolve("solvusd_write_frame");
         wEnd = (FnWriteEnd)lib.resolve("solvusd_write_end");
-        if ( !version || !open || !info || !eval || !prim || !close || !wBegin || !wFrame || !wEnd || (version() != SOLVUSD_VERSION) ) {
+        if ( !version || !open || !open2 || !tree || !info || !eval || !prim || !close || !wBegin || !wFrame || !wEnd || (version() != SOLVUSD_VERSION) ) {
             why = "USD bridge version mismatch (app expects " + std::to_string(SOLVUSD_VERSION) + ")";
 
             return false;
@@ -116,17 +122,21 @@ struct Bridge
         return true;
     }
 
-    void* stageFor(const std::string& file, std::string* err)
+    std::string stageEdits;
+
+    // edits null: any open stage of that file will do (time range, units, diagnostics)
+    void* stageFor(const std::string& file, std::string* err, const std::string* editsPtr = nullptr)
     {
-        if ( stage && (stageFile == file) ) {
+        if ( stage && (stageFile == file) && ( !editsPtr || (stageEdits == *editsPtr) ) ) {
             return stage;
         }
+        const std::string edits = editsPtr ? *editsPtr : std::string();
         if (stage) {
             close(stage);
             stage = 0;
         }
         char e[1024] = { 0 };
-        stage = open(file.c_str(), e, (int)sizeof(e) );
+        stage = open2(file.c_str(), edits.c_str(), e, (int)sizeof(e) );
         if (!stage) {
             *err = e[0] ? e : ("cannot open " + file);
             stageFile.clear();
@@ -134,6 +144,7 @@ struct Bridge
             return 0;
         }
         stageFile = file;
+        stageEdits = edits;
 
         return stage;
     }
@@ -204,6 +215,28 @@ usdTimeRange(const std::string& file, double* start, double* end, double* fps)
     return true;
 }
 
+bool
+usdSceneTree(const std::string& file, const std::string& edits, std::string* out, std::string* error)
+{
+    Bridge& b = bridge();
+    std::lock_guard<std::mutex> l(b.m);
+    if ( !b.load() ) {
+        *error = b.why;
+
+        return false;
+    }
+    void* st = b.stageFor(file, error, &edits);
+    if (!st) {
+        return false;
+    }
+    const int n = b.tree(st, 0, 0);
+    std::vector<char> buf( (size_t)std::max(1, n) + 1, 0 );
+    b.tree( st, buf.data(), (int)buf.size() );
+    *out = buf.data();
+
+    return true;
+}
+
 std::string
 usdDiagnostics(const std::string& file)
 {
@@ -247,7 +280,8 @@ usdStageUnits(const std::string& file, double* metersPerUnit, bool* zUp, std::st
 }
 
 bool
-readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits)
+readUsd(const std::string& file, double timeCode, const std::string& root, Scene* scene, std::string* error, bool keepUnits,
+        const std::string& edits)
 {
     Bridge& b = bridge();
     std::lock_guard<std::mutex> l(b.m);
@@ -256,7 +290,7 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
 
         return false;
     }
-    void* st = b.stageFor(file, error);
+    void* st = b.stageFor(file, error, &edits);
     if (!st) {
         return false;
     }
@@ -288,6 +322,15 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
         Prim& pr = scene->define(path, ty);
         pr.type = ty;
         pr.visible = p->visible != 0;
+        if (p->kind && *p->kind) {
+            pr.attributes["kind"] = p->kind;
+        }
+        if (p->purpose && *p->purpose) {
+            pr.attributes["purpose"] = p->purpose;
+        }
+        if (p->typeName && *p->typeName) {
+            pr.attributes["typeName"] = p->typeName;
+        }
         pr.local = fromLocal(p->local);
         const bool top = std::strchr(p->path + 1, '/') == 0;
         if (top && convert) {
@@ -322,6 +365,10 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
             m->material.ior = p->ior;
             m->material.specular = p->metallic > 0.f ? 0. : 0.5 * (1. - p->roughness);
             m->material.emission = 0.;
+            m->material.opacity = p->opacity;
+            if (p->diffuseTexture && *p->diffuseTexture) {
+                m->textureFile = p->diffuseTexture;
+            }
             pr.mesh = m;
         } else if (p->type == SOLVUSD_CAMERA) {
             std::shared_ptr<Camera> c = std::make_shared<Camera>();
@@ -394,6 +441,14 @@ writeUsd(const std::string& file, const std::vector<std::pair<double, const Scen
             toLocal(p.local, u.local);
             u.diffuseTexture = "";
             u.type = SOLVUSD_XFORM;
+            auto attr = [&p](const char* k) -> const char* {
+                std::map<std::string, std::string>::const_iterator it = p.attributes.find(k);
+
+                return it == p.attributes.end() ? "" : it->second.c_str();
+            };
+            u.kind = attr("kind");
+            u.purpose = attr("purpose");
+            u.typeName = attr("typeName");
             if ( (p.type == PrimType::Mesh) && p.mesh ) {
                 const Mesh& m = *p.mesh;
                 u.type = SOLVUSD_MESH;
@@ -424,7 +479,7 @@ writeUsd(const std::string& file, const std::vector<std::pair<double, const Scen
                     u.uvs = fb.back().data();
                 }
                 u.color[0] = (float)m.material.baseColor.x; u.color[1] = (float)m.material.baseColor.y; u.color[2] = (float)m.material.baseColor.z;
-                u.opacity = 1.f;
+                u.opacity = (float)m.material.opacity;
                 u.metallic = (float)m.material.metalness;
                 u.roughness = (float)m.material.roughness;
                 u.ior = (float)m.material.ior;
