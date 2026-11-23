@@ -476,6 +476,330 @@ screenKey(const Plane& src, const Plane* plateIn, const Params& p, Result& res, 
         APFXOps::blur(a, p.soften, pf);
     }
 }
+// ---------------------------------------------------------------- analysis
+
+struct Analysis
+{
+    Params p;                   // suggested setup (starting from the current one)
+    bool found = false;         // screen found
+    float colour[3] = { 0.f, 0.f, 0.f };
+    float unevenness = 0.f;     // relative spread of the screen colour across the frame
+    bool subsampled = false;    // colour stored at lower resolution (4:2:0 / 4:2:2)
+    bool heavy = false;         // very soft colour (heavy 4:2:0)
+    bool eightBit = false;
+    float noise = 0.f;          // screen noise (relative)
+    int halo = 0;               // 0 none, 1 brighter, -1 darker
+    int haloWidth = 0;
+    float clipBlack = 0.f, clipWhite = 1.f;
+};
+
+inline float
+percentile(std::vector<float>& v, float q)
+{
+    if ( v.empty() ) {
+        return 0.f;
+    }
+    const size_t k = std::min( v.size() - 1, (size_t)(q * (v.size() - 1) + 0.5f) );
+    std::nth_element( v.begin(), v.begin() + k, v.end() );
+
+    return v[k];
+}
+
+// Measures one frame (statistics inside 'area' = x0, y0, x1, y1 in plane pixels, or the whole frame)
+// and suggests a setup. 'cur' is the current setup (kept where nothing is measured).
+inline void
+analyse(const Plane& src, const int* area, const Params& cur, Analysis& out, const ParallelFor& pf)
+{
+    const int w = src.w, h = src.h;
+    int x0 = 0, y0 = 0, x1 = w, y1 = h;
+    if (area) {
+        x0 = std::max(0, std::min(w, area[0]));
+        y0 = std::max(0, std::min(h, area[1]));
+        x1 = std::max(x0, std::min(w, area[2]));
+        y1 = std::max(y0, std::min(h, area[3]));
+        if ( (x1 - x0 < 8) || (y1 - y0 < 8) ) {
+            x0 = 0; y0 = 0; x1 = w; y1 = h;
+        }
+    }
+    out = Analysis();
+    out.p = cur;
+    const int step = std::max( 1, (int)std::sqrt( (double)(x1 - x0) * (y1 - y0) / 300000. ) );
+    // ---- 1. screen hue: strongest saturated hue cluster
+    const int NB = 72;
+    std::vector<double> hist(NB, 0.);
+    auto hueSat = [](const float* c, float* hue, float* sat) {
+        const float m = (c[0] + c[1] + c[2]) / 3.f;
+        const float a = c[0] - m, b = c[1] - m, d = c[2] - m;
+        // chroma plane coordinates
+        const float X = a - 0.5f * (b + d), Y = 0.8660254f * (b - d);
+        *sat = std::sqrt(X * X + Y * Y) / (std::fabs(m) + 0.05f);
+        *hue = std::atan2(Y, X);
+    };
+    for (int y = y0; y < y1; y += step) {
+        for (int x = x0; x < x1; x += step) {
+            float hu, sa;
+            hueSat(src.px(x, y), &hu, &sa);
+            if (sa < 0.25f) {
+                continue;
+            }
+            int bin = (int)( (hu + 3.14159265f) / 6.2831853f * NB );
+            bin = std::max(0, std::min(NB - 1, bin));
+            hist[bin] += sa;
+        }
+    }
+    int best = 0;
+    double bestv = 0.;
+    for (int i = 0; i < NB; ++i) {
+        const double v = hist[(i + NB - 1) % NB] + 2. * hist[i] + hist[(i + 1) % NB];
+        if (v > bestv) { bestv = v; best = i; }
+    }
+    if (bestv <= 0.) {
+        return;
+    }
+    const float hc = (best + 0.5f) / NB * 6.2831853f - 3.14159265f;
+    std::vector<float> rs, gs, bs;
+    for (int y = y0; y < y1; y += step) {
+        for (int x = x0; x < x1; x += step) {
+            const float* c = src.px(x, y);
+            float hu, sa;
+            hueSat(c, &hu, &sa);
+            float dh = std::fabs(hu - hc);
+            dh = std::min(dh, 6.2831853f - dh);
+            if ( (sa > 0.35f) && (dh < 0.35f) ) {
+                rs.push_back(c[0]); gs.push_back(c[1]); bs.push_back(c[2]);
+            }
+        }
+    }
+    if (rs.size() < 50) {
+        return;
+    }
+    out.found = true;
+    // the brighter half of the cluster (screen, not dark spill on the subject)
+    std::vector<float> lum(rs.size());
+    for (size_t i = 0; i < rs.size(); ++i) { lum[i] = rs[i] + gs[i] + bs[i]; }
+    std::vector<float> lt = lum;
+    const float lmed = percentile(lt, 0.35f);
+    std::vector<float> r2, g2, b2;
+    for (size_t i = 0; i < rs.size(); ++i) {
+        if (lum[i] >= lmed) { r2.push_back(rs[i]); g2.push_back(gs[i]); b2.push_back(bs[i]); }
+    }
+    out.colour[0] = percentile(r2, 0.5f);
+    out.colour[1] = percentile(g2, 0.5f);
+    out.colour[2] = percentile(b2, 0.5f);
+    const float hdeg = hc * 57.29578f;   // 0 = red, 120 = green, -120 = blue
+    if (std::fabs(hdeg - 120.f) < 45.f) {
+        out.p.screen = eScreenGreen;
+    } else if (std::fabs(hdeg + 120.f) < 45.f) {
+        out.p.screen = eScreenBlue;
+    } else {
+        out.p.screen = eScreenCustom;
+    }
+    out.p.autoColour = false;
+    for (int k = 0; k < 3; ++k) { out.p.colour[k] = out.colour[k]; }
+    Axis ax;
+    ax.build(out.colour, 0.f);
+    const float dS = std::max(1e-5f, ax.dom(out.colour));
+    // ---- 2. unevenness: screen dominance per cell of an 8 x 8 grid
+    {
+        std::vector<float> cells;
+        for (int gy = 0; gy < 8; ++gy) {
+            for (int gx = 0; gx < 8; ++gx) {
+                const int cx0 = x0 + (x1 - x0) * gx / 8, cx1 = x0 + (x1 - x0) * (gx + 1) / 8;
+                const int cy0 = y0 + (y1 - y0) * gy / 8, cy1 = y0 + (y1 - y0) * (gy + 1) / 8;
+                std::vector<float> v;
+                for (int y = cy0; y < cy1; y += step) {
+                    for (int x = cx0; x < cx1; x += step) {
+                        const float r = ax.dom( src.px(x, y) ) / dS;
+                        if (r > 0.6f) { v.push_back(r); }
+                    }
+                }
+                if (v.size() > 20) { cells.push_back( percentile(v, 0.5f) ); }
+            }
+        }
+        if (cells.size() >= 2) {
+            std::vector<float> c2 = cells;
+            const float lo = percentile(c2, 0.05f), hi = percentile(c2, 0.95f);
+            out.unevenness = (hi - lo) / std::max(0.05f, 0.5f * (hi + lo));
+        }
+        out.p.plateMode = (out.unevenness < 0.03f) ? ePlateFlat : ePlateAuto;
+        out.p.plateSmooth = out.unevenness > 0.25f ? 2.f : 4.f;
+    }
+    // ---- 3. compression: 8-bit steps and soft (subsampled) colour
+    {
+        size_t onGrid = 0, tot = 0;
+        double eC[2] = { 0., 0. }, eY = 0., par[2][2] = { { 0., 0. }, { 0., 0. } }, par1[2][2] = { { 0., 0. }, { 0., 0. } };
+        // every column of a subset of rows (column parity matters here)
+        for (int y = std::max(1, y0); y < std::min(h - 1, y1); y += step * step) {
+            for (int x = std::max(1, x0); x < std::min(w - 1, x1); ++x) {
+                const float* c = src.px(x, y);
+                for (int k = 0; k < 3; ++k) {
+                    const float v = c[k] * 255.f;
+                    if ( (c[k] > 0.002f) && (c[k] < 0.998f) ) {
+                        ++tot;
+                        if (std::fabs( v - std::floor(v + 0.5f) ) < 0.02f) { ++onGrid; }
+                    }
+                }
+                // second differences of luma and chroma (horizontal), by column parity
+                const float* l = src.px(x - 1, y);
+                const float* r = src.px(x + 1, y);
+                const float Yc = luma(c), Yl = luma(l), Yr = luma(r);
+                const float cbc = c[2] - Yc, cbl = l[2] - Yl, cbr = r[2] - Yr;
+                const float crc = c[0] - Yc, crl = l[0] - Yl, crr = r[0] - Yr;
+                const float dY = std::fabs(Yl - 2.f * Yc + Yr);
+                const float dC = std::fabs(cbl - 2.f * cbc + cbr) + std::fabs(crl - 2.f * crc + crr);
+                const float gY = std::fabs(Yr - Yl);
+                if (gY > 0.02f) {          // edges only
+                    eY += dY;
+                    eC[0] += dC;
+                    eC[1] += 1.;
+                    par[x & 1][0] += dC;
+                    par[x & 1][1] += 1.;
+                    // first difference to the right neighbour (nearest-neighbour upsampled colour: 0 inside a block)
+                    par1[x & 1][0] += std::fabs(cbr - cbc) + std::fabs(crr - crc);
+                    par1[x & 1][1] += 1.;
+                }
+            }
+        }
+        out.eightBit = tot > 0 && (double)onGrid / tot > 0.9;
+        const double ratio = eY > 0. ? eC[0] / (eY + 1e-9) : 1.;
+        double parity = 1.;
+        if ( (par[0][1] > 50.) && (par[1][1] > 50.) ) {
+            const double a = par[0][0] / par[0][1], b = par[1][0] / par[1][1];
+            parity = std::min(a, b) / std::max(1e-9, std::max(a, b));
+        }
+        double parity1 = 1.;
+        if ( (par1[0][1] > 50.) && (par1[1][1] > 50.) ) {
+            const double a = par1[0][0] / par1[0][1], b = par1[1][0] / par1[1][1];
+            parity1 = std::min(a, b) / std::max(1e-9, std::max(a, b));
+        }
+        const double pmin = std::min(parity, parity1);
+        out.subsampled = (ratio < 0.6) || (pmin < 0.6);
+        out.heavy = ratio < 0.3;   // very soft colour (not just blocky)
+        out.p.chromaRebuild = out.subsampled;
+        out.p.chromaRadius = out.heavy ? 2 : 1;
+    }
+    // ---- 4. screen noise: high-pass of the screen ratio
+    {
+        std::vector<float> hp;
+        for (int y = std::max(1, y0); y < std::min(h - 1, y1); y += step) {
+            for (int x = std::max(1, x0); x < std::min(w - 1, x1); x += step) {
+                const float r = ax.dom( src.px(x, y) ) / dS;
+                if (r < 0.75f) {
+                    continue;
+                }
+                const float m4 = 0.25f * ( ax.dom( src.px(x - 1, y) ) + ax.dom( src.px(x + 1, y) ) + ax.dom( src.px(x, y - 1) ) + ax.dom( src.px(x, y + 1) ) ) / dS;
+                hp.push_back( std::fabs(r - m4) );
+            }
+        }
+        out.noise = percentile(hp, 0.5f) * 1.4826f;
+        out.p.denoise = std::min( 0.6f, out.noise / 0.04f + (out.eightBit ? 0.2f : 0.f) );   // more eats fine hair
+        out.p.denoiseSize = out.noise > 0.04f ? 3.f : (out.noise > 0.015f ? 2.f : 1.5f);
+    }
+    // ---- 5. trial key (no clips, no halo, no refine)
+    Params tp = out.p;
+    tp.clipBlack = 0.f;
+    tp.clipWhite = 1.f;
+    tp.halo = 0.f;
+    tp.snap = 0.f;
+    tp.grow = 0.f;
+    tp.soften = 0.f;
+    tp.core = false;
+    Result r;
+    screenKey(src, NULL, tp, r, pf);
+    // ---- 6. clips
+    {
+        Plane solid(w, h, 1), clear(w, h, 1);
+        for (size_t i = 0; i < (size_t)w * h; ++i) {
+            solid.d[i] = r.alpha.d[i] > 0.5f ? 1.f : 0.f;
+            clear.d[i] = r.alpha.d[i] < 0.5f ? 1.f : 0.f;
+        }
+        APFXOps::erode(solid, 4, pf);     // well inside the subject
+        APFXOps::erode(clear, 12, pf);    // well away from it
+        std::vector<float> bgv, fgv;
+        for (int y = y0; y < y1; y += step) {
+            for (int x = x0; x < x1; x += step) {
+                const size_t i = (size_t)y * w + x;
+                if (clear.d[i] > 0.f) { bgv.push_back(r.alpha.d[i]); }
+                if (solid.d[i] > 0.f) { fgv.push_back(r.alpha.d[i]); }
+            }
+        }
+        if (bgv.size() > 100) {
+            out.clipBlack = std::min( 0.3f, percentile(bgv, 0.995f) * 1.15f + (out.eightBit ? 0.004f : 0.002f) );
+        }
+        if (fgv.size() > 100) {
+            const float lo = percentile(fgv, 0.01f);
+            out.clipWhite = lo < 0.97f ? std::max( out.clipBlack + 0.2f, std::max(0.5f, lo * 0.98f) ) : 1.f;
+        }
+        out.p.clipBlack = out.clipBlack;
+        out.p.clipWhite = out.clipWhite;
+    }
+    // ---- 7. halo: brightness of the border against the subject / screen mix, ring by ring
+    {
+        Plane a = r.alpha;
+        for (float& v : a.d) { v = clamp01( (v - out.clipBlack) / std::max(1e-3f, out.clipWhite - out.clipBlack) ); }
+        Plane solid(w, h, 1);
+        for (size_t i = 0; i < (size_t)w * h; ++i) { solid.d[i] = a.d[i] > 0.95f ? 1.f : 0.f; }
+        Plane cw(w, h, 4);
+        for (size_t i = 0; i < (size_t)w * h; ++i) {
+            const float k = solid.d[i];
+            for (int c = 0; c < 3; ++c) { cw.d[i * 4 + c] = src.d[i * src.c + c] * k; }
+            cw.d[i * 4 + 3] = k;
+        }
+        Plane F = APFXOps::pullPush(std::move(cw), 32, pf);
+        const int maxR = 24;
+        std::vector<double> ringEx(maxR + 1, 0.), ringN(maxR + 1, 0.);
+        Plane prev = solid, grown = solid;
+        for (int d = 1; d <= maxR; ++d) {
+            dilate(grown, 1, pf);
+            for (int y = y0; y < y1; ++y) {
+                for (int x = x0; x < x1; ++x) {
+                    const size_t i = (size_t)y * w + x;
+                    if ( (grown.d[i] <= 0.f) || (prev.d[i] > 0.f) ) {
+                        continue;
+                    }
+                    const float am = a.d[i];
+                    const float yf = luma(&F.d[i * 3]), yp = luma(&r.plate.d[i * 3]);
+                    const float yc = luma( &src.d[i * src.c] );
+                    ringEx[d] += ( yc - (am * yf + (1.f - am) * yp) ) / (std::fabs(yp) + 0.02f);
+                    ringN[d] += 1.;
+                }
+            }
+            prev = grown;
+        }
+        double peak = 0.;
+        int peakD = 0;
+        for (int d = 1; d <= maxR; ++d) {
+            if (ringN[d] < 20.) { continue; }
+            const double m = ringEx[d] / ringN[d];
+            if (std::fabs(m) > std::fabs(peak)) { peak = m; peakD = d; }
+        }
+        // far rings give the noise floor
+        double far = 0., farN = 0.;
+        for (int d = maxR - 4; d <= maxR; ++d) {
+            if (ringN[d] > 0.) { far += ringEx[d] / ringN[d]; farN += 1.; }
+        }
+        far = farN > 0. ? far / farN : 0.;
+        const double rel = peak - far;
+        if ( (peakD > 0) && (std::fabs(rel) > 0.03) ) {
+            out.halo = rel > 0. ? 1 : -1;
+            int width = peakD;
+            for (int d = peakD; d <= maxR; ++d) {
+                if ( (ringN[d] < 20.) || (std::fabs(ringEx[d] / ringN[d] - far) < 0.3 * std::fabs(rel)) ) {
+                    break;
+                }
+                width = d;
+            }
+            out.haloWidth = width + 2;
+            out.p.halo = 1.f;
+            out.p.haloWidth = out.haloWidth;
+            out.p.ring = out.halo > 0 ? eRingBright : eRingDark;
+            out.p.haloDetail = out.noise > 0.03f ? 3.f : 2.f;
+        } else {
+            out.p.halo = 0.f;
+        }
+    }
+}
+
 } // namespace APFXSK
 
 #endif // APFX_SCREENKEY_H

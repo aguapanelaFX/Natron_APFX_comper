@@ -9,15 +9,15 @@ UNAME_S := $(shell uname -s)
 
 ifeq ($(OS),Windows_NT)
   BUNDLE_ARCH ?= Win64
-  LDFLAGS_OS = -shared -static-libgcc -static-libstdc++ -Wl,--build-id
+  LDFLAGS_OS = -shared -static-libgcc -static-libstdc++ -Wl,--build-id -lopengl32
   CXXFLAGS_OS = -DWIN32 -D_WINDOWS -DNOMINMAX
 else ifneq (,$(findstring MINGW,$(UNAME_S)))
   BUNDLE_ARCH ?= Win64
-  LDFLAGS_OS = -shared -static-libgcc -static-libstdc++ -Wl,--build-id
+  LDFLAGS_OS = -shared -static-libgcc -static-libstdc++ -Wl,--build-id -lopengl32
   CXXFLAGS_OS = -DWIN32 -D_WINDOWS -DNOMINMAX
 else
   BUNDLE_ARCH ?= Linux-x86-64
-  LDFLAGS_OS = -shared -Wl,-Bsymbolic -Wl,--version-script=$(OFX_ROOT)/Support/include/linuxSymbols
+  LDFLAGS_OS = -shared -Wl,-Bsymbolic -Wl,--version-script=$(OFX_ROOT)/Support/include/linuxSymbols -lGL
   CXXFLAGS_OS = -fPIC -fvisibility=hidden
 endif
 

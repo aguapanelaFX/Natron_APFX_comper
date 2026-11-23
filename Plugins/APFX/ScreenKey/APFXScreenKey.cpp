@@ -19,6 +19,16 @@
 #include <vector>
 #include <algorithm>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
+
+#include "ofxsInteract.h"
 #include "APFXFlowOfx.h"
 #include "APFXScreenKey.h"
 
@@ -116,7 +126,38 @@ public:
         _soften = fetchDoubleParam("soften");
         _stab = fetchDoubleParam("stabilise");
         _output = fetchChoiceParam("output");
+        _areaOn = fetchBooleanParam("areaOn");
+        _areaBL = fetchDouble2DParam("areaBottomLeft");
+        _areaTR = fetchDouble2DParam("areaTopRight");
+        _frames = fetchChoiceParam("analyseFrames");
+        _report = fetchStringParam("analysisReport");
         refresh();
+    }
+
+    // ---- analysis area (drawn in the viewer, used once by analyse)
+    bool drawMode() const { return _drawMode; }
+    bool areaVisible(double* x0, double* y0, double* x1, double* y1) const
+    {
+        if ( !_areaOn->getValue() ) {
+            return false;
+        }
+        _areaBL->getValue(*x0, *y0);
+        _areaTR->getValue(*x1, *y1);
+
+        return true;
+    }
+    void setArea(const OfxPointD& a, const OfxPointD& b)
+    {
+        _drawMode = false;
+        if ( (std::fabs(a.x - b.x) < 2.) || (std::fabs(a.y - b.y) < 2.) ) {
+            return;   // a click, not a box
+        }
+        beginEditBlock("draw area");
+        _areaBL->setValue( std::min(a.x, b.x), std::min(a.y, b.y) );
+        _areaTR->setValue( std::max(a.x, b.x), std::max(a.y, b.y) );
+        _areaOn->setValue(true);
+        endEditBlock();
+        redrawOverlays();
     }
 
 private:
@@ -136,6 +177,18 @@ private:
 
     void changedParam(const InstanceChangedArgs& args, const std::string& n) OVERRIDE FINAL
     {
+        if (n == "drawArea") {
+            _drawMode = true;      // the next drag in the viewer draws the area
+            _areaOn->setValue(false);
+            redrawOverlays();
+
+            return;
+        }
+        if (n == "analyse") {
+            runAnalysis(args);
+
+            return;
+        }
         if ( (n == "screen") && (args.reason == eChangeUserEdit) ) {
             const int s = _screen->getValue();
             if (s == APFXSK::eScreenGreen) {
@@ -227,6 +280,148 @@ private:
         AlphaCache::instance().put(k, nr);
 
         return nr;
+    }
+
+    // full source frame as a plane (+ its pixel bounds)
+    bool fetchFull(double t, Plane& p, OfxRectI& b)
+    {
+        std::unique_ptr<Image> img( _src->fetchImage(t) );
+        if (!img) {
+            return false;
+        }
+        b = img->getBounds();
+        img.reset();
+
+        return APFXFlowOfx::fetchPlane(_src, t, b, 4, p);
+    }
+
+    void runAnalysis(const InstanceChangedArgs& args)
+    {
+        if ( !_src->isConnected() ) {
+            _report->setValue("connect a source first");
+
+            return;
+        }
+        std::vector<double> times;
+        if (_frames->getValue() == 1) {
+            const OfxRangeD r = _src->getFrameRange();
+            for (int i = 0; i < 5; ++i) {
+                times.push_back( std::floor(r.min + (r.max - r.min) * (i + 0.5) / 5. + 0.5) );
+            }
+        } else {
+            times.push_back(args.time);
+        }
+        const APFXOps::ParallelFor pf = APFXOfx::hostParallelFor();
+        const APFXSK::Params cur = params(args.time);
+        std::vector<APFXSK::Analysis> res;
+        double ax0, ay0, ax1, ay1;
+        const bool useArea = areaVisible(&ax0, &ay0, &ax1, &ay1);
+        const double par = _src->getPixelAspectRatio();
+        for (size_t k = 0; k < times.size(); ++k) {
+            Plane p;
+            OfxRectI b;
+            if ( !fetchFull(times[k], p, b) || p.d.empty() ) {
+                continue;
+            }
+            int area[4];
+            if (useArea) {
+                // canonical -> pixels of this image (render scale of the action)
+                const double sx = args.renderScale.x / par, sy = args.renderScale.y;
+                area[0] = (int)std::floor(ax0 * sx) - b.x1;
+                area[1] = (int)std::floor(ay0 * sy) - b.y1;
+                area[2] = (int)std::ceil(ax1 * sx) - b.x1;
+                area[3] = (int)std::ceil(ay1 * sy) - b.y1;
+            }
+            APFXSK::Analysis an;
+            APFXSK::analyse(p, useArea ? area : NULL, cur, an, pf);
+            if (an.found) {
+                res.push_back(an);
+            }
+        }
+        _areaOn->setValue(false);   // the area is used once
+        redrawOverlays();
+        if ( res.empty() ) {
+            _report->setValue("no screen colour found (try another frame or area)");
+
+            return;
+        }
+        // combine the frames: medians for colours / noise, the safest for the rest
+        APFXSK::Analysis a = res[0];
+        if (res.size() > 1) {
+            for (int c = 0; c < 3; ++c) {
+                std::vector<float> v;
+                for (size_t i = 0; i < res.size(); ++i) { v.push_back(res[i].colour[c]); }
+                a.colour[c] = APFXSK::percentile(v, 0.5f);
+                a.p.colour[c] = a.colour[c];
+            }
+            std::vector<float> nz;
+            int haloVotes = 0;
+            for (size_t i = 0; i < res.size(); ++i) {
+                const APFXSK::Analysis& r = res[i];
+                a.unevenness = std::max(a.unevenness, r.unevenness);
+                a.subsampled = a.subsampled || r.subsampled;
+                a.heavy = a.heavy || r.heavy;
+                a.eightBit = a.eightBit || r.eightBit;
+                nz.push_back(r.noise);
+                a.p.denoise = std::max(a.p.denoise, r.p.denoise);
+                a.p.denoiseSize = std::max(a.p.denoiseSize, r.p.denoiseSize);
+                a.clipBlack = std::max(a.clipBlack, r.clipBlack);
+                a.clipWhite = std::min(a.clipWhite, r.clipWhite);
+                haloVotes += r.halo;
+                a.haloWidth = std::max(a.haloWidth, r.haloWidth);
+            }
+            a.noise = APFXSK::percentile(nz, 0.5f);
+            a.p.plateMode = (a.unevenness < 0.03f) ? APFXSK::ePlateFlat : APFXSK::ePlateAuto;
+            a.p.plateSmooth = a.unevenness > 0.25f ? 2.f : 4.f;
+            a.p.chromaRebuild = a.subsampled;
+            a.p.chromaRadius = a.heavy ? 2 : 1;
+            a.p.clipBlack = a.clipBlack;
+            a.p.clipWhite = std::max(a.clipBlack + 0.2f, a.clipWhite);
+            a.halo = (2 * std::abs(haloVotes) >= (int)res.size()) ? (haloVotes > 0 ? 1 : -1) : 0;
+            a.p.halo = a.halo ? 1.f : 0.f;
+            a.p.haloWidth = std::max(1, a.haloWidth);
+            a.p.ring = a.halo >= 0 ? APFXSK::eRingBright : APFXSK::eRingDark;
+        }
+        // apply (one undo step)
+        beginEditBlock("analyse");
+        _screen->setValue(a.p.screen);
+        _auto->setValue(false);
+        _colour->setValue(a.p.colour[0], a.p.colour[1], a.p.colour[2]);
+        _plateMode->setValue(a.p.plateMode);
+        _plateSmooth->setValue(a.p.plateSmooth);
+        _chroma->setValue(a.p.chromaRebuild);
+        _chromaR->setValue(a.p.chromaRadius);
+        _denoise->setValue(a.p.denoise);
+        _denoiseSize->setValue(a.p.denoiseSize);
+        _clipB->setValue(a.p.clipBlack);
+        _clipW->setValue(a.p.clipWhite);
+        _halo->setValue(a.p.halo);
+        if (a.halo) {
+            _haloW->setValue(a.p.haloWidth);
+            _haloD->setValue(a.p.haloDetail);
+            _ring->setValue(a.p.ring);
+        }
+        endEditBlock();
+        // report
+        const char* scr[3] = { "green", "blue", "custom" };
+        char buf[512];
+        snprintf(buf, sizeof(buf), "%s screen (%.3f %.3f %.3f) | %s%s | %s%s | noise %s | %s | clips %.3f / %.3f%s",
+                 scr[std::max( 0, std::min(2, a.p.screen) )], a.colour[0], a.colour[1], a.colour[2],
+                 a.unevenness < 0.03f ? "even" : (a.unevenness < 0.15f ? "slightly uneven" : "uneven"),
+                 "",
+                 a.subsampled ? (a.heavy ? "soft colour (heavy compression)" : "blocky colour (compressed)") : "full colour",
+                 a.eightBit ? ", 8-bit" : "",
+                 a.noise < 0.01f ? "low" : (a.noise < 0.03f ? "medium" : "high"),
+                 a.halo > 0 ? "bright ring" : (a.halo < 0 ? "dark ring" : "no ring"),
+                 a.p.clipBlack, a.p.clipWhite,
+                 res.size() > 1 ? " (5 frames)" : "");
+        std::string rep = buf;
+        if (a.halo) {
+            char w[64];
+            snprintf(w, sizeof(w), " ~%d px", a.p.haloWidth);
+            rep.insert(rep.find(a.halo > 0 ? "bright ring" : "dark ring") + (a.halo > 0 ? 11 : 9), w);
+        }
+        _report->setValue(rep);
     }
 
     void getFramesNeeded(const FramesNeededArguments& args, FramesNeededSetter& frames) OVERRIDE FINAL
@@ -437,6 +632,105 @@ private:
     DoubleParam* _soften;
     DoubleParam* _stab;
     ChoiceParam* _output;
+    BooleanParam* _areaOn;
+    Double2DParam* _areaBL;
+    Double2DParam* _areaTR;
+    ChoiceParam* _frames;
+    StringParam* _report;
+    bool _drawMode = false;
+};
+
+// viewer overlay: draws the analysis area (after "draw area": drag a box, nothing renders)
+class ScreenKeyInteract
+    : public OverlayInteract
+{
+public:
+    ScreenKeyInteract(OfxInteractHandle h, ImageEffect* fx)
+        : OverlayInteract(h), _fx( dynamic_cast<APFXScreenKeyPlugin*>(fx) ) {}
+
+    virtual bool draw(const DrawArgs& args) OVERRIDE FINAL
+    {
+        if (!_fx) {
+            return false;
+        }
+        double x0, y0, x1, y1;
+        if (_dragging) {
+            x0 = std::min(_a.x, _b.x); x1 = std::max(_a.x, _b.x);
+            y0 = std::min(_a.y, _b.y); y1 = std::max(_a.y, _b.y);
+        } else if ( !_fx->areaVisible(&x0, &y0, &x1, &y1) ) {
+            return false;
+        }
+        const double px = args.pixelScale.x, py = args.pixelScale.y;
+        glPushAttrib(GL_ALL_ATTRIB_BITS);
+        glEnable(GL_LINE_STIPPLE);
+        glLineWidth(1.5f);
+        for (int pass = 0; pass < 2; ++pass) {
+            // dark shadow, then the yellow selection colour
+            const double o = pass == 0 ? 1. : 0.;
+            if (pass == 0) {
+                glColor3f(0.f, 0.f, 0.f);
+                glLineStipple(1, 0xFFFF);
+            } else {
+                glColor3f(1.f, 0.824f, 0.341f);
+                glLineStipple(2, 0xF0F0);
+            }
+            glBegin(GL_LINE_LOOP);
+            glVertex2d(x0 + o * px, y0 - o * py);
+            glVertex2d(x1 + o * px, y0 - o * py);
+            glVertex2d(x1 + o * px, y1 - o * py);
+            glVertex2d(x0 + o * px, y1 - o * py);
+            glEnd();
+        }
+        glPopAttrib();
+
+        return true;
+    }
+
+    virtual bool penDown(const PenArgs& args) OVERRIDE FINAL
+    {
+        if ( !_fx || !_fx->drawMode() ) {
+            return false;
+        }
+        _dragging = true;
+        _a = _b = args.penPosition;
+        requestRedraw();
+
+        return true;
+    }
+
+    virtual bool penMotion(const PenArgs& args) OVERRIDE FINAL
+    {
+        if (!_dragging) {
+            return false;
+        }
+        _b = args.penPosition;
+        requestRedraw();   // overlay only: nothing renders while drawing
+
+        return true;
+    }
+
+    virtual bool penUp(const PenArgs& args) OVERRIDE FINAL
+    {
+        if (!_dragging) {
+            return false;
+        }
+        _dragging = false;
+        _b = args.penPosition;
+        _fx->setArea(_a, _b);
+        requestRedraw();
+
+        return true;
+    }
+
+private:
+    APFXScreenKeyPlugin* _fx;
+    bool _dragging = false;
+    OfxPointD _a = { 0., 0. }, _b = { 0., 0. };
+};
+
+class ScreenKeyOverlayDescriptor
+    : public DefaultEffectOverlayDescriptor<ScreenKeyOverlayDescriptor, ScreenKeyInteract>
+{
 };
 
 mDeclarePluginFactory(APFXScreenKeyFactory, {}, {});
@@ -455,6 +749,7 @@ APFXScreenKeyFactory::describe(ImageEffectDescriptor& desc)
                             "the edges along the motion.");
     desc.setPluginGrouping("Keyer");
     desc.setTemporalClipAccess(true);
+    desc.setOverlayInteractDescriptor(new ScreenKeyOverlayDescriptor);
 }
 
 static IntParamDescriptor*
@@ -507,6 +802,63 @@ APFXScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum
         c->setSupportsTiles(false);
     }
     PageParamDescriptor* page = desc.definePageParam("ScreenKey");
+    // ---- analysis (optional starting setup)
+    {
+        PushButtonParamDescriptor* p = desc.definePushButtonParam("drawArea");
+        p->setLabel("draw area");
+        p->setHint("Optional: then drag a box in the viewer over the part to analyse (screen and subject edge). "
+                   "Nothing renders while drawing. Without an area the whole frame is analysed.");
+        p->setLayoutHint(eLayoutHintNoNewLine, 8);
+        page->addChild(*p);
+    }
+    {
+        PushButtonParamDescriptor* p = desc.definePushButtonParam("analyse");
+        p->setLabel("analyse");
+        p->setHint("Measures the screen colour, unevenness, compression, noise, halo ring and clips, and sets a starting "
+                   "setup (one undo step). The area is used once and then hidden.");
+        p->setLayoutHint(eLayoutHintNoNewLine, 8);
+        page->addChild(*p);
+    }
+    {
+        ChoiceParamDescriptor* p = desc.defineChoiceParam("analyseFrames");
+        p->setLabel("");
+        p->setHint("current frame, or 5 frames across the range (settings that hold for the whole shot).");
+        p->appendOption("current frame");
+        p->appendOption("5 frames");
+        p->setDefault(0);
+        p->setAnimates(false);
+        p->setEvaluateOnChange(false);
+        page->addChild(*p);
+    }
+    {
+        StringParamDescriptor* p = desc.defineStringParam("analysisReport");
+        p->setLabel("");
+        p->setStringType(eStringTypeLabel);
+        p->setDefault("");
+        p->setAnimates(false);
+        p->setEvaluateOnChange(false);
+        APFXOfx::divider(p);
+        page->addChild(*p);
+    }
+    {
+        BooleanParamDescriptor* p = desc.defineBooleanParam("areaOn");
+        p->setDefault(false);
+        p->setIsSecretAndDisabled(true);
+        p->setAnimates(false);
+        p->setEvaluateOnChange(false);
+        page->addChild(*p);
+    }
+    const char* an[2] = { "areaBottomLeft", "areaTopRight" };
+    for (int i = 0; i < 2; ++i) {
+        Double2DParamDescriptor* p = desc.defineDouble2DParam(an[i]);
+        p->setDefault(0., 0.);
+        p->setDoubleType(eDoubleTypeXYAbsolute);
+        p->setDefaultCoordinateSystem(eCoordinatesCanonical);
+        p->setIsSecretAndDisabled(true);
+        p->setAnimates(false);
+        p->setEvaluateOnChange(false);
+        page->addChild(*p);
+    }
     // ---- screen
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("screen");
