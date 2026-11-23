@@ -44,6 +44,13 @@ function checkoutRepository() {
     fi
     echo branch=$branch BRANCH=$REPO_BRANCH COMMIT=$REPO_COMMIT
     deep=false
+    if [ ! -d "$REPO_LOCAL_DIRNAME" ] && [ -n "$REPO_COMMIT" ]; then
+        # SOLVFX: pinned commit (clone -b does not take a commit): fetch just that commit
+        $GIT init -q "$REPO_LOCAL_DIRNAME"
+        (cd "$REPO_LOCAL_DIRNAME" && $GIT remote add origin "$REPO_URL" && \
+         $TIMEOUT 1800 $GIT fetch -q --depth 1 origin "$REPO_COMMIT" && $GIT checkout -q FETCH_HEAD) || return 1
+        echo "SOLVFX: $REPO_LOCAL_DIRNAME pinned at $REPO_COMMIT"
+    fi
     if [ ! -d "$REPO_LOCAL_DIRNAME" ]; then
         # slow version:
         if "$deep" && [ -z "$REPO_COMMIT" ]; then
@@ -60,7 +67,7 @@ function checkoutRepository() {
         REPO_COMMIT=$(git rev-parse HEAD)
         echo "done, got commit $REPO_COMMIT"
     else
-        $GIT checkout "$REPO_COMMIT"
+        $GIT checkout -q "$REPO_COMMIT" 2>/dev/null || $GIT checkout "$REPO_COMMIT"
     fi
 
 
@@ -69,6 +76,27 @@ function checkoutRepository() {
     #$TIMEOUT 1800 $GIT submodule update --init --recursive --remote
     # fast version (depth=1):
     $TIMEOUT 1800 $GIT submodule update --depth 1 --init --recursive --remote
+
+    # SOLVFX: plug-in submodules pinned to the last good build (see Global/plugin-branches.sh)
+    case "$REPO_LOCAL_DIRNAME" in
+    openfx-*)
+        if [ -n "${SOLVFX_PIN_SUPPORTEXT:-}${SOLVFX_PIN_OPENFX:-}${SOLVFX_PIN_OPENFX_IO:-}" ]; then
+            export SOLVFX_PIN_SUPPORTEXT SOLVFX_PIN_OPENFX SOLVFX_PIN_OPENFX_IO
+            $GIT submodule foreach --recursive '
+                pin=""
+                case "$(basename "$sm_path")" in
+                SupportExt) pin="${SOLVFX_PIN_SUPPORTEXT:-}" ;;
+                openfx|OpenFX) pin="${SOLVFX_PIN_OPENFX:-}" ;;
+                OpenFX-IO) pin="${SOLVFX_PIN_OPENFX_IO:-}" ;;
+                esac
+                if [ -n "$pin" ] && [ "$(git rev-parse HEAD)" != "$pin" ]; then
+                    git fetch -q --depth 1 origin "$pin" && git checkout -q "$pin" && echo "SOLVFX: $sm_path pinned at $pin" || { echo "SOLVFX: cannot pin $sm_path at $pin"; exit 1; }
+                    git submodule update -q --init --recursive --depth 1 || true
+                fi
+            ' || return 1
+        fi
+        ;;
+    esac
 
     # copy tarball of sources pruned of git files
     if [ "${TAR_SOURCES:-}" = "1" ]; then
