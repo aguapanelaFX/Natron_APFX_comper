@@ -725,23 +725,100 @@ Solv3DNode::as3D(const EffectInstancePtr& e)
 }
 
 bool
-Solv3DNode::inputScene(EffectInstance* fx, int inputNb, double time, Scene* scene)
+Solv3DNode::frameHoldTime(EffectInstance* e, double* time)
 {
-    EffectInstancePtr in = fx->getInput(inputNb);
-    // follow Dots / Stamps / Anchors (pass-through nodes)
-    for (int guard = 0; in && !as3D(in) && guard < 64; ++guard) {
-        if ( !dynamic_cast<NoOpBase*>( in.get() ) ) {
-            return false;
+    if ( !e || (e->getPluginID() != "net.sf.openfx.FrameHold") ) {
+        return false;
+    }
+    NodePtr node = e->getNode();
+    if ( node && node->isNodeDisabled() ) {
+        return true;
+    }
+    KnobInt* first = dynamic_cast<KnobInt*>( e->getKnobByName("firstFrame").get() );
+    if (!first) {
+        return true;
+    }
+    const double t = *time;
+    const double f = first->getValueAtTime(t);
+    KnobInt* inc = dynamic_cast<KnobInt*>( e->getKnobByName("increment").get() );
+    const int step = inc ? inc->getValueAtTime(t) : 0;
+    *time = (step > 0) ? f + step * std::floor( (t - f) / step ) : f;
+
+    return true;
+}
+
+Solv3DNode*
+Solv3DNode::upstream3D(const EffectInstancePtr& start, double* time)
+{
+    EffectInstancePtr in = start;
+    // follow Dots / Stamps / Anchors (pass-through nodes) and FrameHolds (change the time)
+    for (int guard = 0; in && guard < 64; ++guard) {
+        if ( Solv3DNode* n = as3D(in) ) {
+            return n;
+        }
+        if ( !frameHoldTime(in.get(), time) && !dynamic_cast<NoOpBase*>( in.get() ) ) {
+            return 0;
         }
         in = in->getInput(0);
     }
-    Solv3DNode* n = in ? as3D(in) : 0;
+
+    return 0;
+}
+
+bool
+Solv3DNode::inputScene(EffectInstance* fx, int inputNb, double time, Scene* scene)
+{
+    Solv3DNode* n = upstream3D(fx->getInput(inputNb), &time);
     if (!n) {
         return false;
     }
     n->buildScene(time, scene);
 
     return true;
+}
+
+// reader "frame hold": the node outputs this frame at every frame
+static void
+makeHoldKnobs(EffectInstance* fx, const KnobPagePtr& page, KnobBoolWPtr* on, KnobIntWPtr* frame)
+{
+    KnobBoolPtr b = AppManager::createKnob<KnobBool>( fx, std::string("frame hold") );
+    b->setName("frame_hold");
+    b->setDefaultValue(false);
+    b->setAnimationEnabled(false);
+    b->setHintToolTip( std::string("Reads only one frame of the file and outputs it at every frame.") );
+    b->setAddNewLine(false);
+    page->addKnob(b);
+    *on = b;
+    KnobIntPtr f = AppManager::createKnob<KnobInt>( fx, std::string("hold frame") );
+    f->setName("hold_frame");
+    f->setDefaultValue(1);
+    f->disableSlider();
+    f->setHintToolTip( std::string("Frame to hold (frame of this node, before the time offset / scale). "
+                                   "Set to the current frame when frame hold is turned on.") );
+    page->addKnob(f);
+    *frame = f;
+}
+
+static double
+holdTime(const KnobBoolWPtr& on, const KnobIntWPtr& frame, double t)
+{
+    KnobBoolPtr b = on.lock();
+    KnobIntPtr f = frame.lock();
+
+    return ( b && f && b->getValue() ) ? (double)f->getValueAtTime(t) : t;
+}
+
+static void
+holdKnobChanged(EffectInstance* fx, KnobI* k, ValueChangedReasonEnum reason, const KnobBoolWPtr& on, const KnobIntWPtr& frame)
+{
+    KnobBoolPtr b = on.lock();
+    if ( !b || (k != b.get()) || (reason != eValueChangedReasonUserEdited) || !b->getValue() ) {
+        return;
+    }
+    KnobIntPtr f = frame.lock();
+    if ( f && !f->isAnimated(0) ) {
+        f->setValue( (int)fx->getApp()->getTimeLine()->currentFrame() );
+    }
 }
 
 static std::shared_ptr<void>
@@ -1238,6 +1315,7 @@ Solv3DCamera::initializeKnobs()
         io->addKnob(r);
         _reload = r;
     }
+    makeHoldKnobs(this, io, &_holdOn, &_holdFrame);
     _eulerFilter = makeBool(this, io, "euler_filter", "rotations euler filter", true,
                             "Snapshot range: keeps the rotations continuous (no 360 degree jumps between frames).");
     makeDivider(this, io, "export_divider");
@@ -1441,7 +1519,7 @@ Solv3DCamera::buildScene(double t, Scene* scene)
         Mat4 w;
         Camera fc;
         std::string err;
-        if ( fileCamera(t, &w, &fc, &err) ) {
+        if ( fileCamera(holdTime(_holdOn, _holdFrame, t), &w, &fc, &err) ) {
             local = w;
             c->projectionMode = fc.projectionMode;
             c->focalLength = fc.focalLength;
@@ -1468,6 +1546,7 @@ bool
 Solv3DCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool mainThread)
 {
     Solv3DNode::knobChanged(k, reason, view, time, mainThread);
+    holdKnobChanged(this, k, reason, _holdOn, _holdFrame);
     if ( (k == _preset.lock().get()) && (reason != eValueChangedReasonTimeChanged) ) {
         const int i = _preset.lock()->getValue();
         if ( (i > 0) && (i < kCameraPresetCount) ) {
@@ -2557,6 +2636,7 @@ Solv3DReadGeo::initializeKnobs()
     page->addKnob(off);
     _frameOffset = off;
     _timeScale = makeDouble(this, page, "time_scale", "time scale", 1, 1., 0., 4., "Frame of the file = frame * scale + offset (2 = twice as fast).");
+    makeHoldKnobs(this, page, &_holdOn, &_holdFrame);
     {
         std::vector<std::string> u;
         u.push_back("convert");
@@ -2636,6 +2716,7 @@ Solv3DReadGeo::refreshTree()
 bool
 Solv3DReadGeo::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool mainThread)
 {
+    holdKnobChanged(this, k, reason, _holdOn, _holdFrame);
     Solv3DNode::knobChanged(k, reason, view, time, mainThread);
     if ( ( k == _file.lock().get() ) || ( k == _units.lock().get() ) || ( k == _reload.lock().get() ) ||
          ( k == _graph.lock().get() ) ) {
@@ -2811,7 +2892,8 @@ Solv3DReadGeo::buildScene(double t, Scene* scene)
     std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
     const bool isAbc = lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".abc") == 0;
     const bool isUsd = (lower.find(".usd") != std::string::npos) && (lower.rfind(".usd") >= lower.size() - 5);
-    const double ft = t * _timeScale.lock()->getValueAtTime(t) + _frameOffset.lock()->getValueAtTime(t);
+    const double ht = holdTime(_holdOn, _holdFrame, t);
+    const double ft = ht * _timeScale.lock()->getValueAtTime(ht) + _frameOffset.lock()->getValueAtTime(ht);
     const std::string ed = edits();
     Scene loaded;
     {

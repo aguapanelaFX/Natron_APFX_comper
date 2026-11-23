@@ -2329,13 +2329,15 @@ Solv3DView::setPreset(int p)
 }
 
 // first 3D node upstream of e (through the main input of 2D nodes)
+// first 3D node upstream of the viewer input (walks through any 2D node); *t follows FrameHolds on the way
 static Solv3DNode*
-upstream3D(EffectInstancePtr e)
+upstream3D(EffectInstancePtr e, double* t)
 {
     for (int guard = 0; e && guard < 64; ++guard) {
         if ( Solv3DNode* n = Solv3DNode::as3D(e) ) {
             return n;
         }
+        Solv3DNode::frameHoldTime(e.get(), t);
         e = e->getInput(0);
     }
 
@@ -2364,11 +2366,13 @@ Solv3DView::refresh()
     const NodesGuiList& selection = _gui->getSelectedNodes();
     ViewerInstance* vi = _viewer ? _viewer->getInternalNode() : 0;
     Solv3DNode* up = 0;
+    double upT = t; // build time of the viewed branch (FrameHolds change it)
+    EffectInstancePtr viewIn;
     if (vi) {
         int a = -1, b = -1;
         vi->getActiveInputs(a, b);
-        EffectInstancePtr in = (a >= 0) ? vi->getInput(a) : EffectInstancePtr();
-        up = upstream3D(in);
+        viewIn = (a >= 0) ? vi->getInput(a) : EffectInstancePtr();
+        up = upstream3D(viewIn, &upT);
     }
     {
         // signature of everything the scene depends on (node hashes change with any upstream parameter / link)
@@ -2380,6 +2384,11 @@ Solv3DView::refresh()
         mix( (U64)(uintptr_t)up );
         if (up) {
             mix( up->getHash() );
+            std::memcpy(&tb, &upT, 8);
+            mix(tb);
+            if ( viewIn && (viewIn.get() != (EffectInstance*)up) ) {
+                mix( viewIn->getHash() ); // FrameHold / 2D nodes in between
+            }
         }
         for (NodesGuiList::const_iterator it = selection.begin(); it != selection.end(); ++it) {
             NodePtr node = (*it) ? (*it)->getNode() : NodePtr();
@@ -2403,7 +2412,7 @@ Solv3DView::refresh()
     _gl->setTime(t);
     Scene main, templ;
     if (up) {
-        up->buildScene(t, &main);
+        up->buildScene(upT, &main);
     }
     std::set<std::string> sel;
     for (NodesGuiList::const_iterator it = selection.begin(); it != selection.end(); ++it) {

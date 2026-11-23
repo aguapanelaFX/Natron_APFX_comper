@@ -124,6 +124,10 @@ public:
     // scene of input 'inputNb' (walks through Dots / Stamps); false when not a 3D input
     static bool inputScene(EffectInstance* fx, int inputNb, double time, Solv3D::Scene* scene);
     static Solv3DNode* as3D(const EffectInstancePtr& e);
+    // FrameHold: true when 'e' is a FrameHold; *time becomes its held frame (unchanged when the node is disabled)
+    static bool frameHoldTime(EffectInstance* e, double* time);
+    // first 3D node upstream of 'in' through Dots / Stamps / FrameHolds; *time follows the FrameHolds met on the way
+    static Solv3DNode* upstream3D(const EffectInstancePtr& in, double* time);
 
     // prim path of this node: the 'path' parameter ({nodename} = the script name), else "/<script name>"
     std::string primPath() const;
@@ -283,7 +287,8 @@ private:
     KnobDoubleWPtr _worldToMeters, _shutter, _shutterCustom, _shutterBias;
     KnobBoolWPtr _distEnabled;
     KnobDoubleWPtr _distK1, _distK2, _distCenter;
-    KnobBoolWPtr _liveRead, _useSceneScale, _importFile, _eulerFilter;
+    KnobBoolWPtr _liveRead, _useSceneScale, _importFile, _eulerFilter, _holdOn;
+    KnobIntWPtr _holdFrame;
     KnobButtonWPtr _snapFrame, _snapRange, _reload;
     KnobStringWPtr _sourcePrim;
     KnobFileWPtr _file;
@@ -466,6 +471,8 @@ private:
     KnobSceneGraphWPtr _graph;
     KnobFileWPtr _file;
     KnobIntWPtr _frameOffset;
+    KnobBoolWPtr _holdOn;
+    KnobIntWPtr _holdFrame;
     KnobBoolWPtr _lit;
     KnobStringWPtr _info;
 };
