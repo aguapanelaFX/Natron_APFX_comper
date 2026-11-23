@@ -374,6 +374,10 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
             m->material.specular = p->metallic > 0.f ? 0. : 0.5 * (1. - p->roughness);
             m->material.emission = 0.;
             m->material.opacity = p->opacity;
+            if ( (p->emissive[0] > 0.f) || (p->emissive[1] > 0.f) || (p->emissive[2] > 0.f) ) {
+                m->material.emissionColor = Vec3(p->emissive[0], p->emissive[1], p->emissive[2]);
+                m->material.emissionWeight = 1.;
+            }
             if (p->diffuseTexture && *p->diffuseTexture) {
                 m->textureFile = p->diffuseTexture;
             }
@@ -492,8 +496,13 @@ writeUsd(const std::string& file, const std::vector<std::pair<double, const Scen
                 u.roughness = (float)m.material.roughness;
                 u.ior = (float)m.material.ior;
                 u.specular = (float)m.material.specular;
-                const float em = (float)m.material.emission;
-                u.emissive[0] = u.color[0] * em; u.emissive[1] = u.color[1] * em; u.emissive[2] = u.color[2] * em;
+                // emissive: the emission layer, plus the unlit part of the base (cards) so it still shows as is
+                const float em = (float)m.material.emission, ew = (float)m.material.emissionWeight;
+                const Vec3& ec = m.material.emissionColor;
+                u.color[0] *= (float)m.material.baseWeight; u.color[1] *= (float)m.material.baseWeight; u.color[2] *= (float)m.material.baseWeight;
+                u.emissive[0] = u.color[0] * em + (float)ec.x * ew;
+                u.emissive[1] = u.color[1] * em + (float)ec.y * ew;
+                u.emissive[2] = u.color[2] * em + (float)ec.z * ew;
             } else if ( (p.type == PrimType::Camera) && p.camera ) {
                 const Camera& c = *p.camera;
                 u.type = SOLVUSD_CAMERA;

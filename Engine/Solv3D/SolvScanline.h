@@ -77,6 +77,20 @@ struct ScanlineAOV
     std::vector<float>* uv = nullptr;       // texture uv, 2 per pixel
     std::vector<float>* motion = nullptr;   // screen motion in pixels to the next frame, 2 per pixel
     const Scene* motionNext = nullptr;      // the scene one frame later (motion vectors)
+    // shading passes (rgb, premultiplied, filtered like rgba): base + specular + reflection + coat + emission = rgba
+    std::vector<float>* pass[6] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    std::vector<float>* material = nullptr; // closest surface: roughness, metalness, specular weight (data)
+};
+
+enum ScanlinePass
+{
+    eScanlinePassBase = 0,      // diffuse light of the base layer (+ unlit part)
+    eScanlinePassSpecular,      // highlights of the lights
+    eScanlinePassReflection,    // environment reflection
+    eScanlinePassCoat,          // coat highlights + reflection
+    eScanlinePassEmission,
+    eScanlinePassAlbedo,        // base colour x texture (not part of the sum)
+    eScanlinePassCount
 };
 
 // motion blur: 'steps' are the scene at sub-frame times across the shutter (one = no blur). Samples are

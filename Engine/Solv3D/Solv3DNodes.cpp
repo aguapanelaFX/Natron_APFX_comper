@@ -3147,45 +3147,77 @@ Solv3DProject3D::buildScene(double t, Scene* scene)
 std::string
 Solv3DMaterial::getPluginDescription() const
 {
-    return "Surface look of the geometry for ScanlineRender: base colour, emission (1 = texture shown as is), "
-           "metalness, specular, roughness and IOR. Reflections come from the env input of ScanlineRender "
-           "(any lat-long image); roughness blurs them.";
+    return "Surface look of the geometry for ScanlineRender, laid out like a physically based shader: "
+           "base (colour, metalness, unlit), specular (weight, colour, roughness, IOR), coat (a clear layer on top) "
+           "and emission. Reflections come from the env input of ScanlineRender (any lat-long image); roughness "
+           "blurs them. Each layer can be rendered as its own pass (ScanlineRender > AOVs).";
+}
+
+static KnobColorPtr
+makeColor3(EffectInstance* fx, const KnobGroupPtr& parent, const char* name, const char* label, double def, const char* hint)
+{
+    KnobColorPtr c = AppManager::createKnob<KnobColor>( fx, std::string(label), 3 );
+    c->setName(name);
+    for (int d = 0; d < 3; ++d) {
+        c->setDefaultValue(def, d);
+    }
+    c->setHintToolTip( std::string(hint) );
+    parent->addKnob(c);
+
+    return c;
 }
 
 void
 Solv3DMaterial::initializeKnobs()
 {
+    // MaterialX / OpenPBR layout: base, specular, coat, emission
     KnobPagePtr page = makePage(this, "Material");
-    KnobColorPtr b = AppManager::createKnob<KnobColor>( this, std::string("base color"), 3 );
-    b->setName("base_color");
-    for (int d = 0; d < 3; ++d) {
-        b->setDefaultValue(1., d);
-    }
-    page->addKnob(b);
-    _base = b;
-    _emission = makeDouble(this, page, "emission", "emission", 1, 0., 0., 1., "1 = unlit (the texture as is), 0 = shaded.");
-    _metal = makeDouble(this, page, "metalness", "metalness", 1, 0., 0., 1., "1 = metal: reflections tinted by the base colour.");
-    _spec = makeDouble(this, page, "specular", "specular", 1, 0.5, 0., 1., "Reflection weight of non-metals (Fresnel from the IOR).");
-    _rough = makeDouble(this, page, "roughness", "roughness", 1, 0.2, 0., 1., "0 = mirror, 1 = very blurry reflections.");
-    _ior = makeDouble(this, page, "ior", "IOR", 1, 1.5, 1., 3., "Index of refraction (glass 1.5, water 1.33).");
+    KnobGroupPtr gb = makeGroup(this, page, "base_group", "base", true);
+    _baseWeight = makeDouble(this, gb, "base_weight", "weight", 1, 1., 0., 1., "Amount of base colour (diffuse).");
+    _base = makeColor3(this, gb, "base_color", "color", 1., "Base colour, multiplies the texture.");
+    _metal = makeDouble(this, gb, "metalness", "metalness", 1, 0., 0., 1., "1 = metal: reflections and highlights tinted by the base colour.");
+    _emission = makeDouble(this, gb, "emission", "unlit", 1, 1., 0., 1., "1 = unlit (the texture as is, for cards), 0 = shaded by the lights.");
+    KnobGroupPtr gs = makeGroup(this, page, "specular_group", "specular", true);
+    _spec = makeDouble(this, gs, "specular", "weight", 1, 0.5, 0., 1., "Highlight and reflection amount of non-metals (Fresnel from the IOR).");
+    _specColor = makeColor3(this, gs, "specular_color", "color", 1., "Tints highlights and reflections of non-metals.");
+    _rough = makeDouble(this, gs, "roughness", "roughness", 1, 0.2, 0., 1., "0 = mirror, 1 = very blurry reflections and wide highlights.");
+    _ior = makeDouble(this, gs, "ior", "IOR", 1, 1.5, 1., 3., "Index of refraction (glass 1.5, water 1.33).");
+    KnobGroupPtr gc = makeGroup(this, page, "coat_group", "coat", false);
+    _coat = makeDouble(this, gc, "coat_weight", "weight", 1, 0., 0., 1., "Clear layer on top (varnish, car paint): its own highlights and reflection.");
+    _coatRough = makeDouble(this, gc, "coat_roughness", "roughness", 1, 0.1, 0., 1., "Roughness of the coat.");
+    KnobGroupPtr ge = makeGroup(this, page, "emission_group", "emission", false);
+    _emWeight = makeDouble(this, ge, "emission_weight", "weight", 1, 0., 0., 10., "Light given off by the surface (added on top, not affected by lights).");
+    _emColor = makeColor3(this, ge, "emission_color", "color", 1., "Colour of the emission.");
 }
 
 void
 Solv3DMaterial::buildScene(double t, Scene* scene)
 {
     inputScene(this, 0, t, scene);
-    KnobColorPtr b = _base.lock();
+    auto col = [t](const KnobColorWPtr& w) {
+        KnobColorPtr k = w.lock();
+
+        return Vec3( k->getValueAtTime(t, 0), k->getValueAtTime(t, 1), k->getValueAtTime(t, 2) );
+    };
     Material mt;
-    mt.baseColor = Vec3( b->getValueAtTime(t, 0), b->getValueAtTime(t, 1), b->getValueAtTime(t, 2) );
+    mt.baseColor = col(_base);
+    mt.baseWeight = _baseWeight.lock()->getValueAtTime(t);
     mt.emission = _emission.lock()->getValueAtTime(t);
     mt.metalness = _metal.lock()->getValueAtTime(t);
     mt.specular = _spec.lock()->getValueAtTime(t);
+    mt.specularColor = col(_specColor);
     mt.roughness = _rough.lock()->getValueAtTime(t);
     mt.ior = _ior.lock()->getValueAtTime(t);
+    mt.coat = _coat.lock()->getValueAtTime(t);
+    mt.coatRoughness = _coatRough.lock()->getValueAtTime(t);
+    mt.emissionWeight = _emWeight.lock()->getValueAtTime(t);
+    mt.emissionColor = col(_emColor);
     for (auto& kv : scene->prims()) {
         if (kv.second.mesh) {
             std::shared_ptr<Mesh> m = std::make_shared<Mesh>(*kv.second.mesh);
+            const double op = m->material.opacity;   // the geometry keeps its opacity
             m->material = mt;
+            m->material.opacity = op;
             kv.second.mesh = m;
         }
     }
@@ -3199,7 +3231,8 @@ Solv3DScanline::getPluginDescription() const
            "(which also sets the format). env: a lat-long image used for reflections (Material metalness / specular). "
            "Anti-aliasing: samples per pixel and a reconstruction filter (Blackman-Harris and Mitchell give the "
            "cleanest edges). Output: rgba, plus the layers checked on the AOVs page (depth, shadow, world position, "
-           "world normal, uv, motion vectors).";
+           "world normal, uv, motion vectors, and the shading passes base / specular / reflection / coat / emission, "
+           "which add up to the rgb, plus albedo and material data).";
 }
 
 std::string
@@ -3299,6 +3332,38 @@ Solv3DScanline::initializeKnobs()
     _depthMode = makeChoice(this, aovp, "depth_mode", "depth", std::vector<std::string>(dm, dm + 2), 0,
                             "1/z: 0 at infinity, the usual convention for defocus (ZDefocus math 'depth / far = 0'). "
                             "distance: along the camera axis, in scene units.");
+    makeDivider(this, aovp, "passes_divider");
+    static const char* const pn[7][2] = {
+        { "aov_base", "base: diffuse light of the base layer (and the unlit part)" },
+        { "aov_specular", "specular: highlights of the lights" },
+        { "aov_reflection", "reflection: environment reflection (env input)" },
+        { "aov_coat", "coat: highlights and reflection of the coat layer" },
+        { "aov_emission", "emission: light given off by the surface" },
+        { "aov_albedo", "albedo: base colour x texture, no light (not part of the sum)" },
+        { "aov_material", "material.RGB: roughness, metalness, specular weight of the closest surface (data)" },
+    };
+    static const char* const pl[7] = { "base", "specular", "reflection", "coat", "emission", "albedo", "material" };
+    for (int i = 0; i < 7; ++i) {
+        _aovPass[i] = makeBool(this, aovp, pn[i][0], pl[i], false,
+                               (std::string(pn[i][1]) + ". base + specular + reflection + coat + emission = rgb.").c_str(), i % 4 != 3);
+    }
+}
+
+const ImagePlaneDesc&
+Solv3DScanline::passPlane(int i)
+{
+    static const char* rgb[3] = { "R", "G", "B" };
+    static const ImagePlaneDesc p[7] = {
+        ImagePlaneDesc("base", "base", "RGB", rgb, 3),
+        ImagePlaneDesc("specular", "specular", "RGB", rgb, 3),
+        ImagePlaneDesc("reflection", "reflection", "RGB", rgb, 3),
+        ImagePlaneDesc("coat", "coat", "RGB", rgb, 3),
+        ImagePlaneDesc("emission", "emission", "RGB", rgb, 3),
+        ImagePlaneDesc("albedo", "albedo", "RGB", rgb, 3),
+        ImagePlaneDesc("material", "material", "RGB", rgb, 3),
+    };
+
+    return p[std::max(0, std::min(6, i) )];
 }
 
 const ImagePlaneDesc&
@@ -3370,6 +3435,9 @@ Solv3DScanline::getComponentsNeededAndProduced(double time, ViewIdx view, Effect
     if ( _aovNormal.lock()->getValue() ) { outp.push_back( normalPlane() ); }
     if ( _aovUV.lock()->getValue() ) { outp.push_back( uvPlane() ); }
     if ( _aovMotion.lock()->getValue() ) { outp.push_back( motionPlane() ); }
+    for (int i = 0; i < 7; ++i) {
+        if ( _aovPass[i].lock()->getValue() ) { outp.push_back( passPlane(i) ); }
+    }
     (*comps)[2].push_back( ImagePlaneDesc::getRGBAComponents() );
     (*comps)[3].push_back( ImagePlaneDesc::getRGBAComponents() );
 }
@@ -3597,6 +3665,7 @@ Solv3DScanline::render(const RenderActionArgs& args)
     st.timeSamples = mbSamples;
     // which planes are asked for
     bool wantDepth = false, wantShadow = false, wantP = false, wantN = false, wantUV = false, wantMV = false;
+    bool wantPass[7] = { false, false, false, false, false, false, false };
     for (std::list<std::pair<ImagePlaneDesc, ImagePtr> >::const_iterator it = args.outputPlanes.begin(); it != args.outputPlanes.end(); ++it) {
         const std::string id = it->first.getPlaneID();
         wantDepth = wantDepth || ( id == depthPlane().getPlaneID() );
@@ -3605,7 +3674,11 @@ Solv3DScanline::render(const RenderActionArgs& args)
         wantN = wantN || ( id == normalPlane().getPlaneID() );
         wantUV = wantUV || ( id == uvPlane().getPlaneID() );
         wantMV = wantMV || ( id == motionPlane().getPlaneID() );
+        for (int i = 0; i < 7; ++i) {
+            wantPass[i] = wantPass[i] || ( id == passPlane(i).getPlaneID() );
+        }
     }
+    std::vector<float> passBuf[7];
     std::vector<float> buf, depthBuf, shadowBuf, posBuf, nrmBuf, uvBuf, mvBuf;
     ScanlineAOV aov;
     aov.depth = wantDepth ? &depthBuf : 0;
@@ -3615,6 +3688,10 @@ Solv3DScanline::render(const RenderActionArgs& args)
     aov.normal = wantN ? &nrmBuf : 0;
     aov.uv = wantUV ? &uvBuf : 0;
     aov.motion = wantMV ? &mvBuf : 0;
+    for (int i = 0; i < eScanlinePassCount; ++i) {
+        aov.pass[i] = wantPass[i] ? &passBuf[i] : 0;
+    }
+    aov.material = wantPass[6] ? &passBuf[6] : 0;
     Scene nextScene;
     if (wantMV) {
         std::string cp;
@@ -3732,6 +3809,9 @@ Solv3DScanline::render(const RenderActionArgs& args)
         resample(&nrmBuf, 3, false);
         resample(&uvBuf, 2, false);
         resample(&mvBuf, 2, false);
+        for (int i = 0; i < 7; ++i) {
+            resample(&passBuf[i], 3, i < 6);
+        }
         st.originX = outX;
         st.originY = outY;
         st.width = outW;
@@ -3775,6 +3855,9 @@ Solv3DScanline::render(const RenderActionArgs& args)
             else if ( id == normalPlane().getPlaneID() ) { src = &nrmBuf; sn = 3; }
             else if ( id == uvPlane().getPlaneID() ) { src = &uvBuf; sn = 2; }
             else if ( id == motionPlane().getPlaneID() ) { src = &mvBuf; sn = 2; }
+            for (int i = 0; i < 7 && !src; ++i) {
+                if ( id == passPlane(i).getPlaneID() ) { src = &passBuf[i]; sn = 3; }
+            }
             if (src) {
                 for (int y = args.roi.y1; y < args.roi.y2; ++y) {
                     float* d = (float*)wa.pixelAt(args.roi.x1, y);

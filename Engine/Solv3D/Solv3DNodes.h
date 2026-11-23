@@ -544,8 +544,8 @@ public:
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
 
 private:
-    KnobColorWPtr _base;
-    KnobDoubleWPtr _emission, _metal, _spec, _rough, _ior;
+    KnobColorWPtr _base, _specColor, _emColor;
+    KnobDoubleWPtr _emission, _metal, _spec, _rough, _ior, _baseWeight, _coat, _coatRough, _emWeight;
 };
 
 class Solv3DScanline
@@ -579,10 +579,12 @@ public:
     static const ImagePlaneDesc& normalPlane();
     static const ImagePlaneDesc& uvPlane();
     static const ImagePlaneDesc& motionPlane();
+    static const ImagePlaneDesc& passPlane(int i); // ScanlinePass order, 6 = material (data)
 
 private:
     KnobChoiceWPtr _samples, _filter, _projMode, _shutterOffset, _depthMode;
     KnobBoolWPtr _aovDepth, _aovShadow, _aovPosition, _aovNormal, _aovUV, _aovMotion;
+    KnobBoolWPtr _aovPass[7]; // base, specular, reflection, coat, emission, albedo, material
     KnobDoubleWPtr _filterWidth, _ambient, _shutter, _shutterCustom;
     KnobIntWPtr _overscan, _mbSamples;
     KnobBoolWPtr _texFilter, _transparency, _zBuffer, _shutterFromCam, _applyDistortion;

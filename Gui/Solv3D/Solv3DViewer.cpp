@@ -499,7 +499,10 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
             const Mesh& m = *p.mesh;
             const bool hasN = m.normals.size() == m.faceVertexIndices.size();
             const bool hasUV = m.st.size() == m.faceVertexIndices.size();
-            const float bc[3] = { (float)m.material.baseColor.x, (float)m.material.baseColor.y, (float)m.material.baseColor.z };
+            const Material& mtl = m.material;
+            // preview of the material: base colour x weight, metals darker diffuse (their colour goes to the highlight)
+            const float bw = (float)( mtl.baseWeight * (1. - 0.75 * mtl.metalness) );
+            const float bc[3] = { (float)mtl.baseColor.x * bw, (float)mtl.baseColor.y * bw, (float)mtl.baseColor.z * bw };
             const float alpha = templ ? 0.35f : 1.f;
             if ( (mode >= 2) ) {
                 // texture: the mesh's own (needs uv) or the last projection (uv from the projector, per vertex)
@@ -521,6 +524,20 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
                 if (lit) {
                     glEnable(GL_LIGHTING);
                     glEnable(GL_LIGHT0);
+                    // highlight: specular / metalness / coat, sharper with low roughness
+                    const double ks = std::max( std::max(mtl.specular, mtl.metalness), mtl.coat ) * 0.6;
+                    const double rough = (mtl.coat > mtl.specular) ? std::min(mtl.roughness, mtl.coatRoughness) : mtl.roughness;
+                    GLfloat spc[4];
+                    for (int ch = 0; ch < 3; ++ch) {
+                        const double tint = (1. - mtl.metalness) * mtl.specularColor[ch] + mtl.metalness * mtl.baseColor[ch];
+                        spc[ch] = (float)(ks * tint);
+                    }
+                    spc[3] = 1.f;
+                    const GLfloat emi[4] = { (float)(mtl.emissionColor.x * mtl.emissionWeight), (float)(mtl.emissionColor.y * mtl.emissionWeight),
+                                             (float)(mtl.emissionColor.z * mtl.emissionWeight), 1.f };
+                    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, spc);
+                    glMaterialf( GL_FRONT_AND_BACK, GL_SHININESS, (GLfloat)std::max( 1., std::min(128., 2. / std::pow(std::max(0.05, rough), 2.) ) ) );
+                    glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, emi);
                 }
                 if (tex) {
                     glEnable(GL_TEXTURE_2D);
@@ -587,6 +604,11 @@ Solv3DGLWidget::drawScene(const Scene& s, const Mat4& V, bool templ)
                 if (tex) {
                     glBindTexture(GL_TEXTURE_2D, 0);
                     glDisable(GL_TEXTURE_2D);
+                }
+                if (lit) {
+                    const GLfloat zero[4] = { 0.f, 0.f, 0.f, 1.f };
+                    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, zero);
+                    glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, zero);
                 }
                 glDisable(GL_LIGHTING);
             }
@@ -823,6 +845,10 @@ Solv3DGLWidget::paintGL()
     const GLfloat amb[4] = { 0.3f, 0.3f, 0.3f, 1.f }, dif[4] = { 0.8f, 0.8f, 0.8f, 1.f };
     glLightfv(GL_LIGHT0, GL_AMBIENT, amb);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, dif);
+    const GLfloat lspec[4] = { 1.f, 1.f, 1.f, 1.f };
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lspec);
+    glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+    glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR); // highlights not darkened by textures
     glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);

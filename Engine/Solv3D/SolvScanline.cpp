@@ -633,6 +633,10 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
     if (aov.normal) { aov.normal->assign(npx * 3, 0.f); }
     if (aov.uv) { aov.uv->assign(npx * 2, 0.f); }
     if (aov.motion) { aov.motion->assign(npx * 2, 0.f); }
+    if (aov.material) { aov.material->assign(npx * 3, 0.f); }
+    for (int q = 0; q < eScanlinePassCount; ++q) {
+        if (aov.pass[q]) { aov.pass[q]->assign(npx * 3, 0.f); }
+    }
     if ( (W <= 0) || (H <= 0) || scenes.empty() ) {
         return;
     }
@@ -1000,7 +1004,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
     if (wantMotion) {
         buildStep(*aov.motionNext, nextStep);
     }
-    const bool dataAov = aov.position || aov.normal || aov.uv || aov.motion;
+    const bool dataAov = aov.position || aov.normal || aov.uv || aov.motion || aov.material;
     std::vector<float> closest;
     if (dataAov) {
         closest.assign( npx, std::numeric_limits<float>::max() );
@@ -1044,7 +1048,15 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
     const double fr = std::max( 0.5, s.filterWidth * 0.5 );   // filter radius (pixels)
     const int fri = (int)std::ceil(fr);
     std::vector<float> wsum( (size_t)W * H, 0.f );
-    std::vector<float> sampleCol( (size_t)W * H * 4 );
+    // sample buffer: rgba + 3 channels per asked shading pass (passes go through the same smear / filter)
+    int passSlot[eScanlinePassCount];
+    int nPass = 0;
+    for (int q = 0; q < eScanlinePassCount; ++q) {
+        passSlot[q] = (aov.pass[q] && (s.output == ScanlineOutput::RGBA)) ? nPass++ : -1;
+    }
+    const int C = 4 + 3 * nPass;
+    std::vector<float> passAcc( (size_t)W * H * 3 * nPass, 0.f );
+    std::vector<float> sampleCol( (size_t)W * H * C );
     std::vector<int> triId( (size_t)W * H );
     std::vector<float> depth( (size_t)W * H );
     std::vector<float> bary( (size_t)W * H * 2 );
@@ -1197,6 +1209,11 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                                 float* d = &(*aov.normal)[k * 3];
                                 d[0] = (float)N.x; d[1] = (float)N.y; d[2] = (float)N.z;
                             }
+                            if (aov.material) {
+                                const Material& dm = t.mesh->material;
+                                float* d = &(*aov.material)[k * 3];
+                                d[0] = (float)dm.roughness; d[1] = (float)dm.metalness; d[2] = (float)dm.specular;
+                            }
                             if (aov.uv) {
                                 float* d = &(*aov.uv)[k * 2];
                                 d[0] = (float)uv.x; d[1] = (float)uv.y;
@@ -1216,6 +1233,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         }
                     }
                     float c[4] = { 0, 0, 0, 0 };
+                    double pv[eScanlinePassCount][3] = {};   // shading passes of this sample
                     switch (s.output) {
                     case ScanlineOutput::Depth: {
                         const float d = (float)std::sqrt( dot(P - camPos, P - camPos) );
@@ -1304,20 +1322,38 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             base[3] = 1.f;
                         }
                         const float a = textured ? base[3] : 1.f;
-                        const float bc[3] = { (float)mt.baseColor.x, (float)mt.baseColor.y, (float)mt.baseColor.z };
+                        // MaterialX / OpenPBR-shaped layers: base (diffuse), specular, reflection, coat, emission.
+                        // Each layer is kept apart (passes); their sum is the rgba.
+                        double albedo[3];
+                        for (int ch = 0; ch < 3; ++ch) {
+                            albedo[ch] = base[ch] * mt.baseColor[ch] * mt.baseWeight;   // premultiplied by alpha
+                        }
+                        double* L_base = pv[eScanlinePassBase];
+                        double* L_spec = pv[eScanlinePassSpecular];
+                        double* L_refl = pv[eScanlinePassReflection];
+                        double* L_coat = pv[eScanlinePassCoat];
+                        for (int ch = 0; ch < 3; ++ch) {
+                            pv[eScanlinePassAlbedo][ch] = albedo[ch];
+                            pv[eScanlinePassEmission][ch] = mt.emissionColor[ch] * mt.emissionWeight * a;
+                        }
+                        const double cosT = std::max( 0., dot(N, V) );
+                        const double coatF = (mt.coat > 0.) ? mt.coat * ( 0.04 + 0.96 * std::pow(1. - cosT, 5.) ) : 0.;
                         if (!stp.anyLight || mt.emission >= 1.) {
                             // no lights: headlight lambert for the lit part
-                            const float lam = (float)std::max( s.ambient, dot(N, V) );
-                            const float lit = (float)( mt.emission + (1. - mt.emission) * lam );
+                            const double lam = std::max( s.ambient, dot(N, V) );
+                            const double lit = mt.emission + (1. - mt.emission) * lam;
                             for (int ch = 0; ch < 3; ++ch) {
-                                c[ch] = base[ch] * bc[ch] * lit;
+                                L_base[ch] = albedo[ch] * lit;
                             }
                         } else {
-                            // lights: lambert + normalised Blinn-Phong, soft shadows
-                            Vec3 dif = stp.ambientLight, spc;
+                            // lights: lambert + normalised Blinn-Phong (specular and coat lobes), soft shadows
+                            Vec3 dif = stp.ambientLight, spc, cspc;
                             double litLum = 0., unlitLum = 0.;
                             const double rough = std::max(0.02, mt.roughness);
                             const double shin = std::max( 1., 2. / std::pow(rough, 4.) - 2. );
+                            const double crough = std::max(0.02, mt.coatRoughness);
+                            const double cshin = std::max( 1., 2. / std::pow(crough, 4.) - 2. );
+                            const bool wantSpec = (mt.specular > 0.) || (mt.metalness > 0.);
                             const double rot = hash01( (unsigned)x, (unsigned)y, (unsigned)si ) * 6.283185307;
                             for (const LightEval& le : stp.lights) {
                                 Vec3 L;
@@ -1346,11 +1382,15 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                                 unlitLum += lum;
                                 litLum += lum * vis;
                                 dif = dif + le.col * (w * vis);
-                                if (mt.specular > 0. || mt.metalness > 0.) {
+                                if ( wantSpec || (mt.coat > 0.) ) {
                                     const Vec3 Hh = normalize(L + V);
                                     const double nh = std::max( 0., dot(N, Hh) );
-                                    const double sp = std::pow(nh, shin) * (shin + 8.) / 25.1327 * att * vis * ndl;
-                                    spc = spc + le.col * sp;
+                                    if (wantSpec) {
+                                        spc = spc + le.col * (std::pow(nh, shin) * (shin + 8.) / 25.1327 * att * vis * ndl);
+                                    }
+                                    if (mt.coat > 0.) {
+                                        cspc = cspc + le.col * (std::pow(nh, cshin) * (cshin + 8.) / 25.1327 * att * vis * ndl);
+                                    }
                                 }
                             }
                             if ( !shadowSample.empty() && (unlitLum > 1e-12) ) {
@@ -1358,34 +1398,60 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             }
                             const double em = mt.emission, kd = (1. - em) * (1. - mt.metalness);
                             const double ks = (1. - em) * std::max(mt.specular, mt.metalness);
-                            const double dl[3] = { dif.x, dif.y, dif.z }, sl[3] = { spc.x, spc.y, spc.z };
+                            const double dl[3] = { dif.x, dif.y, dif.z }, sl[3] = { spc.x, spc.y, spc.z }, cl[3] = { cspc.x, cspc.y, cspc.z };
                             for (int ch = 0; ch < 3; ++ch) {
-                                const double albedo = base[ch] * bc[ch];
+                                L_base[ch] = albedo[ch] * (em + kd * dl[ch]);
                                 // metals tint the highlight with their colour (premultiplied by alpha)
-                                const double sc = (1. - mt.metalness) * a + mt.metalness * albedo;
-                                c[ch] = (float)( albedo * (em + kd * dl[ch]) + ks * sl[ch] * sc );
+                                const double sc = (1. - mt.metalness) * a * mt.specularColor[ch] + mt.metalness * albedo[ch];
+                                L_spec[ch] = ks * sl[ch] * sc;
+                                L_coat[ch] = (1. - em) * mt.coat * 0.04 * cl[ch] * a;
                             }
                         }
-                        c[3] = a;
                         // environment reflection (split-sum style, Schlick Fresnel)
                         const double reflW = std::max(mt.specular, mt.metalness);
-                        if ( (reflW > 0.) && !env.lv.empty() ) {
-                            const double cosT = std::max( 0., dot(N, V) );
+                        if ( !env.lv.empty() && ( (reflW > 0.) || (mt.coat > 0.) ) ) {
                             const Vec3 R = normalize(N * (2. * cosT) - V);
-                            float e[3];
-                            env.sample(R, mt.roughness, e);
-                            const double f0d = std::pow( (mt.ior - 1.) / (mt.ior + 1.), 2. );
                             const double sch = std::pow(1. - cosT, 5.);
-                            const double gloss = (1. - mt.roughness) * (1. - mt.roughness);
-                            for (int ch = 0; ch < 3; ++ch) {
-                                // metals tint the reflection with the base colour (premultiplied: divide by alpha)
-                                const double albedo = a > 1e-6f ? base[ch] * bc[ch] / a : 0.;
-                                const double f0 = f0d + (albedo - f0d) * mt.metalness;
-                                const double F = f0 + (std::max(f0, gloss) - f0) * sch;
-                                const double refl = e[ch] * F * reflW;
-                                c[ch] = (float)( c[ch] * (1. - F * mt.metalness) + refl * a );
+                            if (reflW > 0.) {
+                                float e[3];
+                                env.sample(R, mt.roughness, e);
+                                const double f0d = std::pow( (mt.ior - 1.) / (mt.ior + 1.), 2. );
+                                const double gloss = (1. - mt.roughness) * (1. - mt.roughness);
+                                for (int ch = 0; ch < 3; ++ch) {
+                                    // metals tint the reflection with the base colour (premultiplied: divide by alpha)
+                                    const double alb = a > 1e-6f ? albedo[ch] / a : 0.;
+                                    const double f0 = f0d + (alb - f0d) * mt.metalness;
+                                    const double F = f0 + (std::max(f0, gloss) - f0) * sch;
+                                    const double tint = (1. - mt.metalness) * mt.specularColor[ch] + mt.metalness;
+                                    L_refl[ch] = e[ch] * F * reflW * tint * a;
+                                    const double keep = 1. - F * mt.metalness;
+                                    L_base[ch] *= keep;
+                                    L_spec[ch] *= keep;
+                                }
+                            }
+                            if (mt.coat > 0.) {
+                                float e[3];
+                                env.sample(R, mt.coatRoughness, e);
+                                const double g = (1. - mt.coatRoughness) * (1. - mt.coatRoughness);
+                                const double F = 0.04 + (std::max(0.04, g) - 0.04) * sch;
+                                for (int ch = 0; ch < 3; ++ch) {
+                                    L_coat[ch] += e[ch] * F * mt.coat * a;
+                                }
                             }
                         }
+                        // the coat dims what is under it
+                        if (coatF > 0.) {
+                            const double under = 1. - coatF;
+                            for (int ch = 0; ch < 3; ++ch) {
+                                L_base[ch] *= under;
+                                L_spec[ch] *= under;
+                                L_refl[ch] *= under;
+                            }
+                        }
+                        for (int ch = 0; ch < 3; ++ch) {
+                            c[ch] = (float)( L_base[ch] + L_spec[ch] + L_refl[ch] + L_coat[ch] + pv[eScanlinePassEmission][ch] );
+                        }
+                        c[3] = a;
                         break;
                     }
                     }
@@ -1396,20 +1462,37 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             // wireframe: flat lines in the base colour
                             const Vec3& bcol = t.mesh->material.baseColor;
                             c[0] = (float)bcol.x; c[1] = (float)bcol.y; c[2] = (float)bcol.z; c[3] = 1.f;
+                            for (int q = 0; q < eScanlinePassCount; ++q) {
+                                for (int ch = 0; ch < 3; ++ch) {
+                                    pv[q][ch] = (q == eScanlinePassBase) ? c[ch] : 0.;
+                                }
+                            }
                         } else if (edgeDistance(t, pxs, pys) <= kLineHalfWidth) {
                             c[0] = c[1] = c[2] = 0.02f;
                             c[3] = 1.f;
+                            for (int q = 0; q < eScanlinePassCount; ++q) {
+                                for (int ch = 0; ch < 3; ++ch) {
+                                    pv[q][ch] = (q == eScanlinePassBase) ? 0.02 : 0.;
+                                }
+                            }
                         }
                     }
+                    float op = 1.f;
                     if ( (s.output == ScanlineOutput::RGBA) && (t.mesh->material.opacity < 1.) ) {
-                        const float op = (float)std::max(0., t.mesh->material.opacity);
+                        op = (float)std::max(0., t.mesh->material.opacity);
                         for (int ch = 0; ch < 4; ++ch) {
                             c[ch] *= op;
                         }
                     }
-                    float* o = &sampleCol[k * 4];
+                    float* o = &sampleCol[k * C];
                     for (int ch = 0; ch < 4; ++ch) {
                         o[ch] = c[ch];
+                    }
+                    for (int q = 0; q < eScanlinePassCount; ++q) {
+                        if (passSlot[q] >= 0) {
+                            float* pd = o + 4 + 3 * passSlot[q];
+                            pd[0] = (float)pv[q][0] * op; pd[1] = (float)pv[q][1] * op; pd[2] = (float)pv[q][2] * op;
+                        }
                     }
                 }
             }
@@ -1425,8 +1508,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
             for (size_t k = 0; k < triId.size(); ++k) {
                 if (triId[k] < 0) {
                     // nothing rendered here: keep what the shading pass wrote (transparent)
-                    for (int ch = 0; ch < 4; ++ch) {
-                        stat[k * 4 + ch] = sampleCol[k * 4 + ch];
+                    for (int ch = 0; ch < C; ++ch) {
+                        stat[k * C + ch] = sampleCol[k * C + ch];
                     }
                 }
             }
@@ -1434,7 +1517,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                 for (int x = 0; x < W; ++x) {
                     const size_t k = (size_t)y * W + x;
                     const int ti = triId[k];
-                    const float* c = &sampleCol[k * 4];
+                    const float* c = &sampleCol[k * C];
                     if ( (ti < 0) || ( (size_t)ti >= velA->size() ) ) {
                         continue;
                     }
@@ -1445,8 +1528,10 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                     const double vy = ( b0 * (tb.sy[0] - ta.sy[0]) + b1 * (tb.sy[1] - ta.sy[1]) + b2 * (tb.sy[2] - ta.sy[2]) ) * velScale * slice;
                     const double len = std::sqrt(vx * vx + vy * vy);
                     if (len < 0.75) {
-                        float* d = &stat[k * 4];
-                        d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+                        float* d = &stat[k * C];
+                        for (int ch = 0; ch < C; ++ch) {
+                            d[ch] = c[ch];
+                        }
                         continue;
                     }
                     movedLen[k] = (float)len;
@@ -1465,8 +1550,10 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         if ( (triId[kk] >= 0) && (depth[kk] < zs - 1e-5f) && (tris[triId[kk]].mesh != tris[ti].mesh) ) {
                             continue;   // occluded by a closer surface at that pixel
                         }
-                        float* d = &sm[kk * 4];
-                        d[0] += c[0] * wk; d[1] += c[1] * wk; d[2] += c[2] * wk; d[3] += c[3] * wk;
+                        float* d = &sm[kk * C];
+                        for (int ch = 0; ch < C; ++ch) {
+                            d[ch] += c[ch] * wk;
+                        }
                     }
                 }
             }
@@ -1482,7 +1569,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             continue;
                         }
                         const double ux = movedDir[k * 2], uy = movedDir[k * 2 + 1];
-                        float accC[4] = { 0, 0, 0, 0 };
+                        float accC[4 + 3 * eScanlinePassCount] = {};
                         int found = 0;
                         for (int sgn = -1; sgn <= 1; sgn += 2) {
                             for (int r = 1; r <= 160; ++r) {
@@ -1492,8 +1579,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                                 }
                                 const size_t kk = (size_t)yy * W + xx;
                                 if ( (triId[kk] < 0) || (movedLen[kk] <= 0.f) ) {
-                                    for (int ch = 0; ch < 4; ++ch) {
-                                        accC[ch] += stat[kk * 4 + ch];
+                                    for (int ch = 0; ch < C; ++ch) {
+                                        accC[ch] += stat[kk * C + ch];
                                     }
                                     ++found;
                                     break;
@@ -1501,8 +1588,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             }
                         }
                         if (found) {
-                            for (int ch = 0; ch < 4; ++ch) {
-                                fill[k * 4 + ch] = accC[ch] / found;
+                            for (int ch = 0; ch < C; ++ch) {
+                                fill[k * C + ch] = accC[ch] / found;
                             }
                         }
                     }
@@ -1511,10 +1598,10 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
             }
             // moving streaks over the still surfaces
             for (size_t k = 0; k < triId.size(); ++k) {
-                float* d = &sm[k * 4];
-                const float* st0 = &stat[k * 4];
+                float* d = &sm[k * C];
+                const float* st0 = &stat[k * C];
                 const float a = std::min(1.f, d[3]);
-                for (int ch = 0; ch < 4; ++ch) {
+                for (int ch = 0; ch < C; ++ch) {
                     d[ch] = std::min(ch == 3 ? 1.f : 1e30f, d[ch]) + st0[ch] * (1.f - a);
                 }
             }
@@ -1524,7 +1611,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         runRows([&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {
                 for (int x = 0; x < W; ++x) {
-                    float acc[4] = { 0, 0, 0, 0 };
+                    float acc[4 + 3 * eScanlinePassCount] = {};
                     float accS = 0.f;
                     float ws = 0.f;
                     for (int j = -fri; j <= fri; ++j) {
@@ -1545,8 +1632,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             if (w == 0.) {
                                 continue;
                             }
-                            const float* sc = &sampleCol[( (size_t)yy * W + xx ) * 4];
-                            for (int ch = 0; ch < 4; ++ch) {
+                            const float* sc = &sampleCol[( (size_t)yy * W + xx ) * C];
+                            for (int ch = 0; ch < C; ++ch) {
                                 acc[ch] += (float)w * sc[ch];
                             }
                             if (!shadowSample.empty()) {
@@ -1559,6 +1646,9 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                     float* o = &(*out)[k * 4];
                     for (int ch = 0; ch < 4; ++ch) {
                         o[ch] += acc[ch];
+                    }
+                    for (int ch = 0; ch < 3 * nPass; ++ch) {
+                        passAcc[k * 3 * nPass + ch] += acc[4 + ch];
                     }
                     if (!shadowAcc.empty()) {
                         shadowAcc[k] += accS;
@@ -1576,6 +1666,21 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         }
         if (aov.shadow) {
             (*aov.shadow)[k] = w != 0.f ? shadowAcc[k] / w : 0.f;
+        }
+    }
+    for (int q = 0; q < eScanlinePassCount; ++q) {
+        if (passSlot[q] < 0) {
+            continue;
+        }
+        std::vector<float>& pb = *aov.pass[q];
+        pb.assign( (size_t)W * H * 3, 0.f );
+        for (size_t k = 0; k < wsum.size(); ++k) {
+            const float w = wsum[k];
+            if (w == 0.f) {
+                continue;
+            }
+            const float* src = &passAcc[k * 3 * nPass + 3 * passSlot[q]];
+            pb[k * 3] = src[0] / w; pb[k * 3 + 1] = src[1] / w; pb[k * 3 + 2] = src[2] / w;
         }
     }
 }

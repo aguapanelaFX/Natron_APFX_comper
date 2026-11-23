@@ -31,6 +31,7 @@ struct Vec3
     Vec3 operator+(const Vec3& o) const { return Vec3(x + o.x, y + o.y, z + o.z); }
     Vec3 operator-(const Vec3& o) const { return Vec3(x - o.x, y - o.y, z - o.z); }
     Vec3 operator*(double s) const { return Vec3(x * s, y * s, z * s); }
+    double operator[](int i) const { return i == 0 ? x : (i == 1 ? y : z); }
 };
 
 double dot(const Vec3& a, const Vec3& b);
@@ -59,12 +60,22 @@ enum class PrimType { Xform, Mesh, Camera, Light };
 // surface look used by ScanlineRender (MaterialX-shaped subset: OpenPBR base / specular / metalness)
 struct Material
 {
+    // base layer
     Vec3 baseColor = Vec3(1, 1, 1);  // multiplies the texture (or is the colour without texture)
-    double emission = 1.;            // unlit amount: 1 = texture shown as is (cards), 0 = fully lit
+    double baseWeight = 1.;
     double metalness = 0.;
+    double emission = 1.;            // unlit amount: 1 = texture shown as is (cards), 0 = fully lit
+    // specular layer
     double specular = 0.;            // reflection weight (dielectric)
+    Vec3 specularColor = Vec3(1, 1, 1);
     double roughness = 0.2;
     double ior = 1.5;
+    // coat layer (clear layer on top, IOR 1.5)
+    double coat = 0.;
+    double coatRoughness = 0.1;
+    // emission (light given off, added on top)
+    Vec3 emissionColor = Vec3(1, 1, 1);
+    double emissionWeight = 0.;
     double opacity = 1.;             // multiplies the alpha
 };
 
