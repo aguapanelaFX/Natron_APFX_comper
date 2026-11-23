@@ -227,6 +227,9 @@ readMaterial(const UsdPrim& prim, UsdTimeCode t, Stage* s, SolvUsdPrim* p)
     p->ior = 1.5f;
     p->specular = 0.5f;
     p->emissive[0] = p->emissive[1] = p->emissive[2] = 0.f;
+    p->clearcoat = 0.f;
+    p->clearcoatRoughness = 0.01f;
+    p->specularColor[0] = p->specularColor[1] = p->specularColor[2] = 1.f;
     p->diffuseTexture = "";
     // display colour first (overridden by a bound UsdPreviewSurface)
     UsdGeomGprim gp(prim);
@@ -285,6 +288,25 @@ readMaterial(const UsdPrim& prim, UsdTimeCode t, Stage* s, SolvUsdPrim* p)
     inputValue1("metallic", &p->metallic);
     inputValue1("roughness", &p->roughness);
     inputValue1("ior", &p->ior);
+    inputValue1("clearcoat", &p->clearcoat);
+    inputValue1("clearcoatRoughness", &p->clearcoatRoughness);
+    {
+        // specularColor: a tint here; in the specular workflow it is the reflectance colour, keep its hue only
+        float sc[3] = { -1.f, -1.f, -1.f };
+        inputValue3("specularColor", sc);
+        if (sc[0] >= 0.f) {
+            int specWorkflow = 0;
+            UsdShadeInput wf = sh.GetInput( TfToken("useSpecularWorkflow") );
+            if (wf) {
+                wf.Get(&specWorkflow, t);
+            }
+            const float m = std::max( sc[0], std::max(sc[1], sc[2]) );
+            const float k = (specWorkflow && (m > 1e-6f)) ? 1.f / m : 1.f;
+            for (int c = 0; c < 3; ++c) {
+                p->specularColor[c] = sc[c] * k;
+            }
+        }
+    }
     // diffuse texture: the UsdUVTexture connected to diffuseColor
     UsdShadeInput dIn = sh.GetInput( TfToken("diffuseColor") );
     if (dIn) {
@@ -907,6 +929,14 @@ solvusd_write_frame(void* h, double timeCode, const SolvUsdPrim* prims, int n)
                 sh.CreateInput(TfToken("roughness"), SdfValueTypeNames->Float).Set(p.roughness);
                 sh.CreateInput(TfToken("ior"), SdfValueTypeNames->Float).Set(p.ior);
                 sh.CreateInput(TfToken("opacity"), SdfValueTypeNames->Float).Set(p.opacity);
+                if (p.clearcoat > 0.f) {
+                    sh.CreateInput(TfToken("clearcoat"), SdfValueTypeNames->Float).Set(p.clearcoat);
+                    sh.CreateInput(TfToken("clearcoatRoughness"), SdfValueTypeNames->Float).Set(p.clearcoatRoughness);
+                }
+                if ( (p.specularColor[0] != 1.f) || (p.specularColor[1] != 1.f) || (p.specularColor[2] != 1.f) ) {
+                    // metallic workflow stays on: other apps ignore it, SOLVFX reads it back as the tint
+                    sh.CreateInput(TfToken("specularColor"), SdfValueTypeNames->Color3f).Set( GfVec3f(p.specularColor[0], p.specularColor[1], p.specularColor[2]) );
+                }
                 mat.CreateSurfaceOutput().ConnectToSource( sh.ConnectableAPI(), TfToken("surface") );
                 UsdShadeMaterialBindingAPI::Apply(prim).Bind(mat);
                 w->looks[p.path] = lookPath;

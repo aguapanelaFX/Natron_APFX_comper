@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define SOLVUSD_VERSION 3
+#define SOLVUSD_VERSION 4
 
 enum SolvUsdPrimType { SOLVUSD_XFORM = 0, SOLVUSD_MESH = 1, SOLVUSD_CAMERA = 2, SOLVUSD_LIGHT = 3 };
 enum SolvUsdLightType { SOLVUSD_POINT = 0, SOLVUSD_SPOT = 1, SOLVUSD_DISTANT = 2, SOLVUSD_DOME = 3 };
@@ -51,6 +51,8 @@ typedef struct SolvUsdPrim
     float opacity;
     float metallic, roughness, ior, specular;
     float emissive[3];
+    float clearcoat, clearcoatRoughness; /* v4: UsdPreviewSurface clearcoat */
+    float specularColor[3];             /* v4: tint of the highlights / reflections (1 1 1 = none) */
     const char* diffuseTexture; /* file path of the diffuse texture, "" if none */
 
     /* camera (mm, like the USD attributes when 1 unit = 1 cm) */

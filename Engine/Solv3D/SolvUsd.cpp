@@ -378,6 +378,9 @@ readUsd(const std::string& file, double timeCode, const std::string& root, Scene
                 m->material.emissionColor = Vec3(p->emissive[0], p->emissive[1], p->emissive[2]);
                 m->material.emissionWeight = 1.;
             }
+            m->material.coat = p->clearcoat;
+            m->material.coatRoughness = p->clearcoatRoughness;
+            m->material.specularColor = Vec3(p->specularColor[0], p->specularColor[1], p->specularColor[2]);
             if (p->diffuseTexture && *p->diffuseTexture) {
                 m->textureFile = p->diffuseTexture;
             }
@@ -496,6 +499,11 @@ writeUsd(const std::string& file, const std::vector<std::pair<double, const Scen
                 u.roughness = (float)m.material.roughness;
                 u.ior = (float)m.material.ior;
                 u.specular = (float)m.material.specular;
+                u.clearcoat = (float)m.material.coat;
+                u.clearcoatRoughness = (float)m.material.coatRoughness;
+                u.specularColor[0] = (float)m.material.specularColor.x;
+                u.specularColor[1] = (float)m.material.specularColor.y;
+                u.specularColor[2] = (float)m.material.specularColor.z;
                 // emissive: the emission layer, plus the unlit part of the base (cards) so it still shows as is
                 const float em = (float)m.material.emission, ew = (float)m.material.emissionWeight;
                 const Vec3& ec = m.material.emissionColor;
