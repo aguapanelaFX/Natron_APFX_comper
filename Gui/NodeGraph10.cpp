@@ -413,6 +413,15 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
     } else if ( (nearbyItemCode == eNearbyItemNodeEdge) && groupEdited ) {
         assert(nearbyEdge);
         _imp->_arrowSelected = nearbyEdge;
+        // SOLVFX: Shift+drag on a pipe duplicates it: a new pipe from the same source is dragged to
+        // another node's input, the original connection stays
+        if ( modCASIsShift(e) && !nearbyEdge->isOutputEdge() && nearbyEdge->getSource() ) {
+            Edge* out = nearbyEdge->getSource()->getOutputArrow();
+            if (out) {
+                _imp->_arrowSelected = out;
+                out->dragDest( out->mapFromScene(lastMousePosScene) );
+            }
+        }
         didSomething = true;
         _imp->_evtState = eEventStateDraggingArrow;
     }
