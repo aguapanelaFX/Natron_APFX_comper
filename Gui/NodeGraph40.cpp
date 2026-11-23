@@ -27,6 +27,7 @@
 #include "NodeGraphPrivate.h"
 
 #include <limits>
+#include <set>
 #include <sstream> // stringstream
 #include <stdexcept>
 
@@ -48,6 +49,7 @@ GCC_DIAG_ON(unused-parameter)
 #include <QApplication>
 #include <QClipboard>
 #include <QMimeData>
+#include <QUndoStack>
 
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h"
@@ -64,6 +66,8 @@ GCC_DIAG_ON(unused-parameter)
 #include "Gui/NodeClipBoard.h"
 #include "Gui/NodeGui.h"
 #include "Gui/NodeGuiSerialization.h"
+#include "Gui/NodeGraphUndoRedo.h"
+#include "Gui/Edge.h"
 
 #include "Global/QtCompat.h"
 
@@ -197,9 +201,166 @@ NodeGraph::pasteNodeClipBoards(const QPointF& pos)
     return true;
 }
 
+// SOLVFX: main (B / first non-mask) input of a node, -1 if none
+static int
+solvfxMainInput(const NodePtr& n)
+{
+    if ( !n || (n->getNInputs() == 0) ) {
+        return -1;
+    }
+    EffectInstancePtr fx = n->getEffectInstance();
+    for (int i = 0; i < n->getNInputs(); ++i) {
+        if (n->getInputLabel(i) == "B") {
+            return i;
+        }
+    }
+    for (int i = 0; i < n->getNInputs(); ++i) {
+        if ( fx && ( fx->isInputMask(i) || fx->isInputRotoBrush(i) ) ) {
+            continue;
+        }
+
+        return i;
+    }
+
+    return -1;
+}
+
+// SOLVFX: like Nuke, pasting with a node selected puts the pasted nodes in the stream below it:
+// the top pasted node takes the selected node as its input, and whatever the selected node fed
+// now comes from the bottom pasted node. One undo step.
+bool
+NodeGraph::solvfxPasteInStream()
+{
+    NodeGuiPtr sel;
+    for (NodesGuiList::reverse_iterator it = _imp->_selection.rbegin(); it != _imp->_selection.rend(); ++it) {
+        if ( *it && !dynamic_cast<BackdropGui*>( it->get() ) ) {
+            sel = *it;
+            break;
+        }
+    }
+    if (!sel) {
+        return false;
+    }
+    QClipboard* clipboard = QApplication::clipboard();
+    const QMimeData* mimedata = clipboard->mimeData();
+    if ( !mimedata || !mimedata->hasFormat( QLatin1String("text/plain") ) ) {
+        return false;
+    }
+    NodeClipBoard& cb = appPTR->getNodeClipBoard();
+    try {
+        std::stringstream ss( QString::fromUtf8( mimedata->data( QLatin1String("text/plain") ) ).toStdString() );
+        boost::archive::xml_iarchive iArchive(ss);
+        iArchive >> boost::serialization::make_nvp("Clipboard", cb);
+    } catch (...) {
+        return false;
+    }
+    if ( cb.isEmpty() ) {
+        return false;
+    }
+    NodePtr selNode = sel->getNode();
+    // what the selected node feeds (before pasting)
+    std::list<std::pair<NodeGuiPtr, int> > downstream;
+    {
+        const NodesWList outs = selNode->getOutputs();
+        for (NodesWList::const_iterator it = outs.begin(); it != outs.end(); ++it) {
+            NodePtr o = it->lock();
+            if (!o) {
+                continue;
+            }
+            NodeGuiPtr og = std::dynamic_pointer_cast<NodeGui>( o->getNodeGui() );
+            if (!og) {
+                continue;
+            }
+            for (int i = 0; i < o->getNInputs(); ++i) {
+                if (o->getInput(i) == selNode) {
+                    downstream.push_back( std::make_pair(og, i) );
+                }
+            }
+        }
+    }
+    // clipboard extent -> pasted just below the selected node, centred on it
+    double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30;
+    for (std::list<NodeGuiSerializationPtr>::const_iterator it = cb.nodesUI.begin(); it != cb.nodesUI.end(); ++it) {
+        xmin = std::min( xmin, (*it)->getX() );
+        xmax = std::max( xmax, (*it)->getX() );
+        ymin = std::min( ymin, (*it)->getY() );
+        ymax = std::max( ymax, (*it)->getY() );
+    }
+    double sw, sh;
+    sel->getSize(&sw, &sh);
+    const QPointF sp = sel->getPos_mt_safe();
+    const QPointF centre( sp.x() + 0.5 * sw - 60., sp.y() + sh + 60. + 0.5 * (ymax - ymin) );
+
+    _imp->_undoStack->beginMacro( tr("Paste in stream") );
+    std::list<std::pair<std::string, NodeGuiPtr> > newNodes;
+    _imp->pasteNodesInternal(cb, centre, true, &newNodes);
+    if ( newNodes.empty() ) {
+        _imp->_undoStack->endMacro();
+
+        return true;
+    }
+    std::set<Node*> pasted;
+    for (std::list<std::pair<std::string, NodeGuiPtr> >::iterator it = newNodes.begin(); it != newNodes.end(); ++it) {
+        pasted.insert( it->second->getNode().get() );
+    }
+    // top: highest pasted node whose main input is free or outside the pasted nodes
+    // bottom: lowest pasted node that feeds no other pasted node
+    NodeGuiPtr top, bottom;
+    int topInput = -1;
+    for (std::list<std::pair<std::string, NodeGuiPtr> >::iterator it = newNodes.begin(); it != newNodes.end(); ++it) {
+        const NodeGuiPtr& g = it->second;
+        NodePtr n = g->getNode();
+        const int mi = solvfxMainInput(n);
+        if (mi >= 0) {
+            NodePtr in = n->getInput(mi);
+            if ( !in || ( pasted.find( in.get() ) == pasted.end() ) ) {
+                if ( !top || ( g->getPos_mt_safe().y() < top->getPos_mt_safe().y() ) ) {
+                    top = g;
+                    topInput = mi;
+                }
+            }
+        }
+        bool feedsPasted = false;
+        const NodesWList outs = n->getOutputs();
+        for (NodesWList::const_iterator o = outs.begin(); o != outs.end(); ++o) {
+            NodePtr on = o->lock();
+            if ( on && ( pasted.find( on.get() ) != pasted.end() ) ) {
+                feedsPasted = true;
+                break;
+            }
+        }
+        if ( !feedsPasted && ( !bottom || ( g->getPos_mt_safe().y() > bottom->getPos_mt_safe().y() ) ) ) {
+            bottom = g;
+        }
+    }
+    if ( top && (topInput >= 0) ) {
+        Edge* e = top->getInputArrow(topInput);
+        if (e) {
+            pushUndoCommand( new ConnectCommand(this, e, e->getSource(), sel) );
+        }
+    }
+    if (bottom) {
+        for (std::list<std::pair<NodeGuiPtr, int> >::iterator it = downstream.begin(); it != downstream.end(); ++it) {
+            if ( pasted.find( it->first->getNode().get() ) != pasted.end() ) {
+                continue;
+            }
+            Edge* e = it->first->getInputArrow(it->second);
+            if (e) {
+                pushUndoCommand( new ConnectCommand(this, e, e->getSource(), bottom) );
+            }
+        }
+    }
+    _imp->_undoStack->endMacro();
+
+    return true;
+}
+
 bool
 NodeGraph::pasteNodeClipBoards()
 {
+    if ( solvfxPasteInStream() ) {   // SOLVFX: a node is selected: paste into its stream
+        return true;
+    }
     QPointF position = mapToScene( mapFromGlobal( QCursor::pos() ) );
 
     return pasteNodeClipBoards(position);

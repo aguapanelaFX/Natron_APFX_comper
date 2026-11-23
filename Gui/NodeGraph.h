@@ -125,6 +125,7 @@ public:
     void solvfxReconnectStamp(const NodeGuiPtr& stamp, const NodeGuiPtr& anchor);
     void solvfxReconnectStamps(const NodesGuiList& nodes);
     void solvfxConnectSelection();
+    bool solvfxPasteInStream();
     NodeGuiPtr solvfxCreateStampNode(const char* pluginID, const QPointF& pos);
     NodeGuiPtr solvfxMakeStampOf(const NodeGuiPtr& anchor, const QPointF* atPos = 0);
     QPointF solvfxPosUnderCursor() const;
