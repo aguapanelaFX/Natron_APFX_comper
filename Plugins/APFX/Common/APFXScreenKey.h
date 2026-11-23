@@ -773,18 +773,18 @@ analyse(const Plane& src, const int* area, const Params& cur, Analysis& out, con
             const double m = ringEx[d] / ringN[d];
             if (std::fabs(m) > std::fabs(peak)) { peak = m; peakD = d; }
         }
-        // far rings give the noise floor
-        double far = 0., farN = 0.;
+        // farMean rings give the noise floor
+        double farMean = 0., farCount = 0.;
         for (int d = maxR - 4; d <= maxR; ++d) {
-            if (ringN[d] > 0.) { far += ringEx[d] / ringN[d]; farN += 1.; }
+            if (ringN[d] > 0.) { farMean += ringEx[d] / ringN[d]; farCount += 1.; }
         }
-        far = farN > 0. ? far / farN : 0.;
-        const double rel = peak - far;
+        farMean = farCount > 0. ? farMean / farCount : 0.;
+        const double rel = peak - farMean;
         if ( (peakD > 0) && (std::fabs(rel) > 0.03) ) {
             out.halo = rel > 0. ? 1 : -1;
             int width = peakD;
             for (int d = peakD; d <= maxR; ++d) {
-                if ( (ringN[d] < 20.) || (std::fabs(ringEx[d] / ringN[d] - far) < 0.3 * std::fabs(rel)) ) {
+                if ( (ringN[d] < 20.) || (std::fabs(ringEx[d] / ringN[d] - farMean) < 0.3 * std::fabs(rel)) ) {
                     break;
                 }
                 width = d;
