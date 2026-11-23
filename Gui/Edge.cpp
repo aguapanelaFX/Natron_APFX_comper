@@ -146,9 +146,10 @@ EdgePrivate::initLabel()
     if ( (inputNb != -1) && dst ) {
         label = new NodeGraphSimpleTextItem(dst->getDagGui(), _publicInterface, false);
         label->setText( QString::fromUtf8( dst->getNode()->getInputLabel(inputNb).c_str() ) );
-        // SOLVFX: A / B / mask input labels in tan
-        label->setBrush( QColor(0xe3, 0xa6, 0x60) );
+        // SOLVFX: A / B / mask input labels in orange, semi-bold
+        label->setBrush( QColor(0xe0, 0x74, 0x3a) );
         QFont f = qApp->font();
+        f.setWeight(QFont::DemiBold);
         bool antialias = appPTR->getCurrentSettings()->isNodeGraphAntiAliasingEnabled();
         if (!antialias) {
             f.setStyleStrategy(QFont::NoAntialias);

@@ -33,6 +33,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QGraphicsItem>
+#include <QPainterPath>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -45,7 +46,7 @@ class NodeGraphRectItem
 {
     int _cornerRadiusPx;
     bool _solvfxLook; // SOLVFX: vertical gradient body (node graph look)
-    bool _pill; // SOLVFX: corner radius = half the height (Viewer node)
+    int _shape; // SOLVFX: eSolvfxShape*
     bool _selectedLook; // SOLVFX: lighter fill when selected
 public:
 
@@ -53,12 +54,27 @@ public:
     // The category colors use the exact pairs of the locked style sheet.
     static QColor solvfxTopColor(const QColor& bottom);
 
-    void setSolvfxLook(bool look, bool pill = false)
+    // SOLVFX node shapes
+    enum
+    {
+        eSolvfxShapeRect = 0,   // rounded rectangle (default)
+        eSolvfxShapeHexagon,    // pointed ends: time nodes, Viewer
+        eSolvfxShapeCapsule,    // round ends: 3D geometry
+        eSolvfxShapeCircle,     // Scene, Axis
+        eSolvfxShapePointRight  // keyers: pointed right end
+    };
+
+    void setSolvfxLook(bool look, int shape = eSolvfxShapeRect)
     {
         _solvfxLook = look;
-        _pill = pill;
+        _shape = shape;
         update();
     }
+
+    int solvfxShape() const { return _shape; }
+
+    // outline of the body in the given rect
+    QPainterPath solvfxPath(const QRectF& r) const;
 
     void setSelectedLook(bool selected)
     {

@@ -25,6 +25,13 @@
 
 #include "Splitter.h"
 
+#include <QApplication>
+#include <QEvent>
+#include <QPainter>
+#include <QSplitterHandle>
+
+#include "Engine/AppManager.h"
+
 #include <cassert>
 #include <stdexcept>
 
@@ -35,6 +42,7 @@ Splitter::Splitter(QWidget* parent)
     , _lock()
 {
     setMouseTracking(true);
+    setHandleWidth( TO_DPIX(4) );
 }
 
 Splitter::Splitter(Qt::Orientation orientation,
@@ -43,6 +51,64 @@ Splitter::Splitter(Qt::Orientation orientation,
     , _lock()
 {
     setMouseTracking(true);
+    setHandleWidth( TO_DPIX(4) );
+}
+
+namespace {
+// SOLVFX: the handle is the gap between two panes (window background shows through),
+// with a short grip line in the middle; orange while dragging
+class SolvfxSplitterHandle
+    : public QSplitterHandle
+{
+public:
+    SolvfxSplitterHandle(Qt::Orientation o, QSplitter* parent)
+        : QSplitterHandle(o, parent)
+        , _hover(false)
+    {
+        setAttribute(Qt::WA_Hover, true);
+    }
+
+protected:
+    virtual bool event(QEvent* e) OVERRIDE FINAL
+    {
+        if (e->type() == QEvent::HoverEnter) {
+            _hover = true;
+            update();
+        } else if (e->type() == QEvent::HoverLeave) {
+            _hover = false;
+            update();
+        }
+
+        return QSplitterHandle::event(e);
+    }
+
+    virtual void paintEvent(QPaintEvent*) OVERRIDE FINAL
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const bool down = QApplication::mouseButtons() & Qt::LeftButton;
+        const QColor c = (_hover && down) ? QColor(0xe0, 0x74, 0x3a) : (_hover ? QColor(0x5a, 0x5a, 0x5a) : QColor(0x3a, 0x3a, 0x3a));
+        const qreal len = TO_DPIX(28), th = 2.;
+        QRectF r;
+        if (orientation() == Qt::Horizontal) {
+            r = QRectF( (width() - th) / 2., (height() - len) / 2., th, len );
+        } else {
+            r = QRectF( (width() - len) / 2., (height() - th) / 2., len, th );
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        p.drawRoundedRect(r, 1., 1.);
+    }
+
+private:
+    bool _hover;
+};
+} // anon
+
+QSplitterHandle*
+Splitter::createHandle()
+{
+    return new SolvfxSplitterHandle(orientation(), this);
 }
 
 void

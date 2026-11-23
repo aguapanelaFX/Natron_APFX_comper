@@ -115,6 +115,11 @@ struct Camera
     double shutter = 0.5;                // frames
     int shutterOffset = 0;               // 0 centred, 1 start, 2 end, 3 custom
     double shutterCustom = 0.;           // custom start (frames, relative to the frame)
+    // lens distortion (radial, applied to the render): output pixel at radius r (in half image widths) shows the
+    // undistorted render at r * (1 + k1 r^2 + k2 r^4); k1 > 0 = barrel, < 0 = pincushion
+    bool distortion = false;
+    double distortK1 = 0., distortK2 = 0.;
+    double distortCenter[2] = { 0., 0. }; // offset of the distortion centre (half image widths)
 
     // projection to normalised device coordinates (x, y in -1..1), aspect = image width / height
     Mat4 projection(double aspect) const;

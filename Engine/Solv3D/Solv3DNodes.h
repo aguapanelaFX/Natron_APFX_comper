@@ -54,13 +54,25 @@ struct Solv3DTexRef
 // uniform scale / skew / pivot translate / pivot rotate, and the read-only local matrix
 struct Solv3DXformKnobs
 {
-    KnobChoiceWPtr order, rotOrder;
+    KnobChoiceWPtr snap, order, rotOrder;
     KnobDoubleWPtr translate, rotate, scale, uniform, skew, pivot, pivotRotate;
     KnobDoubleWPtr matrixRows[4];
 
     void create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder = 4 /* ZXY */, bool matrixGroup = true);
     Solv3D::Mat4 matrix(double time) const;
     void refreshMatrix(double time) const;
+};
+
+// Constrain: aim at the node connected to the look input
+struct Solv3DConstrainKnobs
+{
+    KnobBoolWPtr enable;
+    KnobChoiceWPtr aim;
+    KnobDoubleWPtr mix;
+
+    void create(EffectInstance* fx, const KnobPagePtr& page, int defaultAim);
+    // world -> world aimed at the look input (unchanged when nothing is connected / off)
+    Solv3D::Mat4 apply(EffectInstance* fx, int lookInput, double time, const Solv3D::Mat4& world) const;
 };
 
 // path of the prim and USD prim attributes (top of the main page)
@@ -121,6 +133,7 @@ public:
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE;
     void registerXform(const Solv3DXformKnobs* x) { _xforms.push_back(x); }
     void refreshMatrices();
+    void runSnap(const Solv3DXformKnobs* x, int item); // Snap menu actions
 
     // ---- EffectInstance boilerplate
     virtual int getMajorVersion() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
@@ -174,6 +187,8 @@ private:
     KnobChoiceWPtr _orientation;
     KnobBoolWPtr _imageAspect;
     KnobDoubleWPtr _size, _z, _lensFocal, _lensAperture, _opacity;
+    KnobChoiceWPtr _deformType, _bendAxis;
+    KnobDoubleWPtr _corner[4], _bend;
     KnobIntWPtr _rows, _cols;
     KnobColorWPtr _color;
     KnobBoolWPtr _lit;
@@ -202,8 +217,8 @@ public:
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
-    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "axis"; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 2; }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i == 1 ? "look" : "axis"; }
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
@@ -213,6 +228,7 @@ private:
     Solv3DPrimKnobs _prim;
     Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
+    Solv3DConstrainKnobs _look;
     KnobChoiceWPtr _falloff, _shadowQuality, _shadowRes;
     KnobColorWPtr _color;
     KnobDoubleWPtr _intensity, _cone, _penumbra, _softness, _bias;
@@ -242,8 +258,8 @@ public:
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_CAMERA; }
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Camera"; }
     virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
-    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "axis"; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 2; }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i == 1 ? "look" : "axis"; }
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
@@ -258,12 +274,15 @@ private:
     Solv3DPrimKnobs _prim;
     Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
+    Solv3DConstrainKnobs _look;
     KnobDoubleWPtr _parentT, _parentR, _parentS;
     KnobBoolWPtr _parentSync;
     KnobChoiceWPtr _projection, _preset, _shutterOffset, _sourcePick;
     KnobDoubleWPtr _focal, _hAperture, _vAperture, _near, _far;
     KnobDoubleWPtr _winTranslate, _winScale, _winRoll, _focusDist, _fStop;
     KnobDoubleWPtr _worldToMeters, _shutter, _shutterCustom, _shutterBias;
+    KnobBoolWPtr _distEnabled;
+    KnobDoubleWPtr _distK1, _distK2, _distCenter;
     KnobBoolWPtr _liveRead, _useSceneScale, _importFile, _eulerFilter;
     KnobButtonWPtr _snapFrame, _snapRange, _reload;
     KnobStringWPtr _sourcePrim;
@@ -284,8 +303,8 @@ public:
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_AXIS; }
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Axis"; }
     virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
-    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "axis"; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 2; }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i == 1 ? "look" : "axis"; }
     virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
@@ -294,6 +313,7 @@ private:
     Solv3DPrimKnobs _prim;
     Solv3DDisplayKnobs _disp;
     Solv3DXformKnobs _xf;
+    Solv3DConstrainKnobs _look;
 };
 
 // 2D node: solves a camera from vanishing lines drawn on the plate; "export" creates a Camera
@@ -355,6 +375,8 @@ private:
     KnobBoolWPtr _solved, _showTripod;
     KnobChoiceWPtr _planeMode;
     KnobDoubleWPtr _planeTranslate, _planeRotate, _planeSize;
+    KnobButtonWPtr _updateSolve;
+    void rebaseOnPlane();
     bool solvedView(Solv3D::Mat4* viewProj, RectD* plate); // camera of the last solve (overlay)
     void exportPlane();
     int _drag;                  // line * 2 + end, -2 = origin, -3 = drawing a new line
@@ -556,7 +578,7 @@ private:
     KnobBoolWPtr _aovDepth, _aovShadow, _aovPosition, _aovNormal, _aovUV, _aovMotion;
     KnobDoubleWPtr _filterWidth, _ambient, _shutter, _shutterCustom;
     KnobIntWPtr _overscan, _mbSamples;
-    KnobBoolWPtr _texFilter, _transparency, _zBuffer, _shutterFromCam;
+    KnobBoolWPtr _texFilter, _transparency, _zBuffer, _shutterFromCam, _applyDistortion;
 };
 
 NATRON_NAMESPACE_EXIT

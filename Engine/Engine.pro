@@ -259,6 +259,8 @@ HEADERS += \
     Solv3D/SolvUsd.h \
     Solv3D/SolvTexFile.h \
     Solv3D/stb_image.h \
+    Solv3D/stb_image_write.h \
+    Solv3D/tinyexr.h \
     Solv3D/SolvVanishingCamera.h \
     Solv3D/Solv3DNodes.h \
     SolvfxPathVars.h \

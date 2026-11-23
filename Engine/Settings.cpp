@@ -940,7 +940,7 @@ Settings::initializeKnobsNodeGraphColors()
     _nodegraphColorsTab->addKnob(_defaultGeneratorColor);
 
     _defaultColorGroupColor =  AppManager::createKnob<KnobColor>(this, tr("Color group"), 3);
-    _defaultColorGroupColor->setName("solvfxColorNodesColor"); // SOLVFX: new name so old Natron colors saved in prefs are not reused
+    _defaultColorGroupColor->setName("solvfxColorNodesColor2"); // SOLVFX: light blue (Nov 22) // SOLVFX: new name so old Natron colors saved in prefs are not reused
     _defaultColorGroupColor->setSimplified(true);
     _defaultColorGroupColor->setHintToolTip( tr("The color used for newly created Color nodes.") );
     _nodegraphColorsTab->addKnob(_defaultColorGroupColor);
@@ -958,7 +958,7 @@ Settings::initializeKnobsNodeGraphColors()
     _nodegraphColorsTab->addKnob(_defaultTransformGroupColor);
 
     _defaultTimeGroupColor =  AppManager::createKnob<KnobColor>(this, tr("Time group"), 3);
-    _defaultTimeGroupColor->setName("solvfxTimeNodesColor"); // SOLVFX: new name so old Natron colors saved in prefs are not reused
+    _defaultTimeGroupColor->setName("solvfxTimeNodesColor2"); // SOLVFX: olive (Nov 22) // SOLVFX: new name so old Natron colors saved in prefs are not reused
     _defaultTimeGroupColor->setSimplified(true);
     _defaultTimeGroupColor->setHintToolTip( tr("The color used for newly created Time nodes.") );
     _nodegraphColorsTab->addKnob(_defaultTimeGroupColor);
@@ -1774,18 +1774,18 @@ Settings::setDefaultValues()
     _defaultWriterColor->setDefaultValue(217/255., 0); // SOLVFX palette
     _defaultWriterColor->setDefaultValue(189/255., 1); // SOLVFX palette
     _defaultWriterColor->setDefaultValue(51/255., 2); // SOLVFX palette
-    _defaultColorGroupColor->setDefaultValue(119/255., 0); // SOLVFX palette
-    _defaultColorGroupColor->setDefaultValue(146/255., 1); // SOLVFX palette
-    _defaultColorGroupColor->setDefaultValue(198/255., 2); // SOLVFX palette
+    _defaultColorGroupColor->setDefaultValue(127/255., 0); // SOLVFX palette (light blue)
+    _defaultColorGroupColor->setDefaultValue(155/255., 1); // SOLVFX palette
+    _defaultColorGroupColor->setDefaultValue(207/255., 2); // SOLVFX palette
     _defaultFilterGroupColor->setDefaultValue(212/255., 0); // SOLVFX palette
     _defaultFilterGroupColor->setDefaultValue(132/255., 1); // SOLVFX palette
     _defaultFilterGroupColor->setDefaultValue(74/255., 2); // SOLVFX palette
     _defaultTransformGroupColor->setDefaultValue(173/255., 0); // SOLVFX palette
     _defaultTransformGroupColor->setDefaultValue(128/255., 1); // SOLVFX palette
     _defaultTransformGroupColor->setDefaultValue(200/255., 2); // SOLVFX palette
-    _defaultTimeGroupColor->setDefaultValue(168/255., 0); // SOLVFX palette
-    _defaultTimeGroupColor->setDefaultValue(156/255., 1); // SOLVFX palette
-    _defaultTimeGroupColor->setDefaultValue(127/255., 2); // SOLVFX palette
+    _defaultTimeGroupColor->setDefaultValue(143/255., 0); // SOLVFX palette (olive)
+    _defaultTimeGroupColor->setDefaultValue(141/255., 1); // SOLVFX palette
+    _defaultTimeGroupColor->setDefaultValue(85/255., 2); // SOLVFX palette
     _defaultDrawGroupColor->setDefaultValue(98/255., 0); // SOLVFX palette
     _defaultDrawGroupColor->setDefaultValue(184/255., 1); // SOLVFX palette
     _defaultDrawGroupColor->setDefaultValue(98/255., 2); // SOLVFX palette

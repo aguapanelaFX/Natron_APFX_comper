@@ -102,7 +102,10 @@ Gui::setupUi()
         sb->addPermanentWidget( new SolvfxStatusBar(sb) );
     }
     _imp->_mainLayout = new QHBoxLayout(_imp->_centralWidget);
-    _imp->_mainLayout->setContentsMargins(0, 0, 0, 0);
+    // SOLVFX: panes float on the dark window background with a 4 px gap
+    _imp->_centralWidget->setObjectName( QString::fromUtf8("SolvfxCentral") );
+    _imp->_centralWidget->setAttribute(Qt::WA_StyledBackground, true);
+    _imp->_mainLayout->setContentsMargins( 0, TO_DPIY(4), TO_DPIX(4), TO_DPIY(4) );
     _imp->_centralWidget->setLayout(_imp->_mainLayout);
 
     _imp->_leftRightSplitter = new Splitter(_imp->_centralWidget);

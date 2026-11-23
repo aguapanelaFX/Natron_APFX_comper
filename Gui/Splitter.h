@@ -58,6 +58,10 @@ public:
     {
     }
 
+    // SOLVFX: 4 px gap between panes, only a small grip line is drawn
+    virtual QSplitterHandle* createHandle() OVERRIDE;
+
+
     void addWidget_mt_safe(QWidget * widget);
 
     QByteArray saveState_mt_safe() const;

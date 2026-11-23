@@ -1314,3 +1314,41 @@ ViewerTab ViewerToolButton:checked, Natron--ViewerTab Natron--ViewerToolButton:c
     background-color: #4a4334;
     border: 1px solid #1e1e1e;
 }
+
+/* ===================================================================
+   SOLVFX UI refresh (Nov 22): panes float on a dark window background,
+   rounded tabs with an orange line on the active one
+   =================================================================== */
+#SolvfxCentral, #SolvfxCentral > Splitter, #SolvfxCentral > Natron--Splitter, FloatingWidget, Natron--FloatingWidget { background-color: #1e1e1e; }
+Splitter, Natron--Splitter { background-color: transparent; }
+TabWidget, Natron--TabWidget { background-color: transparent; border: none; }
+#SolvfxPaneHeader {
+    background-color: #282828;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+TabBar, Natron--TabBar { background: transparent; }
+TabBar::tab, Natron--TabBar::tab,
+TabBar[mouseOverFocus="true"][clickFocus="false"]::tab, Natron--TabBar[mouseOverFocus="true"][clickFocus="false"]::tab,
+TabBar[clickFocus="true"]::tab, Natron--TabBar[clickFocus="true"]::tab,
+TabBar[mouseOverFocus="false"][clickFocus="false"]::tab, Natron--TabBar[mouseOverFocus="false"][clickFocus="false"]::tab {
+    background: transparent;
+    color: #7a7a7a;
+    border: none;
+    border-top: 2px solid transparent;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    padding: 3px 12px 3px 12px;
+    margin: 4px 2px 0px 0px;
+    min-height: 16px;
+    font-size: 12px;
+}
+TabBar::tab:hover, Natron--TabBar::tab:hover { color: #c8c8c8; }
+TabBar::tab:selected, Natron--TabBar::tab:selected,
+TabBar[clickFocus="true"]::tab:selected, Natron--TabBar[clickFocus="true"]::tab:selected,
+TabBar[mouseOverFocus="true"][clickFocus="false"]::tab:selected, Natron--TabBar[mouseOverFocus="true"][clickFocus="false"]::tab:selected,
+TabBar[mouseOverFocus="false"][clickFocus="false"]::tab:selected, Natron--TabBar[mouseOverFocus="false"][clickFocus="false"]::tab:selected {
+    background: #2e2e2e;
+    color: #e2e2e2;
+    border-top: 2px solid #e0743a;
+}

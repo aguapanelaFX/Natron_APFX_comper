@@ -363,7 +363,12 @@ NodeGui::getColorFromGrouping(QColor* color)
         return true;
     }
 
-    if ( iseffect->isReader() ) {
+    const std::string pid = internalNode->getPluginID();
+    if (pid.find("SoftClip") != std::string::npos) {
+        settings->getTimeGroupColor(&r, &g, &b); // SOLVFX: SoftClip with the time nodes (olive)
+    } else if ( (pid.find("Premult") != std::string::npos) || (pid.find("Unpremult") != std::string::npos) ) {
+        settings->getDefaultNodeColor(&r, &g, &b); // SOLVFX: Premult / Unpremult grey
+    } else if ( iseffect->isReader() ) {
         settings->getReaderColor(&r, &g, &b);
     } else if (isBd) {
         settings->getDefaultBackdropColor(&r, &g, &b);
@@ -590,6 +595,44 @@ NodeGui::getSizeWithPreview(int *w,
     *h = *h + TO_DPIY(NATRON_PREVIEW_HEIGHT) + 10;
 }
 
+// SOLVFX: node shape by category (hexagon: time + Viewer, capsule: 3D geometry,
+// circle: Scene / Axis, pointed right end: keyers, rounded rectangle: the rest)
+int
+NodeGui::solvfxShapeFor() const
+{
+    NodePtr n = getNode();
+    if (!n) {
+        return NodeGraphRectItem::eSolvfxShapeRect;
+    }
+    EffectInstancePtr fx = n->getEffectInstance();
+    const std::string id = n->getPluginID();
+    if ( dynamic_cast<ViewerInstance*>( fx.get() ) ) {
+        return NodeGraphRectItem::eSolvfxShapeHexagon;
+    }
+    if ( (id == "com.aguapanelafx.solv3d.Scene") || (id == "com.aguapanelafx.solv3d.Axis") ) {
+        return NodeGraphRectItem::eSolvfxShapeCircle;
+    }
+    static const char* geo[] = { "com.aguapanelafx.solv3d.Card", "com.aguapanelafx.solv3d.Cube", "com.aguapanelafx.solv3d.Sphere",
+                                 "com.aguapanelafx.solv3d.Cylinder", "com.aguapanelafx.solv3d.ReadGeo", "com.aguapanelafx.solv3d.TransformGeo",
+                                 "com.aguapanelafx.solv3d.Project3D", "com.aguapanelafx.solv3d.Material" };
+    for (std::size_t i = 0; i < sizeof(geo) / sizeof(geo[0]); ++i) {
+        if (id == geo[i]) {
+            return NodeGraphRectItem::eSolvfxShapeCapsule;
+        }
+    }
+    std::list<std::string> grouping;
+    n->getPluginGrouping(&grouping);
+    const std::string g = grouping.empty() ? std::string() : grouping.front();
+    if ( (g == PLUGIN_GROUP_TIME) || (id.find("SoftClip") != std::string::npos) ) {
+        return NodeGraphRectItem::eSolvfxShapeHexagon;
+    }
+    if (g == PLUGIN_GROUP_KEYER) {
+        return NodeGraphRectItem::eSolvfxShapePointRight;
+    }
+
+    return NodeGraphRectItem::eSolvfxShapeRect;
+}
+
 void
 NodeGui::getInitialSize(int *w,
                         int *h) const
@@ -608,6 +651,11 @@ NodeGui::getInitialSize(int *w,
         *w = TO_DPIX(NODE_WIDTH);
     }
     *h = TO_DPIY(NODE_HEIGHT);
+    if (solvfxShapeFor() == NodeGraphRectItem::eSolvfxShapeCircle) {
+        *w = *h = TO_DPIX(54); // SOLVFX: round Scene / Axis
+
+        return;
+    }
     // SOLVFX: Read / Write show the file name on a second line: a bit taller so it is not clipped
     EffectInstancePtr fx = internalNode->getEffectInstance();
     if ( fx && ( fx->isReader() || fx->isWriter() ) ) {
@@ -631,7 +679,7 @@ NodeGui::createGui()
     int cornerRadiusPx = isBackdropNode ? TO_DPIX(3) : TO_DPIX(3); // SOLVFX: corners option C (was 8 / 10)
     _boundingBox = new NodeGraphRectItem(this, cornerRadiusPx);
     _boundingBox->setZValue(depth);
-    _boundingBox->setSolvfxLook(!isBackdropNode, isViewerNode);
+    _boundingBox->setSolvfxLook( !isBackdropNode, solvfxShapeFor() );
     {
         QPen bodyPen( QColor(0x14, 0x14, 0x14) );
         bodyPen.setWidthF(1.);
@@ -912,10 +960,15 @@ NodeGui::isNearbyResizeHandle(const QPointF& pos) const
 }
 
 void
-NodeGui::adjustSizeToContent(int* /*w*/,
+NodeGui::adjustSizeToContent(int* w,
                              int *h,
                              bool adjustToTextSize)
 {
+    if (solvfxShapeFor() == NodeGraphRectItem::eSolvfxShapeCircle) {
+        *w = *h = TO_DPIX(54); // SOLVFX: round Scene / Axis keep their size
+
+        return;
+    }
     QRectF labelBbox = _nameItem->boundingRect();
 
     if (adjustToTextSize) {
@@ -3370,8 +3423,15 @@ NodeGui::getCurrentColor() const
 }
 
 void
-NodeGui::setCurrentColor(const QColor & c)
+NodeGui::setCurrentColor(const QColor & cIn)
 {
+    // SOLVFX: nodes saved with the previous default colours get the new ones
+    QColor c = cIn;
+    switch (c.rgb() & 0xffffff) {
+    case 0x7792c6: c = QColor(0x7f, 0x9b, 0xcf); break; // color group -> light blue
+    case 0xa89c7f: c = QColor(0x8f, 0x8d, 0x55); break; // time group -> olive
+    default: break;
+    }
     onSettingsPanelColorChanged(c);
     if (_settingsPanel) {
         _settingsPanel->setCurrentColor(c);

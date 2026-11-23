@@ -422,6 +422,7 @@ protected:
     virtual bool mustAddResizeHandle() const { return false; }
 
     virtual void getInitialSize(int *w, int *h) const;
+    int solvfxShapeFor() const; // SOLVFX: NodeGraphRectItem shape for this node
 
     void getSizeWithPreview(int *w, int *h) const;
 

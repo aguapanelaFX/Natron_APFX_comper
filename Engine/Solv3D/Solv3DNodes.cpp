@@ -187,6 +187,16 @@ rotationInOrder(const Vec3& deg, int order)
 void
 Solv3DXformKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultRotOrder, bool matrixGroup)
 {
+    {
+        const char* sn[6] = { "snap...", "move to origin", "put on ground (y = 0)", "centre pivot on geometry", "pivot to origin", "reset transform" };
+        snap = makeChoice(fx, page, "snap", "snap", std::vector<std::string>(sn, sn + 6), 0,
+                          "One-shot moves: to the origin, onto the ground (lowest point at y = 0), pivot to the centre of the "
+                          "geometry (it does not move), pivot back to the origin, or reset translate / rotate / scale.");
+        KnobChoicePtr k = snap.lock();
+        k->setIsPersistent(false);
+        k->setEvaluateOnChange(false);
+        k->setAnimationEnabled(false);
+    }
     order = makeChoice(fx, page, "xform_order", "transform order", std::vector<std::string>(kXformOrders, kXformOrders + 6), 0,
                        "Order of scale (S), rotation (R) and translation (T): SRT = scale first, then rotate, then move.", false);
     rotOrder = makeChoice(fx, page, "rot_order", "rotation order", std::vector<std::string>(kRotOrders, kRotOrders + 6), defaultRotOrder,
@@ -272,6 +282,77 @@ Solv3DXformKnobs::refreshMatrix(double t) const
 }
 
 static const char* kDisplayModes[6] = { "off", "wireframe", "solid", "solid+lines", "textured", "textured+lines" };
+
+static Mat4 axisParent(EffectInstance* fx, int inputNb, double t);
+
+// ---------------------------------------------------------------- constrain (look at)
+void
+Solv3DConstrainKnobs::create(EffectInstance* fx, const KnobPagePtr& page, int defaultAim)
+{
+    KnobGroupPtr g = makeGroup(fx, page, "constrain", "Constrain", false);
+    enable = makeBool(fx, g, "look_enable", "look at", true,
+                      "With something connected to the look input: turns to face it (the rotate values are replaced).");
+    const char* ax[6] = { "-z", "+z", "-x", "+x", "-y", "+y" };
+    aim = makeChoice(fx, g, "look_axis", "look axis", std::vector<std::string>(ax, ax + 6), defaultAim,
+                     "Axis that points at the target (cameras and lights look down -z).");
+    mix = makeDouble(fx, g, "look_mix", "look mix", 1, 1., 0., 1., "Blend between the own rotation (0) and looking at the target (1).");
+}
+
+Mat4
+Solv3DConstrainKnobs::apply(EffectInstance* fx, int lookInput, double t, const Mat4& world) const
+{
+    if ( !enable.lock() || !enable.lock()->getValueAtTime(t) || !fx->getInput(lookInput) ) {
+        return world;
+    }
+    const Mat4 tw = axisParent(fx, lookInput, t);
+    const Vec3 target = tw.point( Vec3() );
+    Vec3 pos, rot, scl;
+    decompose(world, 0, Vec3(), &pos, &rot, &scl);
+    Vec3 f = target - pos;
+    if (dot(f, f) < 1e-12) {
+        return world;
+    }
+    f = normalize(f);
+    // basis with the aim axis on f and the other axes as close to world Y up as possible
+    const int a = aim.lock()->getValueAtTime(t);
+    const int axisIdx = (a / 2 == 0) ? 2 : (a / 2 == 1) ? 0 : 1;
+    const double sign = (a % 2 == 0) ? -1. : 1.;
+    const Vec3 d = f * sign;                      // direction of the chosen axis
+    Vec3 up(0, 1, 0);
+    if (std::fabs( dot(up, d) ) > 0.999) {
+        up = Vec3(0, 0, 1);
+    }
+    Vec3 c[3]; // right-handed: x * y = z
+    if (axisIdx == 2) {
+        c[2] = d;
+        c[0] = normalize( cross(up, c[2]) );
+        c[1] = cross(c[2], c[0]);
+    } else if (axisIdx == 0) {
+        c[0] = d;
+        c[2] = normalize( cross(c[0], up) );
+        c[1] = cross(c[2], c[0]);
+    } else {
+        Vec3 fw(0, 0, 1);
+        if (std::fabs( dot(fw, d) ) > 0.999) {
+            fw = Vec3(1, 0, 0);
+        }
+        c[1] = d;
+        c[0] = normalize( cross(c[1], fw) );
+        c[2] = cross(c[0], c[1]);
+    }
+    Mat4 R;
+    for (int k = 0; k < 3; ++k) {
+        R.m[0][k] = c[k].x; R.m[1][k] = c[k].y; R.m[2][k] = c[k].z;
+    }
+    const double mx = mix.lock()->getValueAtTime(t);
+    if (mx < 1.) {
+        // blend the euler angles (simple, fine for small differences)
+        const Vec3 e1 = matrixEuler(R, 0, rot);
+        R = eulerMatrix( rot * (1. - mx) + e1 * mx, 0 );
+    }
+
+    return Mat4::translate(pos) * R * Mat4::scale(scl);
+}
 
 // ---------------------------------------------------------------- prim path / attributes
 static const char* kKinds[5] = { "none", "component", "subcomponent", "assembly", "group" };
@@ -500,15 +581,113 @@ Solv3DNode::primPath() const
 }
 
 bool
-Solv3DNode::knobChanged(KnobI* k, ValueChangedReasonEnum, ViewSpec, double, bool)
+Solv3DNode::knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec, double, bool)
 {
     const std::string& n = k->getName();
+    if ( (n == "snap") && (reason == eValueChangedReasonUserEdited) ) {
+        for (const Solv3DXformKnobs* x : _xforms) {
+            KnobChoicePtr sk = x->snap.lock();
+            if ( sk && (sk.get() == k) ) {
+                const int item = sk->getValue();
+                if (item > 0) {
+                    runSnap(x, item);
+                    sk->setValue(0);
+                }
+            }
+        }
+
+        return true;
+    }
     if ( (n.compare(0, 12, "local_matrix") == 0) || (n.compare(0, 12, "world_matrix") == 0) ) {
         return false;
     }
     refreshMatrices();
 
     return false;
+}
+
+void
+Solv3DNode::runSnap(const Solv3DXformKnobs* x, int item)
+{
+    const double t = getApp()->getTimeLine()->currentFrame();
+    KnobDoublePtr tk = x->translate.lock(), rk = x->rotate.lock(), sk = x->scale.lock(), pk = x->pivot.lock();
+    auto setV = [&](const KnobDoublePtr& k, const Vec3& v) {
+        if (!k) {
+            return;
+        }
+        const double vv[3] = { v.x, v.y, v.z };
+        for (int d = 0; d < 3; ++d) {
+            if ( k->isAnimated(d) ) {
+                k->setValueAtTime(t, vv[d], ViewSpec::all(), d);
+            } else {
+                k->setValue(vv[d], ViewSpec::all(), d);
+            }
+        }
+    };
+    const Vec3 T0 = getV3(x->translate, t), P0 = getV3(x->pivot, t);
+    // world bbox of this node's geometry, and the same points in its own (pre-transform) space
+    Scene sc;
+    buildScene(t, &sc);
+    const std::string me = nodeName();
+    const Mat4 local = x->matrix(t);
+    const std::string pp = primPath();
+    const Mat4 W = sc.find(pp) ? sc.worldMatrix(pp) : local;
+    const Mat4 parent = W * local.inverse();
+    Vec3 lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30), llo = lo, lhi = hi;
+    bool any = false;
+    const Mat4 toOwn = W.inverse();
+    for (const auto& kv : sc.prims()) {
+        if ( !kv.second.mesh || (kv.second.node != me) ) {
+            continue;
+        }
+        const Mat4 pw = sc.worldMatrix(kv.first);
+        for (const Vec3& q : kv.second.mesh->points) {
+            const Vec3 w = pw.point(q), l = toOwn.point(w);
+            lo = Vec3( std::min(lo.x, w.x), std::min(lo.y, w.y), std::min(lo.z, w.z) );
+            hi = Vec3( std::max(hi.x, w.x), std::max(hi.y, w.y), std::max(hi.z, w.z) );
+            llo = Vec3( std::min(llo.x, l.x), std::min(llo.y, l.y), std::min(llo.z, l.z) );
+            lhi = Vec3( std::max(lhi.x, l.x), std::max(lhi.y, l.y), std::max(lhi.z, l.z) );
+            any = true;
+        }
+    }
+    beginChanges();
+    switch (item) {
+    case 1: // origin: the pivot lands on the world origin
+        setV( tk, T0 - parent.inverse().point( W.point(P0) ) + parent.inverse().point( Vec3() ) );
+        break;
+    case 2: // ground
+        if (any) {
+            setV( tk, T0 + parent.inverse().vector( Vec3(0, -lo.y, 0) ) );
+        }
+        break;
+    case 3: // pivot to the geometry centre, object stays in place (SRT: t2 = t + (p - p2) + RS (p2 - p))
+        if (any) {
+            const Vec3 p2 = (llo + lhi) * 0.5;
+            Mat4 RS = local;
+            RS.m[0][3] = RS.m[1][3] = RS.m[2][3] = 0.;
+            setV(pk, p2);
+            setV( tk, T0 + (P0 - p2) + RS.vector(p2 - P0) );
+        }
+        break;
+    case 4: { // pivot back to the origin, object stays
+        Mat4 RS = local;
+        RS.m[0][3] = RS.m[1][3] = RS.m[2][3] = 0.;
+        setV( pk, Vec3() );
+        setV( tk, T0 + P0 - RS.vector(P0) );
+        break;
+    }
+    case 5:
+        setV( tk, Vec3() );
+        setV( rk, Vec3() );
+        setV( sk, Vec3(1, 1, 1) );
+        if ( x->uniform.lock() ) {
+            x->uniform.lock()->setValue(1.);
+        }
+        break;
+    default:
+        break;
+    }
+    endChanges();
 }
 
 void
@@ -694,6 +873,24 @@ Solv3DPrimitive::initializeKnobs()
                     "Off: the texture is shown as is (like a card). On: shaded by the lights.");
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
+    if (_kind == eCard) {
+        // Deform tab: corner pin in 3D and a bend (more rows / columns = smoother)
+        KnobPagePtr dp = makePage(this, "Deform");
+        const char* dt[3] = { "none", "corners", "corners + bend" };
+        _deformType = makeChoice(this, dp, "deform_type", "type", std::vector<std::string>(dt, dt + 3), 0,
+                                 "corners: moves each corner in 3D, the inside follows (bilinear). bend: curves the card like a "
+                                 "cylinder. Raise rows / columns (Mesh Topology) for a smooth result.");
+        const char* cn[4] = { "bottom_left", "bottom_right", "top_right", "top_left" };
+        const char* cl[4] = { "bottom left", "bottom right", "top right", "top left" };
+        for (int i = 0; i < 4; ++i) {
+            _corner[i] = makeDouble(this, dp, cn[i], cl[i], 3, 0., -1., 1., "Offset of this corner (card units, before the orientation).");
+        }
+        _bend = makeDouble(this, dp, "bend", "bend", 1, 0., -180., 180.,
+                           "Bends the card around its centre line (degrees across the whole card; 360 = a full tube).");
+        const char* ba[2] = { "around vertical", "around horizontal" };
+        _bendAxis = makeChoice(this, dp, "bend_axis", "bend axis", std::vector<std::string>(ba, ba + 2), 0,
+                               "around vertical: the left and right edges curve back. around horizontal: the top and bottom edges.");
+    }
     _geo.createDisplay(this);
 }
 
@@ -721,6 +918,34 @@ Solv3DPrimitive::buildScene(double t, Scene* scene)
             }
         }
         m = makeCard(size, h, rows, cols);
+        // Deform tab
+        const int dtype = _deformType.lock() ? _deformType.lock()->getValueAtTime(t) : 0;
+        if (dtype > 0) {
+            Vec3 off[4];
+            for (int i = 0; i < 4; ++i) {
+                off[i] = getV3(_corner[i], t);
+            }
+            const double bend = (dtype == 2) ? _bend.lock()->getValueAtTime(t) * 3.14159265358979323846 / 180. : 0.;
+            const bool aroundH = _bendAxis.lock()->getValueAtTime(t) == 1;
+            for (Vec3& q : m->points) {
+                const double u = q.x / size + 0.5, v = q.y / h + 0.5;
+                q = q + off[0] * ( (1. - u) * (1. - v) ) + off[1] * ( u * (1. - v) ) + off[2] * (u * v) + off[3] * ( (1. - u) * v );
+                if (std::fabs(bend) > 1e-6) {
+                    // arc length kept: the coordinate across the bend becomes an angle on a cylinder
+                    const double span = aroundH ? h : size;
+                    const double R = span / bend;
+                    const double a = (aroundH ? q.y : q.x) / R;
+                    const double along = R * std::sin(a), back = R * (1. - std::cos(a));
+                    if (aroundH) {
+                        q.y = along;
+                    } else {
+                        q.x = along;
+                    }
+                    q.z -= back;
+                }
+            }
+            m->computeFlatNormals();
+        }
         // lens-in: pushed back along -Z and scaled to keep the same size in a camera at the origin
         const double z = _z.lock() ? _z.lock()->getValueAtTime(t) : 0.;
         Mat4 lens;
@@ -832,6 +1057,7 @@ Solv3DLight::initializeKnobs()
     }
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page, 4);
+    _look.create(this, page, 0);
     _disp.create(this, 1, false, false);
 }
 
@@ -860,7 +1086,7 @@ Solv3DLight::buildScene(double t, Scene* scene)
     const std::string pp = primPath();
     Prim& p = scene->define(pp, PrimType::Light);
     p.light = L;
-    p.local = axisParent(this, 0, t) * _xf.matrix(t);
+    p.local = _look.apply( this, 1, t, axisParent(this, 0, t) * _xf.matrix(t) );
     _disp.apply(&p, t);
     p.node = nodeName();
     _prim.apply(scene, t, pp);
@@ -958,6 +1184,14 @@ Solv3DCamera::initializeKnobs()
     KnobGroupPtr dof = makeGroup(this, page, "dof", "Depth of Field", true);
     _focusDist = makeDouble(this, dof, "focal_point", "focal distance", 1, 2., 0.1, 100., "Distance in focus (stored with the camera and exported).");
     _fStop = makeDouble(this, dof, "fstop", "f-stop", 1, 16., 0.7, 32.);
+    KnobGroupPtr ld = makeGroup(this, page, "lens_distortion", "Lens Distortion", false);
+    _distEnabled = makeBool(this, ld, "lens_distortion_enabled", "enable", false,
+                            "Distorts the ScanlineRender output like a real lens (ScanlineRender 'apply lens distortion' on).");
+    _distK1 = makeDouble(this, ld, "distortion1", "distortion 1", 1, 0., -0.5, 0.5,
+                         "Radial distortion, r^2 term. Positive = barrel (edges pulled in), negative = pincushion.");
+    _distK2 = makeDouble(this, ld, "distortion2", "distortion 2", 1, 0., -0.5, 0.5, "Radial distortion, r^4 term (affects the corners most).");
+    _distCenter = makeDouble(this, ld, "distortion_center", "distortion center", 2, 0., -1., 1.,
+                             "Offset of the distortion centre from the image centre (1 = half the image width).");
 
     // ---- Position
     KnobPagePtr pos = makePage(this, "Position");
@@ -967,6 +1201,7 @@ Solv3DCamera::initializeKnobs()
     _parentT = makeDouble(this, par, "parent_translate", "parent translate", 3, 0., -10., 10.);
     _parentR = makeDouble(this, par, "parent_rotate", "parent rotate", 3, 0., -180., 180., "Degrees, in the rotation order below.");
     _parentS = makeDouble(this, par, "parent_scale", "parent scale", 3, 1., 0., 4.);
+    _look.create(this, pos, 0);
     makeDivider(this, pos, "xform_divider");
     _xf.create(this, pos, 4);
     {
@@ -1192,6 +1427,11 @@ Solv3DCamera::buildScene(double t, Scene* scene)
     c->shutterCustom = _shutterCustom.lock()->getValueAtTime(t);
     c->iconScale = _disp.iconSize.lock()->getValueAtTime(t);
     c->iconWorldScale = _disp.worldScale.lock()->getValueAtTime(t);
+    c->distortion = _distEnabled.lock()->getValueAtTime(t);
+    c->distortK1 = _distK1.lock()->getValueAtTime(t);
+    c->distortK2 = _distK2.lock()->getValueAtTime(t);
+    c->distortCenter[0] = _distCenter.lock()->getValueAtTime(t, 0);
+    c->distortCenter[1] = _distCenter.lock()->getValueAtTime(t, 1);
     Mat4 local = _xf.matrix(t);
     if ( _parentSync.lock()->getValueAtTime(t) ) {
         const int ro = _xf.rotOrder.lock()->getValueAtTime(t);
@@ -1218,7 +1458,7 @@ Solv3DCamera::buildScene(double t, Scene* scene)
     const std::string pp = primPath();
     Prim& p = scene->define(pp, PrimType::Camera);
     p.camera = c;
-    p.local = axisParent(this, 0, t) * local;
+    p.local = _look.apply( this, 1, t, axisParent(this, 0, t) * local );
     _disp.apply(&p, t);
     p.node = nodeName();
     _prim.apply(scene, t, pp);
@@ -1288,6 +1528,7 @@ Solv3DAxis::initializeKnobs()
     _prim.create(this, page, 0);
     makeDivider(this, page, "xform_divider");
     _xf.create(this, page);
+    _look.create(this, page, 1);
     _disp.create(this, 1, true, false);
 }
 
@@ -1296,7 +1537,7 @@ Solv3DAxis::buildScene(double t, Scene* scene)
 {
     const std::string pp = primPath();
     Prim& p = scene->define(pp, PrimType::Xform);
-    p.local = axisParent(this, 0, t) * _xf.matrix(t);
+    p.local = _look.apply( this, 1, t, axisParent(this, 0, t) * _xf.matrix(t) );
     _disp.apply(&p, t);
     p.node = nodeName();
     p.axisSize = _disp.iconSize.lock()->getValueAtTime(t);
@@ -1469,6 +1710,12 @@ Solv3DVanishingCamera::initializeKnobs()
             pk[i]->setAnimationEnabled(false);
             addOverlaySlaveParam(pk[i]);
         }
+        KnobButtonPtr us = AppManager::createKnob<KnobButton>( this, std::string("update solve") );
+        us->setName("update_solve");
+        us->setHintToolTip( std::string("Makes the preview plane the new ground / wall: the solved camera is moved so the plane sits at "
+                                        "the origin, then the plane offsets go back to 0. A linked exported camera follows.") );
+        vp->addKnob(us);
+        _updateSolve = us;
     }
     KnobBoolPtr sv = AppManager::createKnob<KnobBool>( this, std::string("solved") );
     sv->setName("solved");
@@ -1612,6 +1859,11 @@ Solv3DVanishingCamera::knobChanged(KnobI* k, ValueChangedReasonEnum reason, View
         RectD f;
         plateFormat(&f);
         addLine(f.x1 + f.width() * 0.35, f.y1 + f.height() * 0.5, f.x1 + f.width() * 0.65, f.y1 + f.height() * 0.5);
+
+        return true;
+    }
+    if ( k == _updateSolve.lock().get() ) {
+        rebaseOnPlane();
 
         return true;
     }
@@ -1832,6 +2084,34 @@ previewPlaneMatrix(int mode, const Vec3& t, double rotDeg)
     }
 
     return Mat4::translate(t) * Mat4::rotateXYZ(r);
+}
+
+void
+Solv3DVanishingCamera::rebaseOnPlane()
+{
+    const int pm = _planeMode.lock()->getValue();
+    if ( (pm <= 0) || !_solved.lock()->getValue() ) {
+        _status.lock()->setValue("update solve: solve first and turn the preview plane on");
+
+        return;
+    }
+    KnobDoublePtr tr = _rTranslate.lock(), ro = _rRotate.lock(), pt = _planeTranslate.lock();
+    const Vec3 T( tr->getValue(0), tr->getValue(1), tr->getValue(2) );
+    const Vec3 R( ro->getValue(0), ro->getValue(1), ro->getValue(2) );
+    const Mat4 cam = Mat4::translate(T) * rotationInOrder(R, 0);
+    const Mat4 M = previewPlaneMatrix( pm, Vec3( pt->getValue(0), pt->getValue(1), pt->getValue(2) ), _planeRotate.lock()->getValue() );
+    Vec3 t2, r2, s2;
+    decompose(M.inverse() * cam, 0, R, &t2, &r2, &s2);
+    beginChanges();
+    for (int d = 0; d < 3; ++d) {
+        const double tv[3] = { t2.x, t2.y, t2.z }, rv[3] = { r2.x, r2.y, r2.z };
+        tr->setValue(tv[d], ViewSpec::all(), d);
+        ro->setValue(rv[d], ViewSpec::all(), d);
+        pt->setValue(0., ViewSpec::all(), d);
+    }
+    _planeRotate.lock()->setValue(0.);
+    endChanges();
+    _status.lock()->setValue("solve updated: the preview plane is now at the origin");
 }
 
 void
@@ -2911,6 +3191,8 @@ Solv3DScanline::initializeKnobs()
     _shutterOffset = makeChoice(this, ms, "shutter_offset", "shutter offset", std::vector<std::string>(so, so + 4), 0,
                                 "centred: around the frame. start: from the frame on. end: up to the frame. custom: starts at 'offset'.", false);
     _shutterCustom = makeDouble(this, ms, "shutter_custom_offset", "", 1, 0., -1., 1., "Custom shutter start (frames, relative to the frame).");
+    _applyDistortion = makeBool(this, page, "apply_lens_distortion", "apply lens distortion", true,
+                                "Distorts the render with the camera's lens distortion (Camera > Lens Distortion, when enabled).");
     _shutterFromCam = makeBool(this, ms, "shutter_from_camera", "shutter from camera", false,
                                "Use the shutter length / offset of the render camera (Camera > Shutter) instead of the values above.");
 
@@ -3257,6 +3539,51 @@ Solv3DScanline::render(const RenderActionArgs& args)
         sceneAt(t + 1., &nextScene, &cp);
         aov.motionNext = &nextScene;
     }
+    // lens distortion: render the undistorted image over the area the distorted pixels look at, then resample
+    double dK1 = 0., dK2 = 0., dCx = 0., dCy = 0.;
+    bool distort = false;
+    if ( _applyDistortion.lock()->getValueAtTime(t) ) {
+        const Prim* cp = scene.find(camPath);
+        if ( cp && cp->camera && cp->camera->distortion && ( (cp->camera->distortK1 != 0.) || (cp->camera->distortK2 != 0.) ) ) {
+            distort = true;
+            dK1 = cp->camera->distortK1;
+            dK2 = cp->camera->distortK2;
+            const double hw = (st.formatX2 - st.formatX1) * 0.5;
+            dCx = (st.formatX1 + st.formatX2) * 0.5 + cp->camera->distortCenter[0] * hw;
+            dCy = (st.formatY1 + st.formatY2) * 0.5 + cp->camera->distortCenter[1] * hw;
+        }
+    }
+    const double distHalfW = std::max(1., (st.formatX2 - st.formatX1) * 0.5);
+    auto undistort = [&](double x, double y, double* ux, double* uy) {
+        const double dx = (x - dCx) / distHalfW, dy = (y - dCy) / distHalfW;
+        const double r2 = dx * dx + dy * dy;
+        const double f = 1. + dK1 * r2 + dK2 * r2 * r2;
+        *ux = dCx + dx * f * distHalfW;
+        *uy = dCy + dy * f * distHalfW;
+    };
+    const int outX = st.originX, outY = st.originY, outW = st.width, outH = st.height;
+    if (distort) {
+        // bounds of the source area along the ROI border (the mapping is monotonic per ray for small k)
+        double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
+        const int N = 64;
+        for (int i = 0; i <= N; ++i) {
+            const double a = outX + (double)outW * i / N, b = outY + (double)outH * i / N;
+            const double pts[4][2] = { { a, (double)outY }, { a, (double)(outY + outH) }, { (double)outX, b }, { (double)(outX + outW), b } };
+            for (int k = 0; k < 4; ++k) {
+                double ux, uy;
+                undistort(pts[k][0], pts[k][1], &ux, &uy);
+                x0 = std::min(x0, ux); y0 = std::min(y0, uy); x1 = std::max(x1, ux); y1 = std::max(y1, uy);
+            }
+        }
+        // never more than 3x the output each way
+        const double maxW = outW * 3., maxH = outH * 3.;
+        const double cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5;
+        const double w = std::min(maxW, x1 - x0 + 4.), h = std::min(maxH, y1 - y0 + 4.);
+        st.originX = (int)std::floor(cx - w * 0.5);
+        st.originY = (int)std::floor(cy - h * 0.5);
+        st.width = std::max(1, (int)std::ceil(w) );
+        st.height = std::max(1, (int)std::ceil(h) );
+    }
     std::vector<const Scene*> steps;
     if ( mbScenes.empty() ) {
         steps.push_back(&scene);
@@ -3274,6 +3601,60 @@ Solv3DScanline::render(const RenderActionArgs& args)
                             return it == texCache.end() ? (const TexImage*)0 : it->second.get();
                         },
                         envTex.get(), &buf, aov);
+    if (distort) {
+        const int sX = st.originX, sY = st.originY, sW = st.width, sH = st.height;
+        auto resample = [&](std::vector<float>* b, int nc, bool linear) {
+            if ( !b || b->empty() ) {
+                return;
+            }
+            std::vector<float> out( (size_t)outW * outH * nc, 0.f );
+            for (int y = 0; y < outH; ++y) {
+                for (int x = 0; x < outW; ++x) {
+                    double ux, uy;
+                    undistort(outX + x + 0.5, outY + y + 0.5, &ux, &uy);
+                    const double fx = ux - 0.5 - sX, fy = uy - 0.5 - sY;
+                    float* o = &out[( (size_t)y * outW + x ) * nc];
+                    if (linear) {
+                        const int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
+                        const float ax = (float)(fx - ix), ay = (float)(fy - iy);
+                        for (int j = 0; j < 2; ++j) {
+                            for (int i = 0; i < 2; ++i) {
+                                const int px = ix + i, py = iy + j;
+                                if ( (px < 0) || (py < 0) || (px >= sW) || (py >= sH) ) {
+                                    continue;
+                                }
+                                const float w = (i ? ax : 1.f - ax) * (j ? ay : 1.f - ay);
+                                const float* src = &(*b)[( (size_t)py * sW + px ) * nc];
+                                for (int c = 0; c < nc; ++c) {
+                                    o[c] += w * src[c];
+                                }
+                            }
+                        }
+                    } else {
+                        const int px = (int)std::floor(fx + 0.5), py = (int)std::floor(fy + 0.5);
+                        if ( (px >= 0) && (py >= 0) && (px < sW) && (py < sH) ) {
+                            const float* src = &(*b)[( (size_t)py * sW + px ) * nc];
+                            for (int c = 0; c < nc; ++c) {
+                                o[c] = src[c];
+                            }
+                        }
+                    }
+                }
+            }
+            b->swap(out);
+        };
+        resample(&buf, 4, true);
+        resample(&shadowBuf, 1, true);
+        resample(&depthBuf, 1, false);
+        resample(&posBuf, 3, false);
+        resample(&nrmBuf, 3, false);
+        resample(&uvBuf, 2, false);
+        resample(&mvBuf, 2, false);
+        st.originX = outX;
+        st.originY = outY;
+        st.width = outW;
+        st.height = outH;
+    }
     // over bg
     ImagePtr bgImg;
     if ( getInput(2) ) {

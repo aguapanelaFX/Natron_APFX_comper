@@ -29,6 +29,10 @@
 #include <sstream> // stringstream
 
 CLANG_DIAG_OFF(deprecated)
+#include <QPainter>
+#include <QPainterPath>
+#include <QRegion>
+#include <QResizeEvent>
 #include <QThread>
 #include <QLayout>
 #include <QMenu>
@@ -257,13 +261,16 @@ TabWidget::TabWidget(Gui* gui,
     _imp->transparentFloatingWidget = new TransparentDropRect(this, 0);
 
     _imp->mainLayout = new QVBoxLayout(this);
-    _imp->mainLayout->setContentsMargins(0, 5, 0, 0);
+    _imp->mainLayout->setContentsMargins(0, 0, 0, 0); // SOLVFX: the header is the top of the rounded pane
     _imp->mainLayout->setSpacing(0);
 
     _imp->header = new TabWidgetHeader(this);
+    _imp->header->setObjectName( QString::fromUtf8("SolvfxPaneHeader") );
+    _imp->header->setAttribute(Qt::WA_StyledBackground, true);
+    _imp->header->setFixedHeight( TO_DPIY(28) );
     QObject::connect( _imp->header, SIGNAL(mouseLeftTabBar()), this, SLOT(onTabBarMouseLeft()) );
     _imp->headerLayout = new QHBoxLayout(_imp->header);
-    _imp->headerLayout->setContentsMargins(0, 0, 0, 0);
+    _imp->headerLayout->setContentsMargins( TO_DPIX(4), 0, TO_DPIX(4), 0 );
     _imp->headerLayout->setSpacing(0);
     _imp->header->setLayout(_imp->headerLayout);
 
@@ -282,7 +289,7 @@ TabWidget::TabWidget(Gui* gui,
     _imp->leftCornerButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr(LEFT_HAND_CORNER_BUTTON_TT), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _imp->leftCornerButton->setFocusPolicy(Qt::NoFocus);
     _imp->headerLayout->addWidget(_imp->leftCornerButton);
-    _imp->headerLayout->addSpacing(10);
+    _imp->headerLayout->addSpacing( TO_DPIX(4) );
 
     _imp->tabBar = new TabBar(this, _imp->header);
     _imp->tabBar->setShape(QTabBar::RoundedNorth);
@@ -1308,9 +1315,27 @@ TabWidget::onCurrentTabDeleted()
 }
 
 void
+TabWidget::resizeEvent(QResizeEvent* e)
+{
+    QFrame::resizeEvent(e);
+    // SOLVFX: rounded pane. The mask also clips the GL views (they are not native windows).
+    const int r = TO_DPIX(6);
+    QPainterPath path;
+    path.addRoundedRect( QRectF( 0, 0, width(), height() ), r, r );
+    setMask( QRegion( path.toFillPolygon().toPolygon() ) );
+}
+
+void
 TabWidget::paintEvent(QPaintEvent* e)
 {
-    QFrame::paintEvent(e);
+    // SOLVFX: pane body (header and contents draw over it)
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush( QColor(0x2e, 0x2e, 0x2e) );
+        p.drawRoundedRect( QRectF( rect() ), TO_DPIX(6), TO_DPIX(6) );
+    }
 
 #ifdef DEBUG
     // We should draw something indicating that this pane is the default pane for new viewers if it has no tabs, maybe a pixmap or something
