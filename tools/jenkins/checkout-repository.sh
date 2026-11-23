@@ -77,24 +77,36 @@ function checkoutRepository() {
     # fast version (depth=1):
     $TIMEOUT 1800 $GIT submodule update --depth 1 --init --recursive --remote
 
-    # SOLVFX: plug-in submodules pinned to the last good build (see Global/plugin-branches.sh)
+    # SOLVFX: submodules pinned to the versions of the last good build (2026-11-12, run 43145521301).
+    # "--remote" above takes the newest upstream commit of every submodule; upstream changes on 2026-11-22/23
+    # broke the build (openfx cursor names, SupportExt headers, SequenceParsing). Pins apply to SOLVFX (Natron)
+    # and to the plug-ins. Move a pin on purpose only, after a test build.
     case "$REPO_LOCAL_DIRNAME" in
-    openfx-*)
-        if [ -n "${SOLVFX_PIN_SUPPORTEXT:-}${SOLVFX_PIN_OPENFX:-}${SOLVFX_PIN_OPENFX_IO:-}" ]; then
-            export SOLVFX_PIN_SUPPORTEXT SOLVFX_PIN_OPENFX SOLVFX_PIN_OPENFX_IO
-            $GIT submodule foreach --recursive '
-                pin=""
-                case "$(basename "$sm_path")" in
-                SupportExt) pin="${SOLVFX_PIN_SUPPORTEXT:-}" ;;
-                openfx|OpenFX) pin="${SOLVFX_PIN_OPENFX:-}" ;;
-                OpenFX-IO) pin="${SOLVFX_PIN_OPENFX_IO:-}" ;;
-                esac
-                if [ -n "$pin" ] && [ "$(git rev-parse HEAD)" != "$pin" ]; then
-                    git fetch -q --depth 1 origin "$pin" && git checkout -q "$pin" && echo "SOLVFX: $sm_path pinned at $pin" || { echo "SOLVFX: cannot pin $sm_path at $pin"; exit 1; }
-                    git submodule update -q --init --recursive --depth 1 || true
-                fi
-            ' || return 1
-        fi
+    Natron|openfx-*)
+        export SOLVFX_PIN_SUPPORTEXT="${SOLVFX_PIN_SUPPORTEXT:-2485505dbe55885ee92ca9f164e7732a85856a13}"
+        export SOLVFX_PIN_OPENFX="${SOLVFX_PIN_OPENFX:-0759758d0fb57932b5c4698fff9ef6b4a3132309}"
+        export SOLVFX_PIN_OPENFX_IO="${SOLVFX_PIN_OPENFX_IO:-1bce1f1a2ad05c793682dd6845e62e5b352a3ea6}"
+        export SOLVFX_PIN_SEQUENCEPARSING="${SOLVFX_PIN_SEQUENCEPARSING:-3c93fcc488632b0bdfeee3181586809932357598}"
+        export SOLVFX_PIN_TINYDIR="${SOLVFX_PIN_TINYDIR:-64fb1d4376d7580aa1013fdbacddbbeba67bb085}"
+        export SOLVFX_PIN_LODEPNG="${SOLVFX_PIN_LODEPNG:-7b2893e35891c0c85bee5595caafaf3c2044b409}"
+        export SOLVFX_PIN_BREAKPAD="${SOLVFX_PIN_BREAKPAD:-9474c3f7f9939391f281d46c42bfe20cc0f0abd9}"
+        $GIT submodule foreach --recursive '
+            pin=""
+            case "$(basename "$sm_path")" in
+            SupportExt) pin="$SOLVFX_PIN_SUPPORTEXT" ;;
+            openfx|OpenFX) pin="$SOLVFX_PIN_OPENFX" ;;
+            OpenFX-IO) pin="$SOLVFX_PIN_OPENFX_IO" ;;
+            SequenceParsing) pin="$SOLVFX_PIN_SEQUENCEPARSING" ;;
+            tinydir) pin="$SOLVFX_PIN_TINYDIR" ;;
+            lodepng) pin="$SOLVFX_PIN_LODEPNG" ;;
+            google-breakpad) pin="$SOLVFX_PIN_BREAKPAD" ;;
+            esac
+            if [ -n "$pin" ] && [ "$(git rev-parse HEAD)" != "$pin" ]; then
+                { git fetch -q --depth 1 origin "$pin" && git checkout -q "$pin"; } || { echo "SOLVFX: cannot pin $sm_path at $pin"; exit 1; }
+                echo "SOLVFX: $sm_path pinned at $pin"
+                git submodule update -q --init --recursive --depth 1 || true
+            fi
+        ' || return 1
         ;;
     esac
 

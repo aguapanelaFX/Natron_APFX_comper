@@ -37,7 +37,8 @@ fi
 
 CACHEDIR="$TMP_PATH/NatronTmpCacheDir"
 
-checkoutRepository "$GIT_URL_NATRON_TESTS_GITHUB" "$TESTDIR" "master" "" "" "0" || FAIL=$?
+# SOLVFX: tests pinned to the last good build (2026-11-12)
+checkoutRepository "$GIT_URL_NATRON_TESTS_GITHUB" "$TESTDIR" "master" "b326d1d06134b4b4908fd11c125ea9d1c3837f41" "" "0" || FAIL=$?
 
 if [ "$FAIL" != "0" ]; then
     printStatusMessage "Failed to clone/update unit tests repository!"
