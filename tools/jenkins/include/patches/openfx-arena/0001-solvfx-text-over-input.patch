@@ -1,0 +1,46 @@
+diff --git a/Text/TextOFX.cpp b/Text/TextOFX.cpp
+index 59a082c..e201a1f 100644
+--- a/Text/TextOFX.cpp
++++ b/Text/TextOFX.cpp
+@@ -1193,6 +1193,41 @@ void TextFXPlugin::render(const OFX::RenderArguments &args)
+         }
+     }
+ 
++    // SOLVFX: the text goes over the input image (not over black)
++    {
++        OFX::Clip* srcClip = fetchClip(kOfxImageEffectSimpleSourceClipName);
++        if ( srcClip && srcClip->isConnected() ) {
++            OFX::auto_ptr<const OFX::Image> srcImg( srcClip->fetchImage(args.time) );
++            if ( srcImg.get() && (srcImg->getPixelDepth() == OFX::eBitDepthFloat) ) {
++                const int sc = srcImg->getPixelComponentCount();
++                const OfxRectI sb = srcImg->getBounds();
++                for (int yy = std::max(dstBounds.y1, sb.y1); yy < std::min(dstBounds.y2, sb.y2); ++yy) {
++                    const int xa = std::max(dstBounds.x1, sb.x1), xb = std::min(dstBounds.x2, sb.x2);
++                    float* d = (float*)dstImg->getPixelAddress(xa, yy);
++                    const float* s = (const float*)srcImg->getPixelAddress(xa, yy);
++                    if (!d || !s) {
++                        continue;
++                    }
++                    for (int xx = xa; xx < xb; ++xx, d += 4, s += sc) {
++                        float sv[4];
++                        if (sc == 1) {
++                            sv[0] = sv[1] = sv[2] = 0.f;
++                            sv[3] = s[0];
++                        } else if (sc == 3) {
++                            sv[0] = s[0]; sv[1] = s[1]; sv[2] = s[2]; sv[3] = 1.f;
++                        } else {
++                            sv[0] = s[0]; sv[1] = s[1]; sv[2] = s[2]; sv[3] = s[3];
++                        }
++                        const float k = 1.f - d[3];
++                        for (int c = 0; c < 4; ++c) {
++                            d[c] += sv[c] * k;
++                        }
++                    }
++                }
++            }
++        }
++    }
++
+     pango_attr_list_unref(alist);
+     cairo_font_options_destroy(options);
+     g_object_unref(layout);

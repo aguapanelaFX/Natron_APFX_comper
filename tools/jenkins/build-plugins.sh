@@ -409,6 +409,20 @@ if [ "$BUILD_ARENA" = "1" ] && [ -d "$TMP_PATH/openfx-arena" ]; then
     printStatusMessage "Building openfx-arena..."
     cd "$TMP_PATH/openfx-arena"
 
+    # SOLVFX patches to openfx-arena
+    for patch in "$INC_PATH"/patches/openfx-arena/*.patch; do
+        [ -f "$patch" ] || continue
+        if git apply --check "$patch" 2>/dev/null; then
+            echo "Info: applying $(basename "$patch") to openfx-arena"
+            git apply "$patch"
+        elif git apply --check --reverse "$patch" 2>/dev/null; then
+            echo "Info: $(basename "$patch") already applied to openfx-arena, skipping"
+        else
+            echo "Error: $(basename "$patch") does not apply to openfx-arena"
+            exit 1
+        fi
+    done
+
     if [ "$PKGOS" = "OSX" ]; then
         $GSED -e s/-lgomp// -i.orig Makefile.master
     fi
