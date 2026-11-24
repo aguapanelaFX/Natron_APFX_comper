@@ -1,0 +1,62 @@
+diff --git a/OIIO/ReadOIIO.cpp b/OIIO/ReadOIIO.cpp
+index 043d461..22ce4cf 100644
+--- a/OIIO/ReadOIIO.cpp
++++ b/OIIO/ReadOIIO.cpp
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include <algorithm>
++#include <cctype>
+ #include <climits>
+ #include <cmath>
+ #include <cstddef>
+@@ -2321,10 +2322,46 @@ ReadOIIOPlugin::decodePlane(const string& filename,
+                 const string& layerName = _outputLayerMenu[layer_i].first;
+                 getOIIOChannelIndexesFromLayerName(filename, view, layerName, pixelComponents, subimages, channels, numChannels, subImageIndex);
+             } else {
+-                setPersistentMessage(Message::eMessageError, "", "Failure to find requested layer in file");
+-                throwSuiteStatusException(kOfxStatFailed);
++                // SOLVFX: the layer menu was never built (file name set by a script, project loaded by the
++                // renderer while the first frame of the range was missing, ...). Do not render black: take
++                // the colour channels of this frame by name.
++                const ImageSpec& spec0 = subimages[0];
++                const char* wanted[4] = { "R", "G", "B", "A" };
++                int nWanted = 0;
++                switch (pixelComponents) {
++                case ePixelComponentRGBA: nWanted = 4; break;
++                case ePixelComponentRGB: nWanted = 3; break;
++                case ePixelComponentXY: nWanted = 2; break;
++                case ePixelComponentAlpha: nWanted = 1; wanted[0] = "A"; break;
++                default: break;
++                }
++                if (nWanted == 0) {
++                    setPersistentMessage(Message::eMessageError, "", "Failure to find requested layer in file");
++                    throwSuiteStatusException(kOfxStatFailed);
+ 
+-                return;
++                    return;
++                }
++                numChannels = nWanted;
++                channels.resize(numChannels);
++                for (int c = 0; c < nWanted; ++c) {
++                    int found = -1;
++                    for (int k = 0; k < (int)spec0.channelnames.size(); ++k) {
++                        const string& cn = spec0.channelnames[k];
++                        if ( (cn == wanted[c]) || (cn.size() == 1 && std::toupper((unsigned char)cn[0]) == wanted[c][0]) ) {
++                            found = k;
++                            break;
++                        }
++                    }
++                    if (found >= 0) {
++                        channels[c] = found + kXChannelFirst;
++                    } else if (wanted[c][0] == 'A') {
++                        channels[c] = (spec0.alpha_channel >= 0) ? spec0.alpha_channel + kXChannelFirst : 1;   // opaque
++                    } else if (c < spec0.nchannels) {
++                        channels[c] = c + kXChannelFirst;
++                    } else {
++                        channels[c] = 0;
++                    }
++                }
+             }
+         }
+     } // if (pixelComponents != ePixelComponentCustom) {
