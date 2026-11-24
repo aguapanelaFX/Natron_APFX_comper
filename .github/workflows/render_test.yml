@@ -50,6 +50,7 @@ jobs:
         run: |
           mkdir -p out
           "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception" || true
+          SOLVFX_RENDERTEST_PHASE=read "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_read.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception|Persistent" || true
           echo "---- files"
           ls -la out
       - name: Render (ACES OCIO config)
@@ -60,6 +61,7 @@ jobs:
         run: |
           mkdir -p out_aces
           "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces.log | grep -E "RENDERTEST|ERROR|Traceback|Exception" || true
+          SOLVFX_RENDERTEST_PHASE=read "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces_read.log | grep -E "RENDERTEST|ERROR|Traceback|Exception|Persistent" || true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -73,4 +75,4 @@ jobs:
       - name: Full render log (tail)
         if: always()
         shell: bash
-        run: tail -n 200 render.log || true
+        run: tail -n 120 render.log; echo ==== read; grep -v 'Fps, Time' render_read.log | tail -n 80 || true
