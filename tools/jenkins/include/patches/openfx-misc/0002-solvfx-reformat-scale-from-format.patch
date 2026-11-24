@@ -1,0 +1,19 @@
+diff --git a/Reformat/Reformat.cpp b/Reformat/Reformat.cpp
+index 6b5b00c..73c1491 100644
+--- a/Reformat/Reformat.cpp
++++ b/Reformat/Reformat.cpp
+@@ -605,8 +605,12 @@ ReformatPlugin::getBoxValues(const double time, int *w, int *h, double *par, boo
+         }
+         OfxRectD srcRod;
+         if (_srcClip && _srcClip->isConnected()) {
+-            *par = _srcClip->getPixelAspectRatio();
+-            srcRod = _srcClip->getRegionOfDefinition(time);
++            // SOLVFX: like Nuke, scale the input format (the image is mapped format to format, so the
++            // output format must come from the same rectangle, not from the bounding box)
++            OfxRectD inFormat;
++            getInputFormat(time, par, &inFormat);
++            const OfxPointD rsOne = {1., 1.};
++            Coords::toCanonical(inFormat, rsOne, *par, &srcRod);
+         } else {
+             OfxPointD siz = getProjectSize();
+             OfxPointD off = getProjectOffset();
