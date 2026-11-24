@@ -1,0 +1,60 @@
+name: Render Test
+
+# Renders a small comp to every output format used in production with the latest SOLVFX build
+# (or a given build tag) and checks that the files decode and are not black.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'build release tag (empty = latest build-SOLVFX-*)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/rendertest
+      - name: Download build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=30" -q '[.[] | select(.tag_name | startswith("build-SOLVFX-"))][0].tag_name')
+          fi
+          echo "build: $TAG"
+          gh release download "$TAG" --repo "${{ github.repository }}" -p "*.zip" -D dl
+          mkdir app && unzip -q dl/*.zip -d app
+          R=$(find app -iname "SOLVFXRenderer.exe" | head -1)
+          echo "renderer: $R"
+          echo "RENDERER=$R" >> "$GITHUB_ENV"
+      - name: Render
+        shell: bash
+        env:
+          SOLVFX_RENDERTEST_OUT: ${{ github.workspace }}\out
+        run: |
+          mkdir -p out
+          "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception" || true
+          echo "---- files"
+          ls -la out
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check files
+        shell: bash
+        run: |
+          pip install -q numpy imageio-ffmpeg
+          python tools/rendertest/check_outputs.py out
+      - name: Full render log (tail)
+        if: always()
+        shell: bash
+        run: tail -n 200 render.log || true
