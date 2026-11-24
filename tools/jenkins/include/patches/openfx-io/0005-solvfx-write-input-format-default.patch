@@ -1,0 +1,13 @@
+diff --git a/IOSupport/GenericWriter.cpp b/IOSupport/GenericWriter.cpp
+index 216c26d..474b8b4 100644
+--- a/IOSupport/GenericWriter.cpp
++++ b/IOSupport/GenericWriter.cpp
+@@ -2585,7 +2585,7 @@ GenericWriterDescribeInContextBegin(ImageEffectDescriptor& desc,
+         param->appendOption(kParamFormatTypeOptionProject);
+         assert(param->getNOptions() == (int)eFormatTypeFixed);
+         param->appendOption(kParamFormatTypeOptionFixed);
+-        param->setDefault((int)eFormatTypeProject);
++        param->setDefault((int)eFormatTypeInput); // SOLVFX: render the input size by default
+         param->setAnimates(false);
+         param->setHint(kParamFormatTypeHint);
+         param->setLayoutHint(eLayoutHintNoNewLine, 1);
