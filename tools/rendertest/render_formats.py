@@ -61,6 +61,12 @@ def write(name, ext, inp, codec=None, alpha=None, extra=None):
             pass
         for k, v in (extra or {}).items():
             w.getParam(k).set(v)
+        try:
+            w.getParam("frameRange").set(2)      # manual
+            w.getParam("firstFrame").set(1)
+            w.getParam("lastFrame").set(3)
+        except Exception:
+            pass
         app.render(w, 1, 3)
         log("WROTE", name, path, lab)
     except Exception:
@@ -75,4 +81,15 @@ write("prores_4444xq_alpha", ".mov", rad, codec="ap4x", alpha=True)
 write("prores_4444xq_noalpha", ".mov", src, codec="ap4x", alpha=False)
 write("png_seq.####", ".png", rad)
 write("exr_seq.####", ".exr", rad)
+# premultiplied soft alpha into codecs without alpha, and through a Read (like real comps)
+write("prores_422_hq_softalpha", ".mov", rad, codec="apch")
+write("mp4_softalpha", ".mp4", rad, codec="libx264")
+try:
+    rd = app.createNode("fr.inria.built-in.Read")
+    rd.getParam("filename").set(os.path.join(OUT, "exr_seq.####.exr"))
+    write("prores_422_hq_fromread", ".mov", rd, codec="apch")
+    write("mp4_fromread", ".mp4", rd, codec="libx264")
+    write("prores_4444_fromread", ".mov", rd, codec="ap4h", alpha=True)
+except Exception:
+    log("FAILED read", traceback.format_exc().replace("\n", " | "))
 log("DONE")

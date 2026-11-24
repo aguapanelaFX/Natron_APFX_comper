@@ -52,6 +52,14 @@ jobs:
           "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception" || true
           echo "---- files"
           ls -la out
+      - name: Render (ACES OCIO config)
+        shell: bash
+        env:
+          SOLVFX_RENDERTEST_OUT: ${{ github.workspace }}\out_aces
+          OCIO: ocio://studio-config-latest
+        run: |
+          mkdir -p out_aces
+          "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces.log | grep -E "RENDERTEST|ERROR|Traceback|Exception" || true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -60,6 +68,8 @@ jobs:
         run: |
           pip install -q numpy imageio-ffmpeg
           python tools/rendertest/check_outputs.py out
+          echo "==== ACES config"
+          python tools/rendertest/check_outputs.py out_aces
       - name: Full render log (tail)
         if: always()
         shell: bash

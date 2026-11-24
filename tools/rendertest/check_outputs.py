@@ -8,7 +8,7 @@ ff = imageio_ffmpeg.get_ffmpeg_exe()
 bad = 0
 for f in sorted(glob.glob(os.path.join(out, "*"))):
     name = os.path.basename(f)
-    if not (name.endswith(".mov") or name.endswith(".mp4") or name.endswith(".0001.png") or name.endswith(".0001.exr") or name.endswith("1.png") or name.endswith("1.exr")):
+    if not (name.endswith(".mov") or name.endswith(".mp4") or name.endswith(".0001.png") or name.endswith(".0001.exr")):
         continue
     probe = subprocess.run([ff, "-hide_banner", "-i", f], capture_output=True, text=True).stderr
     stream = [l.strip() for l in probe.splitlines() if "Video:" in l]
