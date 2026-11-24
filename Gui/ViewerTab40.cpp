@@ -1288,6 +1288,15 @@ ViewerTab::solvfxModeRange(double* firstOut,
         int a = -1, b = -1;
         _imp->viewerNode->getActiveInputs(a, b);
         EffectInstancePtr input = (a >= 0) ? _imp->viewerNode->getInput(a) : EffectInstancePtr();
+        // a Write keeps its own (render) range, possibly copied from another Write: show what comes
+        // from upstream instead
+        for (int guard = 0; input && input->isWriter() && guard < 16; ++guard) {
+            EffectInstancePtr up = input->getInput(0);
+            if (!up) {
+                break;
+            }
+            input = up;
+        }
         if (input) {
             double f = first, l = last;
             input->getFrameRange_public(input->getHash(), &f, &l);
