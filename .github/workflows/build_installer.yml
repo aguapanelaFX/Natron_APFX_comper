@@ -23,6 +23,8 @@ on:
     paths-ignore:
       - 'tools/MINGW-packages/**'
       - '.github/workflows/build_pacman_repo.yml'
+      - 'tools/rendertest/**'
+      - '.github/workflows/render_test.yml'
 
 permissions:
   contents: write

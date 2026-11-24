@@ -1,0 +1,54 @@
+diff --git a/FFmpeg/WriteFFmpeg.cpp b/FFmpeg/WriteFFmpeg.cpp
+index d69b1b3..0fd58f7 100644
+--- a/FFmpeg/WriteFFmpeg.cpp
++++ b/FFmpeg/WriteFFmpeg.cpp
+@@ -725,6 +725,9 @@ getProfileFromShortName(const string& name)
+         if (!name.compare(prefix.size(), string::npos, kProresProfile4444FourCC)) {
+             return kProresProfile4444;
+         }
++        if (!name.compare(prefix.size(), string::npos, kProresProfile4444XQFourCC)) {
++            return kProresProfile4444XQ;
++        }
+         if (!name.compare(prefix.size(), string::npos, kProresProfileHQFourCC)) {
+             return kProresProfileHQ;
+         }
+@@ -752,6 +755,9 @@ getProfileStringFromShortName(const string& name)
+         if (!name.compare(prefix.size(), string::npos, kProresProfile4444FourCC)) {
+             return "4444";
+         }
++        if (!name.compare(prefix.size(), string::npos, kProresProfile4444XQFourCC)) {
++            return "4444xq";
++        }
+         if (!name.compare(prefix.size(), string::npos, kProresProfileHQFourCC)) {
+             return "hq";
+         }
+@@ -1258,6 +1264,11 @@ FFmpegSingleton::FFmpegSingleton()
+     _codecsLongNames.push_back(kProresProfile4444Name);
+     _codecsKnobLabels.push_back(kProresProfile4444FourCC "\t" kProresProfile4444Name);
+     _codecsIds.push_back(AV_CODEC_ID_PRORES);
++    // SOLVFX: ProRes 4444 XQ (prores_ks profile "4444xq")
++    _codecsShortNames.push_back(kProresCodec kProresProfile4444XQFourCC);
++    _codecsLongNames.push_back(kProresProfile4444XQName);
++    _codecsKnobLabels.push_back(kProresProfile4444XQFourCC "\t" kProresProfile4444XQName);
++    _codecsIds.push_back(AV_CODEC_ID_PRORES);
+     _codecsShortNames.push_back(kProresCodec kProresProfileHQFourCC);
+     _codecsLongNames.push_back(kProresProfileHQName);
+     _codecsKnobLabels.push_back(kProresProfileHQFourCC "\t" kProresProfileHQName);
+@@ -1508,7 +1519,7 @@ bool
+ WriteFFmpegPlugin::IsYUVFromShortName(const char* shortName,
+                                       int codecProfile)
+ {
+-    return (!strcmp(shortName, kProresCodec kProresProfile4444XQFourCC) || !strcmp(shortName, kProresCodec kProresProfileHQFourCC) || !strcmp(shortName, kProresCodec kProresProfileSQFourCC) || !strcmp(shortName, kProresCodec kProresProfileLTFourCC) || !strcmp(shortName, kProresCodec kProresProfileProxyFourCC) || ((codecProfile != (int)eDNxHDCodecProfileHR444) && // DNxHR 444 is RGB
++    return (!strcmp(shortName, kProresCodec kProresProfileHQFourCC) || !strcmp(shortName, kProresCodec kProresProfileSQFourCC) || !strcmp(shortName, kProresCodec kProresProfileLTFourCC) || !strcmp(shortName, kProresCodec kProresProfileProxyFourCC) || ((codecProfile != (int)eDNxHDCodecProfileHR444) && // DNxHR 444 is RGB
+                                                                                                                                                                                                                                                                                                                            !strcmp(shortName, "dnxhd"))
+             || !strcmp(shortName, "mjpeg") || !strcmp(shortName, "mpeg1video") || !strcmp(shortName, "mpeg4") || !strcmp(shortName, "v210"));
+ }
+@@ -1696,7 +1707,7 @@ WriteFFmpegPlugin::getPixelFormats(const AVCodec* videoCodec,
+         const vector<string>& codecsShortNames = FFmpegSingleton::Instance().getCodecsShortNames();
+         assert(index < (int)codecsShortNames.size());
+         int profile = getProfileFromShortName(codecsShortNames[index]);
+-        if (profile == kProresProfile4444 /*|| profile == kProresProfile4444XQ*/) {
++        if ( (profile == kProresProfile4444) || (profile == kProresProfile4444XQ) ) {
+             // Prores 4444
+             if (prefAlpha) {
+                 outTargetPixelFormat = AV_PIX_FMT_YUVA444P10;
