@@ -94,6 +94,16 @@ else:
     try:
         rd = app.createNode("fr.inria.built-in.Read")
         rd.getParam("filename").set(os.path.join(OUT, "exr_seq.####.exr"))
+        # a script-set file name does not scan the sequence: give the range like the file dialog does
+        for k, v in (("firstFrame", 1), ("lastFrame", 3)):
+            try:
+                rd.getParam(k).set(v)
+            except Exception:
+                log("READ cannot set", k)
+        try:
+            rd.getParam("originalFrameRange").set(1, 3)
+        except Exception:
+            pass
         for k in ("firstFrame", "lastFrame", "outputComponents", "outputLayer", "outputPremult"):
             try:
                 prm = rd.getParam(k)
