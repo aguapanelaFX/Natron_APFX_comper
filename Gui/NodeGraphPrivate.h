@@ -191,6 +191,7 @@ public:
     NodeGuiPtr _backdropResized; //< the backdrop being resized
     int solvfxBdCorner = 3; // SOLVFX: corner grabbed (0 TL, 1 TR, 2 BL, 3 BR)
     QPointF solvfxBdFixed; // SOLVFX: opposite corner (scene)
+    NodeGuiPtr solvfxDragNode; // SOLVFX: node grabbed when dragging a selection (it is the one inserted)
     NodesGuiList _selection;
 
     //To avoid calling unsetCursor too much

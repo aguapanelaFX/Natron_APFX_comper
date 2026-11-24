@@ -45,6 +45,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Engine/Settings.h"
 
 #include "Gui/BackdropGui.h"
+#include <QUndoStack>
 #include "Gui/Edge.h"
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
@@ -239,7 +240,26 @@ NodeGraph::mouseReleaseEvent(QMouseEvent* e)
             }
 
             ///now if there was a hint displayed, use it to actually make connections.
-            if (_imp->_highLightedEdge) {
+            NodeGuiPtr chainTop, chainBottom;
+            int chainTopIn = -1;
+            if ( _imp->_highLightedEdge && (_imp->_selection.size() > 1) ) {
+                // SOLVFX: several nodes dropped on a pipe: the grabbed node's chain goes into the stream
+                Edge* e = _imp->_highLightedEdge;
+                e->setUseHighlight(false);
+                if ( solvfxChainEnds(_imp->solvfxDragNode, &chainTop, &chainTopIn, &chainBottom) && e->getSource() ) {
+                    NodeGuiPtr src = e->getSource();
+                    getUndoStack()->beginMacro( tr("Insert nodes") );
+                    Edge* in = chainTop->getInputArrow(chainTopIn);
+                    if (in) {
+                        pushUndoCommand( new ConnectCommand(this, in, in->getSource(), src) );
+                    }
+                    pushUndoCommand( new ConnectCommand(this, e, src, chainBottom) );
+                    getUndoStack()->endMacro();
+                }
+                _imp->_highLightedEdge = 0;
+                _imp->_hintInputEdge->hide();
+                _imp->_hintOutputEdge->hide();
+            } else if (_imp->_highLightedEdge) {
                 _imp->_highLightedEdge->setUseHighlight(false);
 
                 NodeGuiPtr selectedNode = _imp->_selection.front();

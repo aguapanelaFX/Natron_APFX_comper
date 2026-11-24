@@ -47,6 +47,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 
 #include "Gui/SolvfxConsole.h"
 #include "Gui/BackdropGui.h"
+#include <set>
 #include "Gui/Edge.h"
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/GuiMacros.h"
@@ -317,6 +318,137 @@ NodeGraph::checkForHints(bool shiftdown,
     }
 } // NodeGraph::checkForHints
 
+// SOLVFX: main (B / first non-mask) input
+static int
+solvfxMainIn(const NodePtr& n)
+{
+    if ( !n || (n->getNInputs() == 0) ) {
+        return -1;
+    }
+    for (int i = 0; i < n->getNInputs(); ++i) {
+        if (n->getInputLabel(i) == "B") {
+            return i;
+        }
+    }
+    EffectInstancePtr fx = n->getEffectInstance();
+    for (int i = 0; i < n->getNInputs(); ++i) {
+        if ( !fx || ( !fx->isInputMask(i) && !fx->isInputRotoBrush(i) ) ) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+// the chain of selected nodes through the grabbed one: top (main input free) .. bottom (output free)
+bool
+NodeGraph::solvfxChainEnds(const NodeGuiPtr& drag,
+                           NodeGuiPtr* top,
+                           int* topInput,
+                           NodeGuiPtr* bottom) const
+{
+    if ( !drag || !drag->getNode() ) {
+        return false;
+    }
+    NodeGuiPtr n = drag;
+    for (int guard = 0; guard < 1000; ++guard) {
+        const int mi = solvfxMainIn( n->getNode() );
+        if (mi < 0) {
+            return false;   // no input to connect (reader, generator)
+        }
+        NodePtr in = n->getNode()->getInput(mi);
+        if (!in) {
+            *top = n;
+            *topInput = mi;
+            break;
+        }
+        NodeGuiPtr ig = std::dynamic_pointer_cast<NodeGui>( in->getNodeGui() );
+        if ( !ig || !ig->getIsSelected() ) {
+            return false;   // the chain is already fed from outside
+        }
+        n = ig;
+    }
+    n = drag;
+    for (int guard = 0; guard < 1000; ++guard) {
+        NodeGuiPtr next;
+        const NodesWList& outs = n->getNode()->getGuiOutputs();
+        for (NodesWList::const_iterator it = outs.begin(); it != outs.end(); ++it) {
+            NodePtr o = it->lock();
+            if (!o) {
+                continue;
+            }
+            NodeGuiPtr og = std::dynamic_pointer_cast<NodeGui>( o->getNodeGui() );
+            if ( !og || !og->getIsSelected() ) {
+                return false;   // already feeds something outside
+            }
+            if (!next) {
+                next = og;
+            }
+        }
+        if (!next) {
+            *bottom = n;
+
+            return true;
+        }
+        n = next;
+    }
+
+    return false;
+}
+
+void
+NodeGraph::solvfxChainHints(bool controlDown,
+                            const QRectF& /*visibleSceneR*/)
+{
+    Edge* edge = 0;
+    NodeGuiPtr top, bottom;
+    int topIn = -1;
+    const NodeGuiPtr drag = _imp->solvfxDragNode;
+    if ( drag && !controlDown && solvfxChainEnds(drag, &top, &topIn, &bottom) ) {
+        std::set<NodeGui*> sel;
+        for (NodesGuiList::const_iterator it = _imp->_selection.begin(); it != _imp->_selection.end(); ++it) {
+            sel.insert( it->get() );
+        }
+        QRectF bbox = drag->boundingRectWithEdges();
+        bbox.adjust(-10, -10, 10, 10);
+        std::set<NodeGui*> within;
+        getNodesWithinViewportRect(visibleWidgetRect(), &within);
+        for (std::set<NodeGui*>::iterator it = within.begin(); it != within.end(); ++it) {
+            if ( sel.count(*it) || !(*it)->isVisible() || dynamic_cast<BackdropGui*>(*it) ) {
+                continue;
+            }
+            NodePtr n = (*it)->getNode();
+            if ( !n || (n->getNInputs() == 0) ) {
+                continue;
+            }
+            Edge* e = (*it)->hasEdgeNearbyRect(bbox);
+            if ( !e || e->isOutputEdge() || !e->getSource() || sel.count( e->getSource().get() ) ) {
+                continue;
+            }
+            if ( n->getEffectInstance() && n->getEffectInstance()->isInputRotoBrush( e->getInputNumber() ) ) {
+                continue;
+            }
+            edge = e;
+            break;
+        }
+    }
+    if ( _imp->_highLightedEdge && (_imp->_highLightedEdge != edge) ) {
+        _imp->_highLightedEdge->setUseHighlight(false);
+        _imp->_hintInputEdge->hide();
+        _imp->_hintOutputEdge->hide();
+    }
+    _imp->_highLightedEdge = edge;
+    if (edge) {
+        edge->setUseHighlight(true);
+        _imp->_hintInputEdge->setInputNumber(topIn);
+        _imp->_hintInputEdge->setSourceAndDestination(edge->getSource(), top);
+        _imp->_hintInputEdge->setVisible(true);
+        _imp->_hintOutputEdge->setInputNumber( edge->getInputNumber() );
+        _imp->_hintOutputEdge->setSourceAndDestination( bottom, edge->getDest() );
+        _imp->_hintOutputEdge->setVisible(true);
+    }
+}
+
 void
 NodeGraph::moveSelectedNodesBy(bool shiftdown,
                                bool controlDown,
@@ -419,6 +551,8 @@ NodeGraph::moveSelectedNodesBy(bool shiftdown,
 
     //The lines below are trying to
     if (_imp->_selection.size() != 1) {
+        solvfxChainHints(controlDown, visibleSceneR);   // SOLVFX: several nodes: the grabbed node's chain
+
         return;
     }
 

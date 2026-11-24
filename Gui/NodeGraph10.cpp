@@ -320,6 +320,7 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
             if (!isBd) {
                 _imp->_magnifiedNode = selectedNode;
             }
+            _imp->solvfxDragNode = isBd ? NodeGuiPtr() : selectedNode;
 
             if ( !selectedNode->getIsSelected() ) {
                 selectNode( selectedNode, modCASIsShift(e) );

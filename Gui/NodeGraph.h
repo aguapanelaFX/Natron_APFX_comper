@@ -267,6 +267,9 @@ private:
     void showNodePanel(bool casIsCtrl, bool casIsShift, NodeGui* nearbyNode);
 
     void checkForHints(bool shiftdown, bool controlDown, const NodeGuiPtr& selectedNode, const QRectF& visibleSceneR);
+    // SOLVFX: dragging several nodes onto a pipe inserts the chain of the grabbed node
+    bool solvfxChainEnds(const NodeGuiPtr& drag, NodeGuiPtr* top, int* topInput, NodeGuiPtr* bottom) const;
+    void solvfxChainHints(bool controlDown, const QRectF& visibleSceneR);
 
     void moveSelectedNodesBy(bool shiftdown, bool controlDown, const QPointF& lastMousePosScene, const QPointF& newPos, const QRectF& visibleSceneR, bool userEdit);
 
