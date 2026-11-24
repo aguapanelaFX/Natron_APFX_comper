@@ -23,7 +23,7 @@ permissions:
 jobs:
   render:
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,8 +49,8 @@ jobs:
           SOLVFX_RENDERTEST_OUT: ${{ github.workspace }}\out
         run: |
           mkdir -p out
-          "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception" || true
-          SOLVFX_RENDERTEST_PHASE=read "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_read.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception|Persistent" || true
+          timeout 300 "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception" || true
+          SOLVFX_RENDERTEST_PHASE=read timeout 300 "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_read.log | grep -E "RENDERTEST|rror|ERROR|Traceback|Exception|Persistent" || true
           echo "---- files"
           ls -la out
       - name: Render (ACES OCIO config)
@@ -60,8 +60,8 @@ jobs:
           OCIO: ocio://studio-config-latest
         run: |
           mkdir -p out_aces
-          "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces.log | grep -E "RENDERTEST|ERROR|Traceback|Exception" || true
-          SOLVFX_RENDERTEST_PHASE=read "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces_read.log | grep -E "RENDERTEST|ERROR|Traceback|Exception|Persistent" || true
+          timeout 300 "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces.log | grep -E "RENDERTEST|ERROR|Traceback|Exception" || true
+          SOLVFX_RENDERTEST_PHASE=read timeout 300 "$RENDERER" tools/rendertest/render_formats.py 2>&1 | tee render_aces_read.log | grep -E "RENDERTEST|ERROR|Traceback|Exception|Persistent" || true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

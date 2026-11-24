@@ -111,19 +111,4 @@ else:
         write("exr_fromread.####", ".exr", rd)
     except Exception:
         log("FAILED read", traceback.format_exc().replace("\n", " | "))
-# the renderer renders every Write left in the script again at the end: remove them
-for w in done:
-    try:
-        w.destroy()
-    except Exception:
-        try:
-            w.getParam("disableNode").set(True)
-        except Exception:
-            pass
-for n in app.getChildren():
-    try:
-        if n.getPluginID() == "fr.inria.built-in.Write":
-            n.destroy()
-    except Exception:
-        pass
 log("DONE")
