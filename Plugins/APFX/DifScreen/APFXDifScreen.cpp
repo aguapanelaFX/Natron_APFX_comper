@@ -145,13 +145,13 @@ APFXDifScreenColourFactory::describe(ImageEffectDescriptor& desc)
     APFXOfx::describeCommon(desc, "DifScreenColour",
                             "APFX DifScreenColour: builds a clean screen plate from a green / blue screen shot. "
                             "Pixels that are clearly screen are kept, the foreground is grown by 'size' and filled with "
-                            "the surrounding screen colour. Feed the result to DifScreenKey's Plate input.");
+                            "the surrounding screen colour. Feed the result to the c input of DifScreenKey.");
 }
 
 void
 APFXDifScreenColourFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
 {
-    APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false);
+    APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false)->setLabels("1", "1", "1");
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectOutputClipName, false);
     PageParamDescriptor* page = desc.definePageParam("DifScreenColour");
     // same controls and order as the usual IBK-style colour node: screen type, size, darks, lights | erode | patch black
@@ -223,7 +223,7 @@ public:
         _src = fetchClip(kOfxImageEffectSimpleSourceClipName);
         _plate = fetchClip("Plate");
         _bg = fetchClip("Bg");
-        _std.fetch(*this, true, false);
+        _std.fetch(*this, false, false);
         _screen = fetchChoiceParam("screen");
         _screenColour = fetchRGBParam("colour");
         _redWeight = fetchDoubleParam("redWeight");
@@ -375,9 +375,8 @@ private:
         p.premultiply = _premult->getValueAtTime(t);
         APFXKey::difScreenKey( in, plate, haveBg ? &bgPlane : NULL, p, out, APFXOfx::hostParallelFor() );
         APFXOfx::OutputArgs o;
-        Image* mask = _std.get(t, o);
+        _std.get(t, o);
         APFXOfx::writeOutput(*this, dst, args.renderWindow, out, b, &in, b, o);
-        delete mask;
         delete src;
         delete dst;
     }
@@ -414,25 +413,25 @@ APFXDifScreenKeyFactory::describe(ImageEffectDescriptor& desc)
 {
     APFXOfx::describeCommon(desc, "DifScreenKey",
                             "APFX DifScreenKey: difference screen keyer. The alpha comes from how much the screen colour "
-                            "of the shot differs from the clean Plate (DifScreenColour output), using a colour difference "
-                            "with red / blue weights. Without a Plate, the flat screen colour is used. "
+                            "of the shot differs from the clean plate on the c input (DifScreenColour output), using a colour difference "
+                            "with red / blue weights. Without a plate, the flat screen colour is used. "
                             "Screen subtraction removes the screen colour from the foreground (despill).");
 }
 
 void
 APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
 {
-    APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false);
-    APFXOfx::defineRGBAClip(desc, "Plate", true);
-    APFXOfx::defineRGBAClip(desc, "Bg", true);
+    // inputs fg / c / bg (clip names stay Source / Plate / Bg for old projects)
+    APFXOfx::defineRGBAClip(desc, kOfxImageEffectSimpleSourceClipName, false)->setLabels("fg", "fg", "fg");
+    APFXOfx::defineRGBAClip(desc, "Plate", true)->setLabels("c", "c", "c");
+    APFXOfx::defineRGBAClip(desc, "Bg", true)->setLabels("bg", "bg", "bg");
     APFXOfx::defineRGBAClip(desc, kOfxImageEffectOutputClipName, false);
-    APFXOfx::defineMaskClip(desc);
     PageParamDescriptor* page = desc.definePageParam("DifScreenKey");
     // no channels row (like Nuke's IBKGizmo)
     {
         ChoiceParamDescriptor* p = desc.defineChoiceParam("screen");
         p->setLabel("screen type");
-        p->setHint("C-green / C-blue: key against the Plate input (DifScreenColour). pick: key against the colour below.");
+        p->setHint("C-green / C-blue: key against the c input (DifScreenColour). pick: key against the colour below.");
         p->appendOption("C-green", "", "green");
         p->appendOption("C-blue", "", "blue");
         p->appendOption("pick", "", "pick");
@@ -443,7 +442,7 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
     {
         RGBParamDescriptor* p = desc.defineRGBParam("colour");
         p->setLabel("colour");
-        p->setHint("Screen colour for 'pick' (also used when the Plate input is not connected).");
+        p->setHint("Screen colour for 'pick' (also used when the c input is not connected).");
         p->setDefault(0., 0., 1.);
         page->addChild(*p);
     }
@@ -478,7 +477,6 @@ APFXDifScreenKeyFactory::describeInContext(ImageEffectDescriptor& desc, ContextE
         p->setParent(*g);
         desc.addClipPreferencesSlaveParam(*p);
     }
-    APFXOfx::defineMaskMix(desc, page);
 }
 
 ImageEffect*

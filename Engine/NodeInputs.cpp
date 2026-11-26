@@ -393,6 +393,24 @@ Node::getInputNumberFromLabel(const std::string& inputLabel) const
             return i;
         }
     }
+    // SOLVFX: inputs that were renamed (projects saved with the old names still reconnect)
+    struct Alias { const char* plugin; const char* oldLabel; const char* newLabel; };
+    static const Alias aliases[] = {
+        { "com.aguapanelafx.APFX.DifScreenKey", "Source", "fg" },
+        { "com.aguapanelafx.APFX.DifScreenKey", "Plate", "c" },
+        { "com.aguapanelafx.APFX.DifScreenKey", "Bg", "bg" },
+        { "com.aguapanelafx.APFX.DifScreenColour", "Source", "1" },
+    };
+    const std::string pid = getPluginID();
+    for (const Alias& a : aliases) {
+        if ( (pid == a.plugin) && (inputLabel == a.oldLabel) ) {
+            for (U32 i = 0; i < _imp->inputLabels.size(); ++i) {
+                if (_imp->inputLabels[i] == a.newLabel) {
+                    return i;
+                }
+            }
+        }
+    }
 
     return -1;
 }
