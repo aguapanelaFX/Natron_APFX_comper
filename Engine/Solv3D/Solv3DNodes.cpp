@@ -16,6 +16,7 @@
 #include <mutex>
 #include <sstream>
 #include <cstring>
+#include <cstdlib>
 
 
 #include "Global/GLIncludes.h"
@@ -496,10 +497,39 @@ Solv3DNode::Solv3DNode(NodePtr n)
 {
 }
 
+// 3D menu sub-groups
+static void
+solv3DGrouping(const std::string& id,
+               std::list<std::string>* grouping)
+{
+    grouping->push_back(PLUGIN_GROUP_3D);
+    const char* sub = 0;
+    if ( (id == PLUGINID_SOLV3D_CARD) || (id == PLUGINID_SOLV3D_CUBE) || (id == PLUGINID_SOLV3D_SPHERE) ||
+         (id == PLUGINID_SOLV3D_CYLINDER) || (id == PLUGINID_SOLV3D_READGEO) || (id == PLUGINID_SOLV3D_WRITEGEO) ||
+         (id == PLUGINID_SOLV3D_NORMALS) ) {
+        sub = "Geometry";
+    } else if ( (id == PLUGINID_SOLV3D_TRANSFORMGEO) || (id == PLUGINID_SOLV3D_AXIS) ) {
+        sub = "Transform";
+    } else if ( (id == PLUGINID_SOLV3D_CAMERA) || (id == PLUGINID_SOLV3D_VANISHINGCAM) ) {
+        sub = "Camera";
+    } else if ( (id == PLUGINID_SOLV3D_POINTLIGHT) || (id == PLUGINID_SOLV3D_SPOTLIGHT) || (id == PLUGINID_SOLV3D_DIRLIGHT) ||
+                (id == PLUGINID_SOLV3D_AMBIENTLIGHT) || (id == PLUGINID_SOLV3D_HDRILIGHT) ) {
+        sub = "Lights";
+    } else if ( (id == PLUGINID_SOLV3D_BASICMATERIAL) || (id == PLUGINID_SOLV3D_MATERIALX) || (id == PLUGINID_SOLV3D_ASSIGNMATERIAL) ||
+                (id == PLUGINID_SOLV3D_MATERIAL) || (id == PLUGINID_SOLV3D_PROJECT3D) ) {
+        sub = "Shading";
+    } else if ( (id == PLUGINID_SOLV3D_SCENE) || (id == PLUGINID_SOLV3D_SCANLINE) ) {
+        sub = "Render";
+    }
+    if (sub) {
+        grouping->push_back(sub);
+    }
+}
+
 void
 Solv3DNode::getPluginGrouping(std::list<std::string>* grouping) const
 {
-    grouping->push_back(PLUGIN_GROUP_3D);
+    solv3DGrouping(getPluginID(), grouping);
 }
 
 void
@@ -3292,12 +3322,1116 @@ Solv3DMaterial::buildScene(double t, Scene* scene)
     }
 }
 
+// ============================================================================ material nodes
+namespace {
+struct MatChannelDef
+{
+    int ch;
+    const char* name;      // knob name
+    const char* label;     // MaterialX label
+    const char* basic;     // BasicMaterial label (null: not on BasicMaterial)
+    int type;              // 0 value, 1 colour, 2 normal (strength), 3 displacement (scale)
+    double def, dmax;
+    int map;               // Material::Map, -1 = base colour (mesh texture)
+    bool colorData;        // texture file is a colour image (sRGB 8-bit files are linearised)
+    const char* hint;
+};
+
+const MatChannelDef kMatChannels[Solv3DMaterialNode::eChCount] = {
+    { Solv3DMaterialNode::eChBaseColor, "base_color", "base color", "diffuse", 1, 0.8, 1., -1, true,
+      "Diffuse colour. A texture on its input multiplies it." },
+    { Solv3DMaterialNode::eChBaseWeight, "base_weight", "base weight", 0, 0, 1., 1., Material::eMapBaseWeight, false,
+      "Amount of diffuse colour." },
+    { Solv3DMaterialNode::eChMetalness, "metalness", "metalness", 0, 0, 0., 1., Material::eMapMetalness, false,
+      "1 = metal: reflections and highlights tinted by the base colour." },
+    { Solv3DMaterialNode::eChSpecular, "specular_weight", "specular weight", "specular", 0, 0.5, 1., Material::eMapSpecular, false,
+      "Highlights and reflections of non-metals (Fresnel from the IOR)." },
+    { Solv3DMaterialNode::eChSpecularColor, "specular_color", "specular color", 0, 1, 1., 1., Material::eMapSpecularColor, true,
+      "Tints highlights and reflections of non-metals." },
+    { Solv3DMaterialNode::eChRoughness, "roughness", "roughness", "roughness", 0, 0.3, 1., Material::eMapRoughness, false,
+      "0 = mirror, 1 = very blurry reflections and wide highlights." },
+    { Solv3DMaterialNode::eChCoat, "coat_weight", "coat weight", 0, 0, 0., 1., Material::eMapCoat, false,
+      "Clear layer on top (varnish, car paint)." },
+    { Solv3DMaterialNode::eChCoatRoughness, "coat_roughness", "coat roughness", 0, 0, 0.1, 1., Material::eMapCoatRoughness, false,
+      "Roughness of the coat." },
+    { Solv3DMaterialNode::eChEmissionColor, "emission_color", "emission color", "emission", 1, 1., 1., Material::eMapEmissionColor, true,
+      "Colour of the light given off by the surface (added on top, not affected by lights)." },
+    { Solv3DMaterialNode::eChEmissionWeight, "emission_weight", "emission weight", 0, 0, 0., 10., Material::eMapEmissionWeight, false,
+      "Amount of emission." },
+    { Solv3DMaterialNode::eChOpacity, "opacity", "opacity", "opacity", 0, 1., 1., Material::eMapOpacity, false,
+      "Multiplies the alpha (a texture on its input cuts holes)." },
+    { Solv3DMaterialNode::eChNormal, "normal_strength", "normal", "normal", 2, 1., 2., Material::eMapNormal, false,
+      "Tangent-space normal map (OpenGL convention, green up) on the input; the value is its strength." },
+    { Solv3DMaterialNode::eChDisplacement, "displacement_scale", "displacement", 0, 3, 0., 1., Material::eMapDisplacement, false,
+      "Displacement map on the input and its scale. Kept with the material (ScanlineRender does not displace)." },
+};
+
+std::shared_ptr<void>
+fileTexRef(const std::string& file, bool colorData)
+{
+    if ( file.empty() ) {
+        return std::shared_ptr<void>();
+    }
+    std::string err;
+    std::shared_ptr<TexImage> ti = loadTextureFile(file, &err, !colorData);
+    if (!ti) {
+        return std::shared_ptr<void>();
+    }
+    std::shared_ptr<Solv3DTexRef> r = std::make_shared<Solv3DTexRef>();
+    r->image = ti;
+
+    return r;
+}
+
+// ---------------------------------------------------------------- minimal MaterialX (XML) reader
+struct XEl
+{
+    std::string tag;
+    std::map<std::string, std::string> attr;
+    int parent = -1;
+    std::vector<int> kids;
+
+    std::string a(const char* k) const
+    {
+        std::map<std::string, std::string>::const_iterator it = attr.find(k);
+
+        return it == attr.end() ? std::string() : it->second;
+    }
+};
+
+std::string
+xmlDecode(const std::string& v)
+{
+    std::string o;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (v[i] == '&') {
+            const size_t e = v.find(';', i);
+            if (e != std::string::npos) {
+                const std::string ent = v.substr(i + 1, e - i - 1);
+                const char* rep = (ent == "amp") ? "&" : (ent == "lt") ? "<" : (ent == "gt") ? ">" : (ent == "quot") ? "\"" : (ent == "apos") ? "'" : 0;
+                if (rep) {
+                    o += rep;
+                    i = e;
+                    continue;
+                }
+            }
+        }
+        o += v[i];
+    }
+
+    return o;
+}
+
+bool
+parseXml(const std::string& s, std::vector<XEl>* els)
+{
+    std::vector<int> stack;
+    size_t i = 0;
+    const size_t n = s.size();
+    while (i < n) {
+        const size_t lt = s.find('<', i);
+        if (lt == std::string::npos) {
+            break;
+        }
+        if (s.compare(lt, 4, "<!--") == 0) {
+            const size_t e = s.find("-->", lt + 4);
+            i = (e == std::string::npos) ? n : e + 3;
+            continue;
+        }
+        if ( (lt + 1 < n) && ( (s[lt + 1] == '?') || (s[lt + 1] == '!') ) ) {
+            const size_t e = s.find('>', lt);
+            i = (e == std::string::npos) ? n : e + 1;
+            continue;
+        }
+        if ( (lt + 1 < n) && (s[lt + 1] == '/') ) {
+            const size_t e = s.find('>', lt);
+            if ( !stack.empty() ) {
+                stack.pop_back();
+            }
+            i = (e == std::string::npos) ? n : e + 1;
+            continue;
+        }
+        size_t p = lt + 1;
+        XEl el;
+        while ( (p < n) && !std::isspace( (unsigned char)s[p] ) && (s[p] != '>') && (s[p] != '/') ) {
+            el.tag += s[p++];
+        }
+        bool selfClose = false;
+        while (p < n) {
+            while ( (p < n) && std::isspace( (unsigned char)s[p] ) ) {
+                ++p;
+            }
+            if (p >= n) {
+                break;
+            }
+            if (s[p] == '>') {
+                ++p;
+                break;
+            }
+            if ( (s[p] == '/') && (p + 1 < n) && (s[p + 1] == '>') ) {
+                selfClose = true;
+                p += 2;
+                break;
+            }
+            std::string key;
+            while ( (p < n) && (s[p] != '=') && !std::isspace( (unsigned char)s[p] ) && (s[p] != '>') && (s[p] != '/') ) {
+                key += s[p++];
+            }
+            while ( (p < n) && std::isspace( (unsigned char)s[p] ) ) {
+                ++p;
+            }
+            if ( (p < n) && (s[p] == '=') ) {
+                ++p;
+                while ( (p < n) && std::isspace( (unsigned char)s[p] ) ) {
+                    ++p;
+                }
+                if ( (p < n) && ( (s[p] == '"') || (s[p] == '\'') ) ) {
+                    const char q = s[p++];
+                    const size_t e = s.find(q, p);
+                    if (e == std::string::npos) {
+                        return false;
+                    }
+                    el.attr[key] = xmlDecode( s.substr(p, e - p) );
+                    p = e + 1;
+                }
+            } else if ( key.empty() ) {
+                ++p;
+            }
+        }
+        el.parent = stack.empty() ? -1 : stack.back();
+        const int idx = (int)els->size();
+        els->push_back(el);
+        if (el.parent >= 0) {
+            (*els)[el.parent].kids.push_back(idx);
+        }
+        if (!selfClose) {
+            stack.push_back(idx);
+        }
+        i = p;
+    }
+
+    return !els->empty();
+}
+
+struct MtlxMat
+{
+    std::string name;
+    std::map<int, std::vector<double> > values; // channel -> value(s)
+    std::map<int, std::string> files;           // channel -> texture file
+    bool hasIor = false;
+    double ior = 1.5;
+};
+
+int
+mtlxChannel(const std::string& shader, const std::string& in, bool* isIor, bool* weightOne)
+{
+    typedef Solv3DMaterialNode N;
+    *isIor = false;
+    *weightOne = false;
+    struct M { const char* a; int ch; };
+    static const M stdS[] = {
+        { "base", N::eChBaseWeight }, { "base_color", N::eChBaseColor }, { "metalness", N::eChMetalness },
+        { "specular", N::eChSpecular }, { "specular_color", N::eChSpecularColor }, { "specular_roughness", N::eChRoughness },
+        { "coat", N::eChCoat }, { "coat_roughness", N::eChCoatRoughness }, { "emission", N::eChEmissionWeight },
+        { "emission_color", N::eChEmissionColor }, { "opacity", N::eChOpacity }, { "normal", N::eChNormal }, { 0, 0 }
+    };
+    static const M pbr[] = {
+        { "base_weight", N::eChBaseWeight }, { "base_color", N::eChBaseColor }, { "base_metalness", N::eChMetalness },
+        { "specular_weight", N::eChSpecular }, { "specular_color", N::eChSpecularColor }, { "specular_roughness", N::eChRoughness },
+        { "coat_weight", N::eChCoat }, { "coat_roughness", N::eChCoatRoughness }, { "emission_luminance", N::eChEmissionWeight },
+        { "emission_color", N::eChEmissionColor }, { "geometry_opacity", N::eChOpacity }, { "geometry_normal", N::eChNormal }, { 0, 0 }
+    };
+    static const M prev[] = {
+        { "diffuseColor", N::eChBaseColor }, { "metallic", N::eChMetalness }, { "roughness", N::eChRoughness },
+        { "clearcoat", N::eChCoat }, { "clearcoatRoughness", N::eChCoatRoughness }, { "emissiveColor", N::eChEmissionColor },
+        { "opacity", N::eChOpacity }, { "normal", N::eChNormal }, { "specularColor", N::eChSpecularColor }, { 0, 0 }
+    };
+    static const M gltf[] = {
+        { "base_color", N::eChBaseColor }, { "metallic", N::eChMetalness }, { "roughness", N::eChRoughness },
+        { "clearcoat", N::eChCoat }, { "clearcoat_roughness", N::eChCoatRoughness }, { "emissive", N::eChEmissionColor },
+        { "alpha", N::eChOpacity }, { "normal", N::eChNormal }, { 0, 0 }
+    };
+    if ( (in == "specular_IOR") || (in == "specular_ior") || (in == "ior") ) {
+        *isIor = true;
+
+        return -1;
+    }
+    const M* t = (shader == "open_pbr_surface") ? pbr : (shader == "UsdPreviewSurface") ? prev : (shader == "gltf_pbr") ? gltf : stdS;
+    for (int i = 0; t[i].a; ++i) {
+        if (in == t[i].a) {
+            *weightOne = (t == prev || t == gltf) && (t[i].ch == N::eChEmissionColor);
+
+            return t[i].ch;
+        }
+    }
+
+    return -1;
+}
+
+bool
+isShaderTag(const std::string& t)
+{
+    return (t == "standard_surface") || (t == "open_pbr_surface") || (t == "UsdPreviewSurface") || (t == "gltf_pbr");
+}
+
+class MtlxDoc
+{
+public:
+    std::vector<XEl> els;
+    std::string dir;
+
+    bool load(const std::string& path, std::string* err)
+    {
+        std::ifstream f( path.c_str(), std::ios::binary );
+        if (!f) {
+            *err = "cannot open " + path;
+
+            return false;
+        }
+        std::stringstream ss;
+        ss << f.rdbuf();
+        if ( !parseXml(ss.str(), &els) ) {
+            *err = "not a MaterialX file: " + path;
+
+            return false;
+        }
+        const size_t sl = path.find_last_of("/\\");
+        dir = (sl == std::string::npos) ? std::string() : path.substr(0, sl + 1);
+
+        return true;
+    }
+
+    // child of 'scope' (-1: the document root's children) named 'name'
+    int find(int scope, const std::string& name) const
+    {
+        const int root = rootIndex();
+        const std::vector<int>& kids = (scope >= 0) ? els[scope].kids : els[root].kids;
+        for (int k : kids) {
+            if (els[k].a("name") == name) {
+                return k;
+            }
+        }
+        if (scope >= 0) {
+            return find(-1, name);
+        }
+
+        return -1;
+    }
+
+    int rootIndex() const
+    {
+        for (size_t i = 0; i < els.size(); ++i) {
+            if (els[i].parent < 0) {
+                return (int)i;
+            }
+        }
+
+        return 0;
+    }
+
+    std::string prefixOf(int e) const
+    {
+        for (int p = e; p >= 0; p = els[p].parent) {
+            const std::string fp = els[p].a("fileprefix");
+            if ( !fp.empty() ) {
+                return fp;
+            }
+        }
+
+        return std::string();
+    }
+
+    std::string resolve(const std::string& f) const
+    {
+        if ( f.empty() ) {
+            return f;
+        }
+        const bool abs = (f[0] == '/') || (f[0] == '\\') || ( (f.size() > 1) && (f[1] == ':') );
+
+        return abs ? f : dir + f;
+    }
+
+    // node feeding an input (nodename / nodegraph + output), scope = the element holding the input
+    int source(const XEl& input, int scope) const
+    {
+        const std::string nn = input.a("nodename"), ng = input.a("nodegraph");
+        if ( !ng.empty() ) {
+            const int g = find(-1, ng);
+            if (g < 0) {
+                return -1;
+            }
+            const std::string out = input.a("output");
+            for (int k : els[g].kids) {
+                if ( (els[k].tag == "output") && ( out.empty() || (els[k].a("name") == out) ) ) {
+                    const std::string on = els[k].a("nodename");
+
+                    return on.empty() ? -1 : find(g, on);
+                }
+            }
+
+            return -1;
+        }
+        if ( nn.empty() ) {
+            return -1;
+        }
+
+        return find(scope, nn);
+    }
+
+    // texture file behind a node (through normalmap / multiply / convert ... nodes)
+    std::string textureOf(int node, int depth = 0) const
+    {
+        if ( (node < 0) || (depth > 12) ) {
+            return std::string();
+        }
+        const XEl& e = els[node];
+        const int scope = e.parent;
+        const bool isImage = (e.tag == "image") || (e.tag == "tiledimage") || (e.tag == "UsdUVTexture") || (e.tag == "gltf_image");
+        for (int k : e.kids) {
+            const XEl& in = els[k];
+            if (in.tag != "input") {
+                continue;
+            }
+            if ( isImage && (in.a("name") == "file") ) {
+                std::string v = in.a("value");
+                const std::string pre = prefixOf(k);
+
+                return v.empty() ? v : resolve(pre + v);
+            }
+        }
+        for (int k : e.kids) {
+            const XEl& in = els[k];
+            if (in.tag != "input") {
+                continue;
+            }
+            const std::string r = textureOf(source(in, scope), depth + 1);
+            if ( !r.empty() ) {
+                return r;
+            }
+        }
+
+        return std::string();
+    }
+
+    void materials(std::vector<MtlxMat>* out) const
+    {
+        const int root = rootIndex();
+        std::vector<std::pair<std::string, int> > shaders;   // material name, shader element
+        for (int k : els[root].kids) {
+            if (els[k].tag == "surfacematerial") {
+                for (int c : els[k].kids) {
+                    if ( (els[c].tag == "input") && (els[c].a("name") == "surfaceshader") ) {
+                        const int sh = source(els[c], -1);
+                        if (sh >= 0) {
+                            shaders.push_back( std::make_pair(els[k].a("name"), sh) );
+                        }
+                    }
+                }
+            }
+        }
+        if ( shaders.empty() ) {
+            for (size_t k = 0; k < els.size(); ++k) {
+                if ( isShaderTag(els[k].tag) ) {
+                    shaders.push_back( std::make_pair(els[k].a("name"), (int)k) );
+                }
+            }
+        }
+        for (const std::pair<std::string, int>& sp : shaders) {
+            const XEl& sh = els[sp.second];
+            MtlxMat m;
+            m.name = sp.first.empty() ? sh.a("name") : sp.first;
+            for (int c : sh.kids) {
+                const XEl& in = els[c];
+                if (in.tag != "input") {
+                    continue;
+                }
+                bool isIor = false, weightOne = false;
+                const int ch = mtlxChannel(sh.tag, in.a("name"), &isIor, &weightOne);
+                const std::string v = in.a("value");
+                std::vector<double> vals;
+                {
+                    std::string tok;
+                    std::stringstream vs(v);
+                    while ( std::getline(vs, tok, ',') ) {
+                        vals.push_back( std::atof( tok.c_str() ) );
+                    }
+                }
+                if (isIor) {
+                    if ( !vals.empty() ) {
+                        m.hasIor = true;
+                        m.ior = vals[0];
+                    }
+                    continue;
+                }
+                if (ch < 0) {
+                    continue;
+                }
+                if ( !vals.empty() ) {
+                    m.values[ch] = vals;
+                }
+                const std::string tex = textureOf( source(in, sh.parent) );
+                if ( !tex.empty() ) {
+                    m.files[ch] = tex;
+                    if ( vals.empty() ) {
+                        m.values[ch] = std::vector<double>(1, 1.);   // the texture as is
+                    }
+                }
+                if (weightOne) {
+                    m.values[Solv3DMaterialNode::eChEmissionWeight] = std::vector<double>(1, 1.);
+                }
+            }
+            out->push_back(m);
+        }
+    }
+};
+} // anon
+
+Solv3DMaterialNode::Solv3DMaterialNode(NodePtr n,
+                                       bool full)
+    : Solv3DNode(n)
+    , _full(full)
+{
+    for (int c = 0; c < eChCount; ++c) {
+        if ( full || kMatChannels[c].basic ) {
+            _inputs.push_back(c);
+        }
+    }
+}
+
+std::string
+Solv3DMaterialNode::getInputLabel(int i) const
+{
+    if ( (i < 0) || ( i >= (int)_inputs.size() ) ) {
+        return std::string();
+    }
+    const MatChannelDef& d = kMatChannels[_inputs[i]];
+
+    return _full ? d.label : d.basic;
+}
+
+std::string
+Solv3DBasicMaterial::getPluginDescription() const
+{
+    return "Simple surface: diffuse, specular, roughness, emission, opacity and a normal map. Every value has an image "
+           "input: a texture there multiplies it (uv mapped). Connect it to the mat input of AssignMaterial to put it "
+           "on geometry. 'unlit' shows the diffuse colour as is (no lighting).";
+}
+
+std::string
+Solv3DMaterialX::getPluginDescription() const
+{
+    return "Physically based surface laid out like MaterialX OpenPBR / standard surface: base, metalness, specular, "
+           "roughness, coat, emission, opacity, normal and displacement. Every channel has an image input (a texture "
+           "there multiplies the value) and a texture file (Textures tab, used when the input is free). 'load' reads a "
+           ".mtlx file (standard_surface, open_pbr_surface, UsdPreviewSurface or glTF PBR): values and texture files. "
+           "Connect it to the mat input of AssignMaterial. Each layer is its own pass in ScanlineRender (AOVs).";
+}
+
+void
+Solv3DMaterialNode::initializeKnobs()
+{
+    KnobPagePtr page = makePage( this, _full ? "MaterialX" : "BasicMaterial" );
+    if (_full) {
+        KnobGroupPtr gf = makeGroup(this, page, "mtlx_group", "MaterialX file", false);
+        KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string("file") );
+        f->setName("mtlx_file");
+        f->setAnimationEnabled(false);
+        f->setHintToolTip( std::string("A .mtlx file. Pick the material below, then 'load' fills the values and texture files.") );
+        gf->addKnob(f);
+        _mtlxFile = f;
+        _mtlxMaterial = makeChoice(this, gf, "mtlx_material", "material", std::vector<std::string>(1, "-"), 0,
+                                   "Materials found in the file.", false);
+        KnobButtonPtr b = AppManager::createKnob<KnobButton>( this, std::string("load") );
+        b->setName("mtlx_load");
+        b->setHintToolTip( std::string("Reads the material: sets every value and texture file.") );
+        gf->addKnob(b);
+        _mtlxLoad = b;
+    }
+    auto addChannel = [&](const KnobGroupPtr& g, int c) {
+        const MatChannelDef& d = kMatChannels[c];
+        const char* label = _full ? d.label : d.basic;
+        if (d.type == 1) {
+            KnobColorPtr k = AppManager::createKnob<KnobColor>( this, std::string(label), 3 );
+            k->setName(d.name);
+            const double def = (!_full && c == eChEmissionColor) ? 0. : d.def;
+            for (int i = 0; i < 3; ++i) {
+                k->setDefaultValue(def, i);
+            }
+            k->setHintToolTip( std::string(d.hint) );
+            if (g) { g->addKnob(k); } else { page->addKnob(k); }
+            _col[c] = k;
+        } else {
+            KnobDoublePtr k = g ? makeDouble(this, g, d.name, label, 1, d.def, 0., d.dmax, d.hint)
+                                : makeDouble(this, page, d.name, label, 1, d.def, 0., d.dmax, d.hint);
+            _dbl[c] = k;
+        }
+    };
+    if (_full) {
+        KnobGroupPtr gb = makeGroup(this, page, "base_group", "base", true);
+        addChannel(gb, eChBaseWeight);
+        addChannel(gb, eChBaseColor);
+        addChannel(gb, eChMetalness);
+        KnobGroupPtr gs = makeGroup(this, page, "specular_group", "specular", true);
+        addChannel(gs, eChSpecular);
+        addChannel(gs, eChSpecularColor);
+        addChannel(gs, eChRoughness);
+        _ior = makeDouble(this, gs, "ior", "IOR", 1, 1.5, 1., 3., "Index of refraction (glass 1.5, water 1.33).");
+        KnobGroupPtr gc = makeGroup(this, page, "coat_group", "coat", false);
+        addChannel(gc, eChCoat);
+        addChannel(gc, eChCoatRoughness);
+        KnobGroupPtr ge = makeGroup(this, page, "emission_group", "emission", false);
+        addChannel(ge, eChEmissionWeight);
+        addChannel(ge, eChEmissionColor);
+        KnobGroupPtr gg = makeGroup(this, page, "geometry_group", "geometry", false);
+        addChannel(gg, eChOpacity);
+        addChannel(gg, eChNormal);
+        addChannel(gg, eChDisplacement);
+        _unlit = makeDouble(this, gg, "unlit", "unlit", 1, 0., 0., 1., "1 = the base colour as is, no lighting (cards, matte paintings).");
+        // texture files (used when the channel's input is free)
+        KnobPagePtr tp = makePage(this, "Textures");
+        for (int c = 0; c < eChCount; ++c) {
+            KnobFilePtr f = AppManager::createKnob<KnobFile>( this, std::string(kMatChannels[c].label) );
+            f->setName( std::string(kMatChannels[c].name) + "_file" );
+            f->setAnimationEnabled(false);
+            f->setHintToolTip( std::string("Texture file of this channel, used when its input is not connected.") );
+            tp->addKnob(f);
+            _file[c] = f;
+        }
+    } else {
+        for (int c : _inputs) {
+            addChannel(KnobGroupPtr(), c);
+        }
+        _unlit = makeDouble(this, page, "unlit", "unlit", 1, 0., 0., 1., "1 = the diffuse colour as is, no lighting (cards, matte paintings).");
+    }
+}
+
+bool
+Solv3DMaterialNode::knobChanged(KnobI* k,
+                                ValueChangedReasonEnum reason,
+                                ViewSpec view,
+                                double time,
+                                bool originatedFromMainThread)
+{
+    if (_full && (reason != eValueChangedReasonRestoreDefault) ) {
+        if ( k == _mtlxFile.lock().get() ) {
+            refreshMtlxMaterials();
+            if (reason == eValueChangedReasonUserEdited) {
+                loadMtlx();
+            }
+
+            return true;
+        }
+        if ( k == _mtlxLoad.lock().get() ) {
+            loadMtlx();
+
+            return true;
+        }
+        if ( ( k == _mtlxMaterial.lock().get() ) && (reason == eValueChangedReasonUserEdited) ) {
+            loadMtlx();
+
+            return true;
+        }
+    }
+
+    return Solv3DNode::knobChanged(k, reason, view, time, originatedFromMainThread);
+}
+
+void
+Solv3DMaterialNode::refreshMtlxMaterials()
+{
+    KnobFilePtr f = _mtlxFile.lock();
+    KnobChoicePtr c = _mtlxMaterial.lock();
+    if (!f || !c) {
+        return;
+    }
+    MtlxDoc doc;
+    std::string err;
+    std::vector<ChoiceOption> opts;
+    if ( !f->getValue().empty() && doc.load(f->getValue(), &err) ) {
+        std::vector<MtlxMat> mats;
+        doc.materials(&mats);
+        for (const MtlxMat& m : mats) {
+            opts.push_back( ChoiceOption(m.name, m.name, "") );
+        }
+    }
+    if ( opts.empty() ) {
+        opts.push_back( ChoiceOption("-", "-", "") );
+    }
+    c->populateChoices(opts);
+}
+
+void
+Solv3DMaterialNode::loadMtlx()
+{
+    KnobFilePtr f = _mtlxFile.lock();
+    KnobChoicePtr c = _mtlxMaterial.lock();
+    if ( !f || !c || f->getValue().empty() ) {
+        return;
+    }
+    MtlxDoc doc;
+    std::string err;
+    if ( !doc.load(f->getValue(), &err) ) {
+        setPersistentMessage( eMessageTypeError, err );
+
+        return;
+    }
+    clearPersistentMessage(false);
+    std::vector<MtlxMat> mats;
+    doc.materials(&mats);
+    const int idx = c->getValue();
+    if ( (idx < 0) || ( idx >= (int)mats.size() ) ) {
+        return;
+    }
+    const MtlxMat& m = mats[idx];
+    beginChanges();
+    for (int ch = 0; ch < eChCount; ++ch) {
+        const MatChannelDef& d = kMatChannels[ch];
+        // reset to the defaults first: the file only lists what differs
+        std::map<int, std::vector<double> >::const_iterator it = m.values.find(ch);
+        if (d.type == 1) {
+            KnobColorPtr k = _col[ch].lock();
+            if (k) {
+                for (int i = 0; i < 3; ++i) {
+                    double v = d.def;
+                    if ( it != m.values.end() ) {
+                        v = it->second[ std::min( (size_t)i, it->second.size() - 1 ) ];
+                    }
+                    k->setValue(v, ViewSpec::all(), i);
+                }
+            }
+        } else {
+            KnobDoublePtr k = _dbl[ch].lock();
+            if (k) {
+                double v = d.def;
+                if ( it != m.values.end() ) {
+                    v = it->second[0];
+                }
+                if ( (d.type == 2) && ( it == m.values.end() || (m.files.count(ch) != 0) ) ) {
+                    v = 1.;   // normal: strength 1
+                }
+                k->setValue(v);
+            }
+        }
+        KnobFilePtr tf = _file[ch].lock();
+        if (tf) {
+            std::map<int, std::string>::const_iterator ft = m.files.find(ch);
+            tf->setValue( ft == m.files.end() ? std::string() : ft->second );
+        }
+    }
+    if ( _ior.lock() ) {
+        _ior.lock()->setValue(m.hasIor ? m.ior : 1.5);
+    }
+    endChanges();
+}
+
+void
+Solv3DMaterialNode::buildScene(double t,
+                               Scene* scene)
+{
+    std::shared_ptr<Material> mt = std::make_shared<Material>();
+    auto dbl = [&](int c, double def) {
+        KnobDoublePtr k = _dbl[c].lock();
+
+        return k ? k->getValueAtTime(t) : def;
+    };
+    auto col = [&](int c, const Vec3& def) {
+        KnobColorPtr k = _col[c].lock();
+
+        return k ? Vec3( k->getValueAtTime(t, 0), k->getValueAtTime(t, 1), k->getValueAtTime(t, 2) ) : def;
+    };
+    mt->baseColor = col( eChBaseColor, Vec3(1, 1, 1) );
+    mt->baseWeight = dbl(eChBaseWeight, 1.);
+    mt->metalness = dbl(eChMetalness, 0.);
+    mt->specular = dbl(eChSpecular, 0.5);
+    mt->specularColor = col( eChSpecularColor, Vec3(1, 1, 1) );
+    mt->roughness = dbl(eChRoughness, 0.3);
+    mt->ior = _ior.lock() ? _ior.lock()->getValueAtTime(t) : 1.5;
+    mt->coat = dbl(eChCoat, 0.);
+    mt->coatRoughness = dbl(eChCoatRoughness, 0.1);
+    mt->emissionColor = col( eChEmissionColor, Vec3(0, 0, 0) );
+    mt->emissionWeight = dbl(eChEmissionWeight, 1.);
+    mt->opacity = dbl(eChOpacity, 1.);
+    mt->normalStrength = dbl(eChNormal, 1.);
+    mt->displacementScale = dbl(eChDisplacement, 0.);
+    mt->emission = _unlit.lock() ? _unlit.lock()->getValueAtTime(t) : 0.;
+    for (size_t i = 0; i < _inputs.size(); ++i) {
+        const int c = _inputs[i];
+        const MatChannelDef& d = kMatChannels[c];
+        std::shared_ptr<void> h;
+        EffectInstancePtr in = getInput( (int)i );
+        if (in) {
+            h = texRef(in);
+        } else if ( _file[c].lock() ) {
+            h = fileTexRef(_file[c].lock()->getValue(), d.colorData);
+        }
+        if (!h) {
+            continue;
+        }
+        if (d.map < 0) {
+            mt->baseColorMap = h;
+        } else {
+            mt->maps[d.map] = h;
+        }
+    }
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Xform);
+    p.material = mt;
+    p.node = nodeName();
+    p.selectable = false;
+}
+
+// ============================================================================ AssignMaterial
+std::string
+Solv3DAssignMaterial::getPluginDescription() const
+{
+    return "Puts the material connected to mat (BasicMaterial, MaterialX) on the geometry of geo: all of it, or only the "
+           "prims whose path matches 'path' (wildcards * and ?, a parent path takes all its children; several patterns "
+           "separated by spaces). The material's base colour texture replaces the geometry's texture; without one, "
+           "'keep texture' keeps the geometry's own texture (card image, file texture).";
+}
+
+void
+Solv3DAssignMaterial::initializeKnobs()
+{
+    KnobPagePtr page = makePage(this, "AssignMaterial");
+    KnobStringPtr ps = AppManager::createKnob<KnobString>( this, std::string("path") );
+    ps->setName("path");
+    ps->setAnimationEnabled(false);
+    ps->setHintToolTip( std::string("Prims that get the material (empty: all the geometry). Wildcards * and ?, several patterns "
+                                    "separated by spaces. Example: /ReadGeo1/geo/body* /ReadGeo1/geo/head") );
+    page->addKnob(ps);
+    _path = ps;
+    _keepTexture = makeBool(this, page, "keep_texture", "keep texture", true,
+                            "Without a base colour texture on the material, the geometry keeps its own texture (the image of a "
+                            "card, the texture file of a model). Off: the material's colour only.");
+}
+
+static bool
+globMatch(const char* p, const char* s)
+{
+    if (*p == 0) {
+        return *s == 0;
+    }
+    if (*p == '*') {
+        for (const char* q = s; ; ++q) {
+            if ( globMatch(p + 1, q) ) {
+                return true;
+            }
+            if (*q == 0) {
+                return false;
+            }
+        }
+    }
+    if ( (*s != 0) && ( (*p == '?') || (*p == *s) ) ) {
+        return globMatch(p + 1, s + 1);
+    }
+
+    return false;
+}
+
+// path (or one of its parents) matches one of the space separated patterns; empty = everything
+static bool
+pathMatches(const std::string& patterns, const std::string& path)
+{
+    std::stringstream ss(patterns);
+    std::string pat;
+    bool any = false;
+    while (ss >> pat) {
+        any = true;
+        for (std::string q = path; !q.empty(); q = parentPath(q)) {
+            if ( globMatch( pat.c_str(), q.c_str() ) ) {
+                return true;
+            }
+            if (q == "/") {
+                break;
+            }
+        }
+    }
+
+    return !any;
+}
+
+void
+Solv3DAssignMaterial::buildScene(double t,
+                                 Scene* scene)
+{
+    inputScene(this, 0, t, scene);
+    Scene ms;
+    if ( !inputScene(this, 1, t, &ms) ) {
+        return;
+    }
+    std::shared_ptr<Material> mat;
+    for (const auto& kv : ms.prims()) {
+        if (kv.second.material) {
+            mat = kv.second.material;
+            break;
+        }
+    }
+    if (!mat) {
+        return;
+    }
+    const std::string pats = _path.lock()->getValue();
+    const bool keep = _keepTexture.lock()->getValueAtTime(t);
+    for (auto& kv : scene->prims()) {
+        if ( !kv.second.mesh || !pathMatches(pats, kv.first) ) {
+            continue;
+        }
+        std::shared_ptr<Mesh> m = std::make_shared<Mesh>(*kv.second.mesh);
+        const double op = m->material.opacity;
+        m->material = *mat;
+        m->material.opacity = op * mat->opacity;
+        if (mat->baseColorMap) {
+            m->texture = mat->baseColorMap;
+        } else if (!keep) {
+            m->texture.reset();
+        }
+        kv.second.mesh = m;
+    }
+}
+
+// ============================================================================ HDRILight
+std::string
+Solv3DHDRILight::getPluginDescription() const
+{
+    return "Lights the scene with an environment image (lat-long HDRI on the img input): diffuse light from every "
+           "direction plus the reflections of metals, specular and coat (rougher = blurrier). Rotate it with the "
+           "transform, axis parents it. exposure is in stops; saturation 0 makes the light grey. Connect it into a Scene "
+           "node, or put the rest of the scene on scn (it passes through).";
+}
+
+void
+Solv3DHDRILight::initializeKnobs()
+{
+    KnobPagePtr page = makePage(this, "HDRILight");
+    _prim.create(this, page, 0);
+    makeDivider(this, page, "prim_divider");
+    KnobColorPtr col = AppManager::createKnob<KnobColor>( this, std::string("color"), 3 );
+    col->setName("color");
+    for (int d = 0; d < 3; ++d) {
+        col->setDefaultValue(1., d);
+    }
+    col->setHintToolTip( std::string("Tints the environment.") );
+    page->addKnob(col);
+    _color = col;
+    _intensity = makeDouble(this, page, "intensity", "intensity", 1, 1., 0., 10.);
+    _exposure = makeDouble(this, page, "exposure", "exposure", 1, 0., -5., 5., "Brightness in stops (+1 = twice as bright).");
+    _saturation = makeDouble(this, page, "saturation", "saturation", 1, 1., 0., 2., "Colour of the light: 0 = grey, 1 = as in the image.");
+    _diffuse = makeDouble(this, page, "diffuse", "diffuse", 1, 1., 0., 2., "Amount of diffuse (soft) light.");
+    _specular = makeDouble(this, page, "specular", "specular", 1, 1., 0., 2., "Amount of reflection.");
+    makeDivider(this, page, "xform_divider");
+    _xf.create(this, page, 4);
+    _disp.create(this, 1, false, false);
+}
+
+void
+Solv3DHDRILight::buildScene(double t,
+                            Scene* scene)
+{
+    inputScene(this, 2, t, scene);
+    std::shared_ptr<Light> L = std::make_shared<Light>();
+    L->kind = "dome";
+    KnobColorPtr c = _color.lock();
+    L->color = Vec3( c->getValueAtTime(t, 0), c->getValueAtTime(t, 1), c->getValueAtTime(t, 2) );
+    L->intensity = _intensity.lock()->getValueAtTime(t) * std::pow( 2., _exposure.lock()->getValueAtTime(t) );
+    L->saturation = _saturation.lock()->getValueAtTime(t);
+    L->diffuse = _diffuse.lock()->getValueAtTime(t);
+    L->specular = _specular.lock()->getValueAtTime(t);
+    L->texture = texRef( getInput(0) );
+    const std::string pp = primPath();
+    Prim& p = scene->define(pp, PrimType::Light);
+    p.light = L;
+    p.local = axisParent(this, 1, t) * _xf.matrix(t);
+    _disp.apply(&p, t);
+    p.node = nodeName();
+    _prim.apply(scene, t, pp);
+}
+
+// ============================================================================ Normals
+struct Solv3DNormals::Cache
+{
+    std::mutex m;
+    struct Entry { unsigned long long key = 0; std::vector<Vec3> normals; };
+    std::map<std::string, Entry> byPath;
+};
+
+Solv3DNormals::Solv3DNormals(NodePtr n)
+    : Solv3DNode(n)
+    , _cache( std::make_shared<Cache>() )
+{
+}
+
+std::string
+Solv3DNormals::getPluginDescription() const
+{
+    return "Recomputes the normals of the geometry. by angle: edges between faces flatter than the cusp angle are "
+           "smoothed, sharper ones stay hard (60 degrees by default). all smooth / all hard ignore the angle; keep "
+           "leaves the file's normals. weighting: how much each face counts in a smoothed normal (by angle is the "
+           "usual choice, by area favours big faces). path limits it to some prims (wildcards, spaces between patterns).";
+}
+
+void
+Solv3DNormals::initializeKnobs()
+{
+    KnobPagePtr page = makePage(this, "Normals");
+    const char* modes[4] = { "by angle", "all smooth", "all hard", "keep" };
+    _mode = makeChoice(this, page, "mode", "mode", std::vector<std::string>(modes, modes + 4), 0, "How the normals are made.");
+    _cusp = makeDouble(this, page, "cusp_angle", "cusp angle", 1, 60., 0., 180.,
+                       "Edges whose faces meet at more than this angle stay hard; flatter ones are smoothed.");
+    const char* w[2] = { "by angle", "by area" };
+    _weighting = makeChoice(this, page, "weighting", "weighting", std::vector<std::string>(w, w + 2), 0,
+                            "Weight of each face in a smoothed normal.");
+    KnobStringPtr ps = AppManager::createKnob<KnobString>( this, std::string("path") );
+    ps->setName("path");
+    ps->setAnimationEnabled(false);
+    ps->setHintToolTip( std::string("Prims to change (empty: all). Wildcards * and ?, several patterns separated by spaces.") );
+    page->addKnob(ps);
+    _path = ps;
+}
+
+// face-varying normals of a mesh (mode 0 angle, 1 smooth, 2 hard; weighting 0 angle, 1 area)
+static void
+computeMeshNormals(const Mesh& m,
+                   int mode,
+                   double cuspDeg,
+                   int weighting,
+                   std::vector<Vec3>* out)
+{
+    const size_t nfv = m.faceVertexIndices.size();
+    const size_t nf = m.faceVertexCounts.size();
+    std::vector<Vec3> fn(nf);
+    std::vector<size_t> fstart(nf);
+    // per face: normal (Newell, length = 2 x area)
+    {
+        size_t b = 0;
+        for (size_t f = 0; f < nf; ++f) {
+            fstart[f] = b;
+            const int n = m.faceVertexCounts[f];
+            Vec3 acc;
+            for (int k = 0; k < n; ++k) {
+                const Vec3& a = m.points[ m.faceVertexIndices[b + k] ];
+                const Vec3& c = m.points[ m.faceVertexIndices[b + (k + 1) % n] ];
+                acc.x += (a.y - c.y) * (a.z + c.z);
+                acc.y += (a.z - c.z) * (a.x + c.x);
+                acc.z += (a.x - c.x) * (a.y + c.y);
+            }
+            fn[f] = acc;
+            b += n;
+        }
+    }
+    // per face-vertex: weighted face normal (corner angle or area)
+    std::vector<Vec3> fvN(nfv);
+    std::vector<int> fvFace(nfv);
+    {
+        for (size_t f = 0; f < nf; ++f) {
+            const int n = m.faceVertexCounts[f];
+            const size_t b = fstart[f];
+            const Vec3 unit = normalize(fn[f]);
+            for (int k = 0; k < n; ++k) {
+                fvFace[b + k] = (int)f;
+                double w;
+                if (weighting == 1) {
+                    w = std::sqrt( dot(fn[f], fn[f]) ) * 0.5;
+                } else {
+                    const Vec3& p = m.points[ m.faceVertexIndices[b + k] ];
+                    const Vec3 e1 = normalize(m.points[ m.faceVertexIndices[b + (k + 1) % n] ] - p);
+                    const Vec3 e2 = normalize(m.points[ m.faceVertexIndices[b + (k + n - 1) % n] ] - p);
+                    w = std::acos( std::max( -1., std::min( 1., dot(e1, e2) ) ) );
+                }
+                fvN[b + k] = unit * w;
+            }
+        }
+    }
+    out->assign( nfv, Vec3() );
+    if (mode == 2) {
+        for (size_t i = 0; i < nfv; ++i) {
+            (*out)[i] = normalize(fn[fvFace[i]]);
+        }
+
+        return;
+    }
+    // face-vertices around each point
+    std::vector<std::vector<int> > around( m.points.size() );
+    for (size_t i = 0; i < nfv; ++i) {
+        const int p = m.faceVertexIndices[i];
+        if ( (p >= 0) && ( p < (int)m.points.size() ) ) {
+            around[p].push_back( (int)i );
+        }
+    }
+    const double cosCusp = std::cos( std::max( 0., std::min(180., cuspDeg) ) * 3.14159265358979323846 / 180. );
+    for (size_t i = 0; i < nfv; ++i) {
+        const int p = m.faceVertexIndices[i];
+        const Vec3 ni = normalize(fn[fvFace[i]]);
+        Vec3 acc;
+        if ( (p >= 0) && ( p < (int)m.points.size() ) ) {
+            for (int j : around[p]) {
+                if ( (mode == 0) && (j != (int)i) ) {
+                    const Vec3 nj = normalize(fn[fvFace[j]]);
+                    if (dot(ni, nj) < cosCusp - 1e-9) {
+                        continue;
+                    }
+                }
+                acc = acc + fvN[j];
+            }
+        }
+        const double l = std::sqrt( dot(acc, acc) );
+        (*out)[i] = l > 1e-20 ? acc * (1. / l) : ni;
+    }
+}
+
+void
+Solv3DNormals::buildScene(double t,
+                          Scene* scene)
+{
+    inputScene(this, 0, t, scene);
+    const int mode = _mode.lock()->getValueAtTime(t);
+    if (mode == 3) {
+        return;
+    }
+    const double cusp = _cusp.lock()->getValueAtTime(t);
+    const int weighting = _weighting.lock()->getValueAtTime(t);
+    const std::string pats = _path.lock()->getValue();
+    for (auto& kv : scene->prims()) {
+        if ( !kv.second.mesh || !pathMatches(pats, kv.first) ) {
+            continue;
+        }
+        const Mesh& src = *kv.second.mesh;
+        if ( src.faceVertexIndices.empty() ) {
+            continue;
+        }
+        // key: settings + the mesh data (FNV-1a over points and topology)
+        unsigned long long h = 1469598103934665603ULL;
+        auto mix = [&h](const void* d, size_t n) {
+            const unsigned char* c = (const unsigned char*)d;
+            for (size_t i = 0; i < n; ++i) {
+                h = (h ^ c[i]) * 1099511628211ULL;
+            }
+        };
+        mix( &mode, sizeof(mode) );
+        mix( &cusp, sizeof(cusp) );
+        mix( &weighting, sizeof(weighting) );
+        mix( src.points.data(), src.points.size() * sizeof(Vec3) );
+        mix( src.faceVertexCounts.data(), src.faceVertexCounts.size() * sizeof(int) );
+        mix( src.faceVertexIndices.data(), src.faceVertexIndices.size() * sizeof(int) );
+        std::shared_ptr<Mesh> m = std::make_shared<Mesh>(src);
+        {
+            std::lock_guard<std::mutex> l(_cache->m);
+            Cache::Entry& e = _cache->byPath[kv.first];
+            if ( (e.key != h) || ( e.normals.size() != src.faceVertexIndices.size() ) ) {
+                computeMeshNormals(src, mode, cusp, weighting, &e.normals);
+                e.key = h;
+            }
+            m->normals = e.normals;
+        }
+        kv.second.mesh = m;
+    }
+}
+
 // ============================================================================ ScanlineRender
 std::string
 Solv3DScanline::getPluginDescription() const
 {
     return "Renders the 3D scene (obj/scn) through the camera (cam input, or the first camera of the scene) over bg "
-           "(which also sets the format). env: a lat-long image used for reflections (Material metalness / specular). "
+           "(which also sets the format). Environment lighting and reflections come from HDRILight nodes in the scene. "
            "Anti-aliasing: samples per pixel and a reconstruction filter (Blackman-Harris and Mitchell give the "
            "cleanest edges). Output: rgba, plus the layers checked on the AOVs page (depth, shadow, world position, "
            "world normal, uv, motion vectors, and the shading passes base / specular / reflection / coat / emission, "
@@ -3310,15 +4444,14 @@ Solv3DScanline::getInputLabel(int i) const
     switch (i) {
     case 0: return "obj/scn";
     case 1: return "cam";
-    case 2: return "bg";
-    default: return "env";
+    default: return "bg";
     }
 }
 
 void
 Solv3DScanline::getPluginGrouping(std::list<std::string>* grouping) const
 {
-    grouping->push_back(PLUGIN_GROUP_3D);
+    solv3DGrouping(getPluginID(), grouping);
 }
 
 void
@@ -3545,14 +4678,6 @@ Solv3DScanline::getRegionsOfInterest(double time, const RenderScale & scale, con
     if (bg) {
         (*ret)[bg] = renderWindow;
     }
-    EffectInstancePtr env = getInput(3);
-    if (env) {
-        RectD r;
-        bool isProjectFormat = false;
-        if (env->getRegionOfDefinition_public(env->getRenderHash(), time, scale, view, &r, &isProjectFormat) != eStatusFailed) {
-            (*ret)[env] = r;
-        }
-    }
 }
 
 // copies a fetched image into a TexImage (float rgba)
@@ -3687,18 +4812,12 @@ Solv3DScanline::render(const RenderActionArgs& args)
             for (const Projection& pr : kv.second.mesh->projections) {
                 fetchTex(pr.texture);
             }
+            for (int mi = 0; mi < Material::eMapCount; ++mi) {
+                fetchTex(kv.second.mesh->material.maps[mi]);
+            }
         }
-    }
-    // environment
-    std::shared_ptr<TexImage> envTex;
-    if ( getInput(3) ) {
-        RectI roiPixel;
-        const ImagePlaneDesc rgba = ImagePlaneDesc::getRGBAComponents();
-        ImagePtr env = getImage(3, t, args.originalScale, args.view, NULL, &rgba, false, true, eStorageModeRAM, 0, &roiPixel);
-        envTex = std::make_shared<TexImage>();
-        RectD dummy;
-        if ( !toTexImage(env, dummy, sx, sy, envTex.get() ) ) {
-            envTex.reset();
+        if (kv.second.light) {
+            fetchTex(kv.second.light->texture);   // HDRILight image
         }
     }
     // format (pixels at this scale)
@@ -3828,7 +4947,7 @@ Solv3DScanline::render(const RenderActionArgs& args)
                             std::map<const void*, std::shared_ptr<TexImage> >::const_iterator it = texCache.find(key);
                             return it == texCache.end() ? (const TexImage*)0 : it->second.get();
                         },
-                        envTex.get(), &buf, aov);
+                        0, &buf, aov);
     if (distort) {
         const int sX = st.originX, sY = st.originY, sW = st.width, sH = st.height;
         auto resample = [&](std::vector<float>* b, int nc, bool linear) {

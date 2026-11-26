@@ -213,6 +213,119 @@ struct EnvMips
     }
 };
 
+// dome light (HDRILight): reflections from the environment mips, diffuse from a small irradiance map
+// (cosine-weighted sum of the environment, computed once per image)
+struct DomeData
+{
+    EnvMips env;
+    std::vector<float> irr; // rgb, IW x IH lat-long
+    static const int IW = 32, IH = 16;
+
+    static Vec3 dirOf(double u, double v)
+    {
+        // inverse of EnvMips::sample: u = 0.5 + atan2(x, -z) / 2pi, v = 0.5 + asin(y) / pi
+        const double phi = (u - 0.5) * 2. * kPi, th = (v - 0.5) * kPi;
+        const double c = std::cos(th);
+
+        return Vec3( std::sin(phi) * c, std::sin(th), -std::cos(phi) * c );
+    }
+
+    void build(const TexImage& img)
+    {
+        env.build(img);
+        // source level: the first one at most 64 wide
+        size_t l = 0;
+        while ( (l + 1 < env.lv.size()) && (env.w[l] > 64) ) {
+            ++l;
+        }
+        const int SW = env.w[l], SH = env.h[l];
+        const std::vector<float>& src = env.lv[l];
+        std::vector<Vec3> sdir( (size_t)SW * SH );
+        std::vector<double> sw( (size_t)SW * SH );
+        for (int y = 0; y < SH; ++y) {
+            const double v = (y + 0.5) / SH;
+            const double solid = (2. * kPi / SW) * (kPi / SH) * std::cos( (v - 0.5) * kPi );
+            for (int x = 0; x < SW; ++x) {
+                sdir[(size_t)y * SW + x] = dirOf( (x + 0.5) / SW, v );
+                sw[(size_t)y * SW + x] = solid;
+            }
+        }
+        irr.assign( (size_t)IW * IH * 3, 0.f );
+        for (int y = 0; y < IH; ++y) {
+            for (int x = 0; x < IW; ++x) {
+                const Vec3 n = dirOf( (x + 0.5) / IW, (y + 0.5) / IH );
+                double acc[3] = { 0., 0., 0. };
+                for (size_t i = 0; i < sdir.size(); ++i) {
+                    const double c = dot(n, sdir[i]);
+                    if (c <= 0.) {
+                        continue;
+                    }
+                    const double w = c * sw[i];
+                    acc[0] += src[i * 3] * w; acc[1] += src[i * 3 + 1] * w; acc[2] += src[i * 3 + 2] * w;
+                }
+                for (int ch = 0; ch < 3; ++ch) {
+                    irr[( (size_t)y * IW + x ) * 3 + ch] = (float)(acc[ch] / kPi);
+                }
+            }
+        }
+    }
+
+    // diffuse light arriving at a surface facing d (bilinear, wraps around)
+    void irradiance(const Vec3& d, float* out) const
+    {
+        const double u = 0.5 + std::atan2(d.x, -d.z) / (2. * kPi);
+        const double v = 0.5 + std::asin( std::max( -1., std::min(1., d.y) ) ) / kPi;
+        const double fx = u * IW - 0.5, fy = v * IH - 0.5;
+        const int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
+        const float ax = (float)(fx - ix), ay = (float)(fy - iy);
+        out[0] = out[1] = out[2] = 0.f;
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                const int xx = ( (ix + i) % IW + IW ) % IW;
+                const int yy = std::max( 0, std::min(IH - 1, iy + j) );
+                const float w = (i ? ax : 1.f - ax) * (j ? ay : 1.f - ay);
+                const float* p = &irr[( (size_t)yy * IW + xx ) * 3];
+                out[0] += p[0] * w; out[1] += p[1] * w; out[2] += p[2] * w;
+            }
+        }
+    }
+};
+
+struct DomeEval
+{
+    const DomeData* data = nullptr;
+    Mat4 toLocal;          // world direction -> environment direction (rotation of the light)
+    Vec3 col;              // colour x intensity
+    double saturation = 1., diffuse = 1., specular = 1.;
+
+    void tint(float* c) const
+    {
+        const double lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        const double k[3] = { col.x, col.y, col.z };
+        for (int ch = 0; ch < 3; ++ch) {
+            c[ch] = (float)( (lum + (c[ch] - lum) * saturation) * k[ch] );
+        }
+    }
+};
+
+// material values at one shading sample (the material with its maps applied)
+struct ShadeParams
+{
+    Vec3 baseColor;
+    double baseWeight, metalness, emission, specular;
+    Vec3 specularColor;
+    double roughness, ior, coat, coatRoughness;
+    Vec3 emissionColor;
+    double emissionWeight, opacity;
+
+    explicit ShadeParams(const Material& m)
+        : baseColor(m.baseColor), baseWeight(m.baseWeight), metalness(m.metalness), emission(m.emission)
+        , specular(m.specular), specularColor(m.specularColor), roughness(m.roughness), ior(m.ior), coat(m.coat)
+        , coatRoughness(m.coatRoughness), emissionColor(m.emissionColor), emissionWeight(m.emissionWeight), opacity(1.)
+    {
+    }
+};
+
 struct Tri
 {
     // per vertex: world position, world normal, uv; screen x, y, 1/w, z/w
@@ -226,6 +339,9 @@ struct Tri
     unsigned char edges = 0; // face edges among the triangle edges: bit0 = 0-1, bit1 = 1-2, bit2 = 2-0
     int lineMode = 0;        // 0 none, 1 wireframe only, 2 lines over the surface
     bool receiveShadow = true;
+    // tangent frame from the uvs (normal maps), world space, not normalised
+    Vec3 tg, bt;
+    bool hasTangent = false;
 };
 
 // distance (pixels) from (px, py) to the nearest face edge of the triangle, large if none
@@ -594,6 +710,7 @@ struct Step
     std::vector<Tri> tris;
     std::map<const Projection*, std::shared_ptr<OcclusionMap> > occMaps;
     std::vector<LightEval> lights;
+    std::vector<DomeEval> domes;
     Vec3 ambientLight;
     bool anyLight = false;
 };
@@ -642,6 +759,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
     }
     const double fw = s.formatX2 - s.formatX1, fh = s.formatY2 - s.formatY1;
     const double aspect = fw * s.pixelAspect / std::max(1e-9, fh);
+
+    std::map<const TexImage*, std::shared_ptr<DomeData> > domeCache; // one per environment image
 
     auto buildStep = [&](const Scene& scene, Step& stp) {
     // camera
@@ -766,6 +885,21 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                 const Vec3 n = normalize( cross(v[1].P - v[0].P, v[2].P - v[0].P) );
                 v[0].N = v[1].N = v[2].N = n;
             }
+            // tangent frame of the triangle from its uvs (normal maps)
+            Vec3 triTg, triBt;
+            bool triHasTan = false;
+            if (hasUV) {
+                const Vec3 e1 = v[1].P - v[0].P, e2 = v[2].P - v[0].P;
+                const double du1 = v[1].T.x - v[0].T.x, dv1 = v[1].T.y - v[0].T.y;
+                const double du2 = v[2].T.x - v[0].T.x, dv2 = v[2].T.y - v[0].T.y;
+                const double r = du1 * dv2 - du2 * dv1;
+                if (std::fabs(r) > 1e-14) {
+                    const double ir = 1. / r;
+                    triTg = (e1 * dv2 - e2 * dv1) * ir;
+                    triBt = (e2 * du1 - e1 * du2) * ir;
+                    triHasTan = true;
+                }
+            }
             // face edges of this fan triangle (no lines on the diagonals of quads / polygons)
             unsigned char edges = 2; // 1-2 is always a face edge
             if (fv[t][1] == fv[t][0] + 1) {
@@ -796,6 +930,9 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                 tr.hasUV = hasUV;
                 tr.textured = p.render >= 4;
                 tr.lineMode = lineMode;
+                tr.tg = triTg;
+                tr.bt = triBt;
+                tr.hasTangent = triHasTan;
                 tr.edges = (outp.size() == 3) ? edges : 0;
                 for (int k = 0; k < 3; ++k) {
                     const double iw = 1. / q[k]->cw;
@@ -883,11 +1020,39 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
         const Light& L = *lp.light;
         stp.anyLight = true;
         const Vec3 col = L.color * L.intensity;
-        if (L.kind == "ambient" || L.kind == "dome") {
+        const Mat4 lw = scene.worldMatrix(kv.first);
+        if (L.kind == "dome") {
+            const TexImage* img = L.texture ? textures(L.texture) : 0;
+            if ( !img || (img->w <= 0) || (img->h <= 0) ) {
+                stp.ambientLight = stp.ambientLight + col * L.diffuse;
+                continue;
+            }
+            std::shared_ptr<DomeData>& dd = domeCache[img];
+            if (!dd) {
+                dd = std::make_shared<DomeData>();
+                dd->build(*img);
+            }
+            DomeEval de;
+            de.data = dd.get();
+            // rotation only (no scale): orthonormalise the light's axes
+            const Vec3 ax = normalize( lw.vector( Vec3(1, 0, 0) ) ), ay0 = lw.vector( Vec3(0, 1, 0) );
+            const Vec3 az = normalize( cross(ax, ay0) ), ay = cross(az, ax);
+            Mat4 rot;
+            rot.m[0][0] = ax.x; rot.m[1][0] = ax.y; rot.m[2][0] = ax.z;
+            rot.m[0][1] = ay.x; rot.m[1][1] = ay.y; rot.m[2][1] = ay.z;
+            rot.m[0][2] = az.x; rot.m[1][2] = az.y; rot.m[2][2] = az.z;
+            de.toLocal = rot.transposed();
+            de.col = col;
+            de.saturation = L.saturation;
+            de.diffuse = L.diffuse;
+            de.specular = L.specular;
+            stp.domes.push_back(de);
+            continue;
+        }
+        if (L.kind == "ambient") {
             stp.ambientLight = stp.ambientLight + col;
             continue;
         }
-        const Mat4 lw = scene.worldMatrix(kv.first);
         LightEval le;
         le.kind = (L.kind == "spot") ? 1 : (L.kind == "distant") ? 2 : 0;
         le.col = col;
@@ -1233,6 +1398,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         }
                     }
                     float c[4] = { 0, 0, 0, 0 };
+                    double opacityMap = 1.;                  // opacity map of the material
                     double pv[eScanlinePassCount][3] = {};   // shading passes of this sample
                     switch (s.output) {
                     case ScanlineOutput::Depth: {
@@ -1250,7 +1416,68 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         c[0] = (float)uv.x; c[1] = (float)uv.y; c[2] = 0.f; c[3] = 1.f;
                         break;
                     default: {
-                        const Material& mt = t.mesh->material;
+                        const Material& mat = t.mesh->material;
+                        ShadeParams mt(mat);
+                        // texture maps of the material (multiply their value; single values use the red channel)
+                        if ( t.textured && t.hasUV && mat.hasMaps() ) {
+                            for (int mi = 0; mi < Material::eMapCount; ++mi) {
+                                if ( !mat.maps[mi] || (mi == Material::eMapDisplacement) ) {
+                                    continue;
+                                }
+                                const TexImage* tex = textures(mat.maps[mi]);
+                                if (!tex) {
+                                    continue;
+                                }
+                                const double tw = tex->fx2 - tex->fx1, thh = tex->fy2 - tex->fy1;
+                                double lod = 0.;
+                                if ( s.textureFiltering && (t.lodArea > 0.) ) {
+                                    lod = 0.5 * std::log2( std::max(1e-12, t.lodArea * tw * thh) );
+                                }
+                                float mv[4];
+                                tex->sampleLod( tex->fx1 + uv.x * tw, tex->fy1 + uv.y * thh, lod, mv );
+                                // colour maps are premultiplied images: un-premultiply
+                                if ( (mv[3] > 1e-6f) && (mv[3] < 0.999f) ) {
+                                    mv[0] /= mv[3]; mv[1] /= mv[3]; mv[2] /= mv[3];
+                                }
+                                const double r = mv[0];
+                                switch (mi) {
+                                case Material::eMapBaseWeight: mt.baseWeight *= r; break;
+                                case Material::eMapMetalness: mt.metalness *= r; break;
+                                case Material::eMapSpecular: mt.specular *= r; break;
+                                case Material::eMapSpecularColor: mt.specularColor = Vec3(mt.specularColor.x * mv[0], mt.specularColor.y * mv[1], mt.specularColor.z * mv[2]); break;
+                                case Material::eMapRoughness: mt.roughness *= r; break;
+                                case Material::eMapCoat: mt.coat *= r; break;
+                                case Material::eMapCoatRoughness: mt.coatRoughness *= r; break;
+                                case Material::eMapEmissionColor: mt.emissionColor = Vec3(mt.emissionColor.x * mv[0], mt.emissionColor.y * mv[1], mt.emissionColor.z * mv[2]); break;
+                                case Material::eMapEmissionWeight: mt.emissionWeight *= r; break;
+                                case Material::eMapOpacity: mt.opacity *= r; break;
+                                case Material::eMapNormal:
+                                    if (t.hasTangent) {
+                                        // tangent-space normal map (OpenGL convention, +Y up)
+                                        const double st = mat.normalStrength;
+                                        const double nx = (mv[0] * 2. - 1.) * st, ny = (mv[1] * 2. - 1.) * st, nz = mv[2] * 2. - 1.;
+                                        Vec3 tg = t.tg - N * dot(N, t.tg);
+                                        const double tl = std::sqrt( dot(tg, tg) );
+                                        if (tl > 1e-12) {
+                                            tg = tg * (1. / tl);
+                                            Vec3 bt = cross(N, tg);
+                                            if (dot(bt, t.bt) < 0.) {
+                                                bt = bt * -1.;
+                                            }
+                                            const Vec3 nn = normalize(tg * nx + bt * ny + N * std::max(0.05, nz) );
+                                            if ( dot(nn, nn) > 0.5 ) {
+                                                N = nn;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                default: break;
+                                }
+                            }
+                            mt.roughness = std::max( 0., std::min(1., mt.roughness) );
+                            mt.coatRoughness = std::max( 0., std::min(1., mt.coatRoughness) );
+                        }
+                        opacityMap = mt.opacity;
                         float base[4] = { 1.f, 1.f, 1.f, 1.f };
                         bool textured = false;
                         if (t.textured && t.mesh->texture && t.hasUV) {
@@ -1348,6 +1575,15 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         } else {
                             // lights: lambert + normalised Blinn-Phong (specular and coat lobes), soft shadows
                             Vec3 dif = stp.ambientLight, spc, cspc;
+                            for (const DomeEval& de : stp.domes) {
+                                if (de.diffuse <= 0.) {
+                                    continue;
+                                }
+                                float ir[3];
+                                de.data->irradiance( normalize( de.toLocal.vector(N) ), ir );
+                                de.tint(ir);
+                                dif = dif + Vec3(ir[0], ir[1], ir[2]) * de.diffuse;
+                            }
                             double litLum = 0., unlitLum = 0.;
                             const double rough = std::max(0.02, mt.roughness);
                             const double shin = std::max( 1., 2. / std::pow(rough, 4.) - 2. );
@@ -1409,12 +1645,30 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         }
                         // environment reflection (split-sum style, Schlick Fresnel)
                         const double reflW = std::max(mt.specular, mt.metalness);
-                        if ( !env.lv.empty() && ( (reflW > 0.) || (mt.coat > 0.) ) ) {
+                        // reflected environment: the env image + every dome light (rotated, tinted)
+                        auto envSample = [&](const Vec3& R, double rough, float* e) {
+                            e[0] = e[1] = e[2] = 0.f;
+                            if ( !env.lv.empty() ) {
+                                env.sample(R, rough, e);
+                            }
+                            for (const DomeEval& de : stp.domes) {
+                                if (de.specular <= 0.) {
+                                    continue;
+                                }
+                                float d[3];
+                                de.data->env.sample( normalize( de.toLocal.vector(R) ), rough, d );
+                                de.tint(d);
+                                for (int ch = 0; ch < 3; ++ch) {
+                                    e[ch] += (float)(d[ch] * de.specular);
+                                }
+                            }
+                        };
+                        if ( ( !env.lv.empty() || !stp.domes.empty() ) && ( (reflW > 0.) || (mt.coat > 0.) ) ) {
                             const Vec3 R = normalize(N * (2. * cosT) - V);
                             const double sch = std::pow(1. - cosT, 5.);
                             if (reflW > 0.) {
                                 float e[3];
-                                env.sample(R, mt.roughness, e);
+                                envSample(R, mt.roughness, e);
                                 const double f0d = std::pow( (mt.ior - 1.) / (mt.ior + 1.), 2. );
                                 const double gloss = (1. - mt.roughness) * (1. - mt.roughness);
                                 for (int ch = 0; ch < 3; ++ch) {
@@ -1431,7 +1685,7 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                             }
                             if (mt.coat > 0.) {
                                 float e[3];
-                                env.sample(R, mt.coatRoughness, e);
+                                envSample(R, mt.coatRoughness, e);
                                 const double g = (1. - mt.coatRoughness) * (1. - mt.coatRoughness);
                                 const double F = 0.04 + (std::max(0.04, g) - 0.04) * sch;
                                 for (int ch = 0; ch < 3; ++ch) {
@@ -1478,8 +1732,8 @@ scanlineRenderSteps(const std::vector<const Scene*>& scenes,
                         }
                     }
                     float op = 1.f;
-                    if ( (s.output == ScanlineOutput::RGBA) && (t.mesh->material.opacity < 1.) ) {
-                        op = (float)std::max(0., t.mesh->material.opacity);
+                    if ( (s.output == ScanlineOutput::RGBA) && (t.mesh->material.opacity * opacityMap < 1.) ) {
+                        op = (float)std::max(0., t.mesh->material.opacity * opacityMap);
                         for (int ch = 0; ch < 4; ++ch) {
                             c[ch] *= op;
                         }

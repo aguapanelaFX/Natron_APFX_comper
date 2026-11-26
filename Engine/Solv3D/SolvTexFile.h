@@ -16,8 +16,9 @@
 
 namespace Solv3D {
 
-// null when the file cannot be read (error says why)
-std::shared_ptr<TexImage> loadTextureFile(const std::string& path, std::string* error);
+// null when the file cannot be read (error says why). data: 8-bit files are not converted from sRGB
+// (roughness, metalness, normal maps ...)
+std::shared_ptr<TexImage> loadTextureFile(const std::string& path, std::string* error, bool data = false);
 
 } // namespace Solv3D
 

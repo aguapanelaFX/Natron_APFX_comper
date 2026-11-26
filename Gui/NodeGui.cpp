@@ -614,7 +614,8 @@ NodeGui::solvfxShapeFor() const
     }
     static const char* geo[] = { "com.aguapanelafx.solv3d.Card", "com.aguapanelafx.solv3d.Cube", "com.aguapanelafx.solv3d.Sphere",
                                  "com.aguapanelafx.solv3d.Cylinder", "com.aguapanelafx.solv3d.ReadGeo", "com.aguapanelafx.solv3d.TransformGeo",
-                                 "com.aguapanelafx.solv3d.Project3D", "com.aguapanelafx.solv3d.Material" };
+                                 "com.aguapanelafx.solv3d.Project3D", "com.aguapanelafx.solv3d.Material",
+                                 "com.aguapanelafx.solv3d.AssignMaterial", "com.aguapanelafx.solv3d.Normals" };
     for (std::size_t i = 0; i < sizeof(geo) / sizeof(geo[0]); ++i) {
         if (id == geo[i]) {
             return NodeGraphRectItem::eSolvfxShapeCapsule;

@@ -790,6 +790,14 @@ Solv3DGLWidget::drawLightIcon(bool sel, const Light& L)
         }
         glEnd();
         circle(0.3, 0.8, 2);
+    } else if (L.kind == "dome") {
+        // environment sphere: equator, two meridians and two latitudes
+        const double R = 1.5;
+        circle(R, 0., 1);
+        circle(R, 0., 2);
+        circle(R, 0., 0);
+        circle(R * 0.7071, R * 0.7071, 1);
+        circle(R * 0.7071, -R * 0.7071, 1);
     } else {
         circle(0.5, 0., 1);
         circle(0.3, 0., 1);

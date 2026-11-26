@@ -1592,7 +1592,12 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<Solv3DReadGeo>(QString(), false, false);
     registerBuiltInPlugin<Solv3DWriteGeo>(QString(), false, false);
     registerBuiltInPlugin<Solv3DProject3D>(QString(), false, false);
-    registerBuiltInPlugin<Solv3DMaterial>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DMaterial>(QString(), true, false);   // replaced by BasicMaterial / MaterialX + AssignMaterial
+    registerBuiltInPlugin<Solv3DBasicMaterial>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DMaterialX>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DAssignMaterial>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DHDRILight>(QString(), false, false);
+    registerBuiltInPlugin<Solv3DNormals>(QString(), false, false);
     registerBuiltInPlugin<Solv3DScanline>(QString(), false, false);
     registerBuiltInPlugin<RotoSmear>(QString::fromUtf8(""), false, true);
     registerBuiltInPlugin<PrecompNode>(QString::fromUtf8(NATRON_IMAGES_PATH "precompNodeIcon.png"), false, false);

@@ -61,7 +61,7 @@ srgbToLinear(float v)
 } // anon
 
 std::shared_ptr<TexImage>
-loadTextureFile(const std::string& path, std::string* error)
+loadTextureFile(const std::string& path, std::string* error, bool data)
 {
     const QFileInfo fi( QString::fromUtf8( path.c_str() ) );
     if ( !fi.exists() ) {
@@ -71,7 +71,8 @@ loadTextureFile(const std::string& path, std::string* error)
     }
     const qint64 mt = fi.lastModified().toMSecsSinceEpoch();
     std::lock_guard<std::mutex> l(g_m);
-    std::map<std::string, Entry>::iterator it = g_cache.find(path);
+    const std::string key = data ? path + "|data" : path;
+    std::map<std::string, Entry>::iterator it = g_cache.find(key);
     if ( ( it != g_cache.end() ) && (it->second.mtime == mt) ) {
         return it->second.image;
     }
@@ -119,7 +120,7 @@ loadTextureFile(const std::string& path, std::string* error)
         t->data.resize( (size_t)w * h * 4 );
         float lut[256];
         for (int i = 0; i < 256; ++i) {
-            lut[i] = srgbToLinear(i / 255.f);
+            lut[i] = data ? i / 255.f : srgbToLinear(i / 255.f);   // data maps (roughness, normal ...) stay as stored
         }
         for (size_t i = 0; i < (size_t)w * h; ++i) {
             const float a = d[i * 4 + 3] / 255.f;
@@ -140,7 +141,7 @@ loadTextureFile(const std::string& path, std::string* error)
     t->fx2 = w;
     t->fy2 = h;
     t->buildMips();
-    Entry& e = g_cache[path];
+    Entry& e = g_cache[key];
     e.mtime = mt;
     e.image = t;
 

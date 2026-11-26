@@ -40,6 +40,11 @@
 #define PLUGINID_SOLV3D_DIRLIGHT       "com.aguapanelafx.solv3d.DirectLight"
 #define PLUGINID_SOLV3D_AMBIENTLIGHT   "com.aguapanelafx.solv3d.AmbientLight"
 #define PLUGINID_SOLV3D_AXIS           "com.aguapanelafx.solv3d.Axis"
+#define PLUGINID_SOLV3D_BASICMATERIAL  "com.aguapanelafx.solv3d.BasicMaterial"
+#define PLUGINID_SOLV3D_MATERIALX      "com.aguapanelafx.solv3d.MaterialX"
+#define PLUGINID_SOLV3D_ASSIGNMATERIAL "com.aguapanelafx.solv3d.AssignMaterial"
+#define PLUGINID_SOLV3D_HDRILIGHT      "com.aguapanelafx.solv3d.HDRILight"
+#define PLUGINID_SOLV3D_NORMALS        "com.aguapanelafx.solv3d.Normals"
 
 NATRON_NAMESPACE_ENTER
 
@@ -553,6 +558,144 @@ private:
     KnobDoubleWPtr _emission, _metal, _spec, _rough, _ior, _baseWeight, _coat, _coatRough, _emWeight;
 };
 
+// material nodes (BasicMaterial, MaterialX): output a material (a prim carrying it), AssignMaterial puts it on
+// geometry. Every channel has a value and an image input (texture, multiplies the value).
+class Solv3DMaterialNode
+    : public Solv3DNode
+{
+public:
+    enum Channel
+    {
+        eChBaseColor = 0, eChBaseWeight, eChMetalness, eChSpecular, eChSpecularColor, eChRoughness, eChCoat,
+        eChCoatRoughness, eChEmissionColor, eChEmissionWeight, eChOpacity, eChNormal, eChDisplacement, eChCount
+    };
+
+    Solv3DMaterialNode(NodePtr n, bool full);
+
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return (int)_inputs.size(); }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+    virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
+    virtual void onKnobsLoaded() OVERRIDE FINAL { refreshMtlxMaterials(); }
+
+private:
+    void refreshMtlxMaterials();
+    void loadMtlx();
+
+    bool _full;                       // MaterialX (all channels, .mtlx files) or BasicMaterial
+    std::vector<int> _inputs;         // channel of each input
+    KnobColorWPtr _col[eChCount];     // value of each colour channel
+    KnobDoubleWPtr _dbl[eChCount];    // value of each single value channel (normal: strength, displacement: scale)
+    KnobFileWPtr _file[eChCount];     // MaterialX: texture file of each channel (used when its input is free)
+    KnobDoubleWPtr _ior, _unlit;
+    KnobFileWPtr _mtlxFile;
+    KnobChoiceWPtr _mtlxMaterial;
+    KnobButtonWPtr _mtlxLoad;
+};
+
+class Solv3DBasicMaterial
+    : public Solv3DMaterialNode
+{
+public:
+    explicit Solv3DBasicMaterial(NodePtr n) : Solv3DMaterialNode(n, false) {}
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DBasicMaterial(n); }
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_BASICMATERIAL; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "BasicMaterial"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+};
+
+class Solv3DMaterialX
+    : public Solv3DMaterialNode
+{
+public:
+    explicit Solv3DMaterialX(NodePtr n) : Solv3DMaterialNode(n, true) {}
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DMaterialX(n); }
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_MATERIALX; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "MaterialX"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+};
+
+// puts the material of the mat input on the geometry of the geo input (all of it, or the prims matching 'path')
+class Solv3DAssignMaterial
+    : public Solv3DNode
+{
+public:
+    explicit Solv3DAssignMaterial(NodePtr n) : Solv3DNode(n) {}
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DAssignMaterial(n); }
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_ASSIGNMATERIAL; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "AssignMaterial"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 2; }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i == 0 ? "geo" : "mat"; }
+    virtual bool isInputOptional(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i != 0; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+
+private:
+    KnobStringWPtr _path;
+    KnobBoolWPtr _keepTexture;
+};
+
+// environment light from a lat-long image: diffuse light + reflections (rotate it with the transform)
+class Solv3DHDRILight
+    : public Solv3DNode
+{
+public:
+    explicit Solv3DHDRILight(NodePtr n) : Solv3DNode(n) {}
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DHDRILight(n); }
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_HDRILIGHT; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "HDRILight"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 3; }
+    virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i == 0 ? "img" : (i == 1 ? "axis" : "scn"); }
+    virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return true; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+
+private:
+    Solv3DPrimKnobs _prim;
+    Solv3DDisplayKnobs _disp;
+    Solv3DXformKnobs _xf;
+    KnobColorWPtr _color;
+    KnobDoubleWPtr _intensity, _exposure, _saturation, _diffuse, _specular;
+};
+
+// recomputes the normals of the geometry: smooth across edges flatter than the cusp angle, hard otherwise
+class Solv3DNormals
+    : public Solv3DNode
+{
+public:
+    explicit Solv3DNormals(NodePtr n);
+
+    static EffectInstance* BuildEffect(NodePtr n) { return new Solv3DNormals(n); }
+
+    virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_NORMALS; }
+    virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "Normals"; }
+    virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 1; }
+    virtual std::string getInputLabel(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return "geo"; }
+    virtual bool isInputOptional(int) const OVERRIDE FINAL WARN_UNUSED_RETURN { return false; }
+    virtual void initializeKnobs() OVERRIDE FINAL;
+    virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
+
+private:
+    struct Cache;
+    std::shared_ptr<Cache> _cache;
+    KnobChoiceWPtr _mode, _weighting;
+    KnobDoubleWPtr _cusp;
+    KnobStringWPtr _path;
+};
+
 class Solv3DScanline
     : public Solv3DNode
 {
@@ -564,7 +707,7 @@ public:
     virtual std::string getPluginID() const OVERRIDE FINAL WARN_UNUSED_RETURN { return PLUGINID_SOLV3D_SCANLINE; }
     virtual std::string getPluginLabel() const OVERRIDE FINAL WARN_UNUSED_RETURN { return "ScanlineRender"; }
     virtual std::string getPluginDescription() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 4; }
+    virtual int getNInputs() const OVERRIDE FINAL WARN_UNUSED_RETURN { return 3; }
     virtual std::string getInputLabel(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN;
     virtual bool isInputOptional(int i) const OVERRIDE FINAL WARN_UNUSED_RETURN { return i != 0; }
     virtual void initializeKnobs() OVERRIDE FINAL;

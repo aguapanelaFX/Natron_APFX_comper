@@ -317,6 +317,9 @@ NodeCollectionSerialization::restoreFromSerialization(const std::list<NodeSerial
     appInst->updateProjectLoadStatus( tr("Restoring graph links in group: %1").arg(groupName) );
 
 
+    // SOLVFX: ScanlineRender env inputs of old projects (become HDRILight nodes once the graph is connected)
+    std::list<std::pair<NodePtr, std::string> > solvfxEnvMigrations;
+
     /// Connect the nodes together
     for (std::map<NodePtr, NodeSerializationPtr>::const_iterator it = createdNodes.begin(); it != createdNodes.end(); ++it) {
         if ( appPTR->isBackground() && ( it->first->isEffectViewer() ) ) {
@@ -377,6 +380,11 @@ NodeCollectionSerialization::restoreFromSerialization(const std::list<NodeSerial
                     continue;
                 }
                 int index = it->first->getInputNumberFromLabel(it2->first);
+                if ( (index == -1) && (it2->first == "env") && (it->first->getPluginID() == "com.aguapanelafx.solv3d.ScanlineRender") ) {
+                    // SOLVFX: the env input of ScanlineRender became an HDRILight node
+                    solvfxEnvMigrations.push_back( std::make_pair(it->first, it2->second) );
+                    continue;
+                }
                 if (index == -1) {
                     appPTR->writeToErrorLog_mt_safe( tr("Project"), QDateTime::currentDateTime(),
                                                      tr("Could not find input named %1")
@@ -393,6 +401,36 @@ NodeCollectionSerialization::restoreFromSerialization(const std::list<NodeSerial
             }
         }
     } // for (std::list<NodeSerializationPtr>::const_iterator it = serializedNodes.begin(); it != serializedNodes.end(); ++it) {
+
+    // SOLVFX: old ScanlineRender env input -> HDRILight (img = the old env image) between the scene and the render
+    if (createNodes) {
+        for (std::list<std::pair<NodePtr, std::string> >::const_iterator m = solvfxEnvMigrations.begin(); m != solvfxEnvMigrations.end(); ++m) {
+            const NodePtr& scan = m->first;
+            NodePtr envSrc = group->getNodeByName(m->second);
+            if (!scan || !envSrc) {
+                continue;
+            }
+            CreateNodeArgs args("com.aguapanelafx.solv3d.HDRILight", group);
+            args.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+            args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+            args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+            args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+            NodePtr hdri = appInst->createNode(args);
+            if (!hdri) {
+                continue;
+            }
+            hdri->connectInput(envSrc, 0);
+            NodePtr sceneIn = scan->getInput(0);
+            if (sceneIn) {
+                hdri->connectInput(sceneIn, 2);
+                scan->disconnectInput(0);
+            }
+            scan->connectInput(hdri, 0);
+            double x = 0., y = 0.;
+            scan->getPosition(&x, &y);
+            hdri->setPosition(x, y - 80.);
+        }
+    }
 
     ///Now that the graph is setup, restore expressions
     {

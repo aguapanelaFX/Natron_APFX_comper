@@ -77,6 +77,29 @@ struct Material
     Vec3 emissionColor = Vec3(1, 1, 1);
     double emissionWeight = 0.;
     double opacity = 1.;             // multiplies the alpha
+    double normalStrength = 1.;      // normal map amount
+    double displacementScale = 0.;   // stored (displacement is not rendered by ScanlineRender)
+
+    // texture maps (opaque image handles resolved by the renderer, null = none). A map multiplies its value:
+    // colours per channel, single values by the red channel. The base colour map is the mesh texture.
+    enum Map
+    {
+        eMapBaseWeight = 0, eMapMetalness, eMapSpecular, eMapSpecularColor, eMapRoughness, eMapCoat,
+        eMapCoatRoughness, eMapEmissionColor, eMapEmissionWeight, eMapOpacity, eMapNormal, eMapDisplacement,
+        eMapCount
+    };
+    std::shared_ptr<void> maps[eMapCount];
+    std::shared_ptr<void> baseColorMap; // material nodes: base colour texture (AssignMaterial makes it the mesh texture)
+    bool hasMaps() const
+    {
+        for (int i = 0; i < eMapCount; ++i) {
+            if (maps[i]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 // image projected through a camera (Project3D): texture coordinates from world positions
@@ -151,7 +174,11 @@ struct Light
     int shadowSamples = 16;        // filter samples (quality)
     int shadowResolution = 2048;   // shadow map size
     double shadowBias = 0.1;       // scene units
-    std::shared_ptr<void> texture; // dome: environment image handle
+    std::shared_ptr<void> texture; // dome: environment image handle (lat-long)
+    // dome: colour saturation of the environment, diffuse and specular (reflection) amounts
+    double saturation = 1.;
+    double diffuse = 1.;
+    double specular = 1.;
 };
 
 struct Prim
@@ -171,6 +198,7 @@ struct Prim
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Camera> camera;
     std::shared_ptr<Light> light;
+    std::shared_ptr<Material> material; // material prim (Xform made by a material node, assigned by AssignMaterial)
     std::map<std::string, std::string> attributes; // free attributes (USD "custom" attributes)
 };
 
