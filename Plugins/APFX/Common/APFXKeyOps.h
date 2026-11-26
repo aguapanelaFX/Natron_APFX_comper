@@ -17,6 +17,9 @@
 
 #include "APFXImageOps.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace APFXKey {
 
 using APFXOps::Plane;
@@ -304,7 +307,8 @@ struct ScreenColourParams
     float darks[3] = { 0.f, 0.f, 0.f };  // IBK-like "darks": colour treated as black
     float lights[3] = { 1.f, 1.f, 1.f }; // IBK-like "lights": colour treated as white
     float threshold = 0.f;    // minimum screen dominance (after darks / lights) to count as screen
-    float softness = 0.05f;   // dominance ramp above the threshold
+    float tolerance = 0.2f;   // how far below the local screen strength still counts as screen (0..1)
+    float softness = 0.1f;    // ramp of the screen detection (fraction of the local screen strength)
     int size = 10;            // removes the foreground: grows it by this many pixels
     int erode = 0;            // extra erosion of the remaining screen (edge colour traces)
     float patchBlack = 5.f;   // 0 = foreground left black, higher = black areas patched with the
@@ -326,6 +330,8 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
         off[k] = p.darks[k];
         scale[k] = 1.f / std::max(1e-4f, p.lights[k] - p.darks[k]);
     }
+    // 1. screen dominance after darks / lights (screen channel above the other two)
+    Plane dom(w, h, 1);
     pf([&](int ya, int yb) {
         for (int y = ya; y < yb; ++y) {
             for (int x = 0; x < w; ++x) {
@@ -334,15 +340,60 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
                 for (int k = 0; k < 3; ++k) {
                     n[k] = (s[k] - off[k]) * scale[k];
                 }
-                // screen pixel = screen channel clearly above both other channels
                 const float other = (sc == 1) ? std::max(n[0], n[2]) : std::max(n[0], n[1]);
-                const float dom = n[sc] - other;
-                float v = clamp01( (dom - p.threshold) / std::max(1e-4f, p.softness) );
-                if (n[sc] <= 0.f) {
-                    v = 0.f; // darker than "darks": not screen
-                }
-                m.px(x, y)[0] = v;
+                dom.px(x, y)[0] = (n[sc] > 0.f) ? n[sc] - other : 0.f;   // darker than "darks": not screen
             }
+        }
+    }, h);
+    // 2. how strong the screen is here (PIK / IBK idea: a pixel is screen when it is as screen-coloured as the
+    //    screen, not just when the screen channel wins). The local strength follows uneven lighting: it is
+    //    filled in (pull-push) from the clearly-screen pixels.
+    float global = 0.f;
+    {
+        std::vector<float> smp;
+        smp.reserve( (size_t)w * h / 16 + 16 );
+        for (int y = 0; y < h; y += 4) {
+            for (int x = (y / 4) & 3; x < w; x += 4) {
+                const float d = dom.px(x, y)[0];
+                if (d > 0.f) {
+                    smp.push_back(d);
+                }
+            }
+        }
+        if ( !smp.empty() ) {
+            const size_t k = (size_t)( (smp.size() - 1) * 0.9 );
+            std::nth_element( smp.begin(), smp.begin() + k, smp.end() );
+            global = smp[k];
+        }
+    }
+    Plane local;
+    if (global > 1e-6f) {
+        Plane cw(w, h, 2);
+        const float lo = 0.5f * global;
+        pf([&](int y0, int y1) {
+            for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+                const float d = dom.d[i];
+                const float wgt = (d > lo) ? 1.f : 0.f;
+                cw.d[i * 2] = d * wgt;
+                cw.d[i * 2 + 1] = wgt;
+            }
+        }, h);
+        local = APFXOps::pullPush(std::move(cw), 32, pf);
+        // a little wider than the pixel: the reference must not dip into the edges of the foreground
+        APFXOps::blur( local, std::max(4.f, std::min(w, h) * 0.01f), pf );
+    }
+    const float tol = std::max(0.f, std::min(1.f, p.tolerance) );
+    const float soft = std::max(1e-3f, p.softness);
+    pf([&](int y0, int y1) {
+        for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
+            const float d = dom.d[i];
+            float v = 0.f;
+            if ( (d > p.threshold) && (global > 1e-6f) ) {
+                const float ref = std::max(local.d[i], 0.25f * global);
+                const float r = d / ref;   // 1 = as screen-coloured as the screen around it
+                v = clamp01( ( r - (1.f - tol) ) / soft );
+            }
+            m.d[i] = v;
         }
     }, h);
     if (p.size + p.erode > 0) {
@@ -373,7 +424,7 @@ difScreenColour(const Plane& src, const ScreenColourParams& p, Plane& dst, const
     Plane cw(w, h, 4);
     pf([&](int y0, int y1) {
         for (size_t i = (size_t)y0 * w; i < (size_t)y1 * w; ++i) {
-            const float k = m.d[i];
+            const float k = m.d[i] * m.d[i];   // clean screen only: no foreground colour bleeds into the plate
             cw.d[i * 4 + 0] = src.d[i * 4 + 0] * k;
             cw.d[i * 4 + 1] = src.d[i * 4 + 1] * k;
             cw.d[i * 4 + 2] = src.d[i * 4 + 2] * k;
