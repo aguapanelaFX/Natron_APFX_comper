@@ -371,9 +371,11 @@ ViewerTabPrivate::getTimeTransform(double time,
 #endif // ifdef NATRON_TRANSFORM_AFFECTS_OVERLAYS
 
 void
-ViewerTabPrivate::getComponentsAvailabel(std::set<ImagePlaneDesc>* comps) const
+ViewerTabPrivate::getComponentsAvailabel(std::vector<ImagePlaneDesc>* ordered) const
 {
     int activeInputIdx[2];
+    std::set<ImagePlaneDesc> set;
+    std::set<ImagePlaneDesc>* comps = &set;
 
     viewerNode->getActiveInputs(activeInputIdx[0], activeInputIdx[1]);
     EffectInstancePtr activeInput[2] = {EffectInstancePtr(), EffectInstancePtr()};
@@ -382,19 +384,33 @@ ViewerTabPrivate::getComponentsAvailabel(std::set<ImagePlaneDesc>* comps) const
         activeInput[i] = viewerNode->getInput(activeInputIdx[i]);
         if (activeInput[i]) {
             std::list<ImagePlaneDesc> compsAvailable;
-            activeInput[i]->getAvailableLayers(time, ViewIdx(0), -1, &compsAvailable);
+            // SOLVFX: only the layers the node has (not the project's default motion / disparity layers)
+            activeInput[i]->getAvailableLayers(time, ViewIdx(0), -1, &compsAvailable, false);
             for (std::list<ImagePlaneDesc>::iterator it = compsAvailable.begin(); it != compsAvailable.end(); ++it) {
                 comps->insert(*it);
             }
         }
     }
-    // SOLVFX: like Nuke, always offer rgba. An RGB input is shown as rgba
-    // with a black alpha (the viewer converts RGB to RGBA with alpha = 0).
+    // SOLVFX: like Nuke, always offer rgba (also with nothing connected). An RGB or alpha-only input is
+    // shown as rgba (the viewer converts it).
+    bool hasRGBA = false;
+    for (std::set<ImagePlaneDesc>::iterator it = comps->begin(); it != comps->end(); ) {
+        if ( it->isColorPlane() && (it->getNumComponents() != 4) ) {
+            comps->erase(it++);
+        } else {
+            hasRGBA = hasRGBA || it->isColorPlane();
+            ++it;
+        }
+    }
+    if (!hasRGBA) {
+        comps->insert( ImagePlaneDesc::getRGBAComponents() );
+    }
+    ordered->clear();
     for (std::set<ImagePlaneDesc>::iterator it = comps->begin(); it != comps->end(); ++it) {
-        if ( it->isColorPlane() && (it->getNumComponents() == 3) ) {
-            comps->erase(it);
-            comps->insert( ImagePlaneDesc::getRGBAComponents() );
-            break;
+        if ( it->isColorPlane() ) {
+            ordered->insert(ordered->begin(), *it);
+        } else {
+            ordered->push_back(*it);
         }
     }
 }

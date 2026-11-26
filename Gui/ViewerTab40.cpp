@@ -983,22 +983,19 @@ ViewerTab::refreshLayerAndAlphaChannelComboBox()
 
     QString layerCurChoice = _imp->layerChoice->getCurrentIndexText();
     QString alphaCurChoice = _imp->alphaChannelChoice->getCurrentIndexText();
-    std::set<ImagePlaneDesc> components;
+    std::vector<ImagePlaneDesc> components;
     _imp->getComponentsAvailabel(&components);
 
     _imp->layerChoice->clear();
     _imp->alphaChannelChoice->clear();
 
-    _imp->layerChoice->addItem( QString::fromUtf8("-") );
-    _imp->alphaChannelChoice->addItem( QString::fromUtf8("-") );
-
-    std::set<ImagePlaneDesc>::iterator foundColorIt = components.end();
-    std::set<ImagePlaneDesc>::iterator foundOtherIt = components.end();
-    std::set<ImagePlaneDesc>::iterator foundCurIt = components.end();
-    std::set<ImagePlaneDesc>::iterator foundCurAlphaIt = components.end();
+    std::vector<ImagePlaneDesc>::iterator foundColorIt = components.end();
+    std::vector<ImagePlaneDesc>::iterator foundOtherIt = components.end();
+    std::vector<ImagePlaneDesc>::iterator foundCurIt = components.end();
+    std::vector<ImagePlaneDesc>::iterator foundCurAlphaIt = components.end();
     std::string foundAlphaChannel;
 
-    for (std::set<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it) {
+    for (std::vector<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it) {
 
         ChoiceOption option = it->getPlaneOption();
         _imp->layerChoice->addItem(QString::fromUtf8(option.label.c_str()));
@@ -1041,6 +1038,10 @@ ViewerTab::refreshLayerAndAlphaChannelComboBox()
             _imp->viewerNode->setAlphaChannel(*it, alphaChoice, false);
         }
     }
+
+    // SOLVFX: "-" (no layer / no alpha) comes after the layers, rgba is first
+    _imp->layerChoice->addItem( QString::fromUtf8("-") );
+    _imp->alphaChannelChoice->addItem( QString::fromUtf8("-") );
 
     if ( ( layerCurChoice == QString::fromUtf8("-") ) || layerCurChoice.isEmpty() || ( foundCurIt == components.end() ) ) {
         // Try to find color plane, otherwise fallback on any other layer
@@ -1118,7 +1119,7 @@ ViewerTab::refreshLayerAndAlphaChannelComboBox()
 void
 ViewerTab::onAlphaChannelComboChanged(int index)
 {
-    std::set<ImagePlaneDesc> components;
+    std::vector<ImagePlaneDesc> components;
 
     _imp->getComponentsAvailabel(&components);
 
@@ -1126,8 +1127,8 @@ ViewerTab::onAlphaChannelComboChanged(int index)
         QMutexLocker k(&_imp->currentLayerMutex);
         _imp->currentAlphaLayerChoice = _imp->alphaChannelChoice->getCurrentIndexText();
     }
-    int i = 1; // because of the "-" choice
-    for (std::set<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it) {
+    int i = 0; // SOLVFX: "-" is the last choice
+    for (std::vector<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it) {
         const std::vector<std::string>& channels = it->getChannels();
         if ( index >= ( (int)channels.size() + i ) ) {
             i += channels.size();
@@ -1147,7 +1148,7 @@ ViewerTab::onAlphaChannelComboChanged(int index)
 void
 ViewerTab::onLayerComboChanged(int index)
 {
-    std::set<ImagePlaneDesc> components;
+    std::vector<ImagePlaneDesc> components;
 
     _imp->getComponentsAvailabel(&components);
     {
@@ -1159,9 +1160,9 @@ ViewerTab::onLayerComboChanged(int index)
 
         return;
     }
-    int i = 1; // because of the "-" choice
-    int chanCount = 1; // because of the "-" choice
-    for (std::set<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it, ++i) {
+    int i = 0; // SOLVFX: "-" is the last choice
+    int chanCount = 0;
+    for (std::vector<ImagePlaneDesc>::iterator it = components.begin(); it != components.end(); ++it, ++i) {
         chanCount += it->getChannels().size();
         if (i == index) {
             _imp->viewerNode->setActiveLayer(*it, true);
@@ -1176,7 +1177,7 @@ ViewerTab::onLayerComboChanged(int index)
         }
     }
 
-    _imp->alphaChannelChoice->setCurrentIndex_no_emit(0);
+    _imp->alphaChannelChoice->setCurrentIndex_no_emit( std::max(0, _imp->alphaChannelChoice->count() - 1) ); // "-"
     _imp->viewerNode->setAlphaChannel(ImagePlaneDesc::getNoneComponents(), std::string(), false);
     _imp->viewerNode->setActiveLayer(ImagePlaneDesc::getNoneComponents(), true);
 }

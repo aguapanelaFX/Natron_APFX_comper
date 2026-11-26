@@ -1822,7 +1822,9 @@ public:
                                                int* passThroughInput);
 
 
-    void getAvailableLayers(double time, ViewIdx view, int inputNb, std::list<ImagePlaneDesc>* availableLayers) ;
+    // includeProjectLayers: with inputNb -1, also the project's default layers (motion vectors, disparity ...)
+    // even when the node does not have them (SOLVFX: the viewer only shows the layers that exist)
+    void getAvailableLayers(double time, ViewIdx view, int inputNb, std::list<ImagePlaneDesc>* availableLayers, bool includeProjectLayers = true) ;
 
     const std::vector<std::string>& getUserPlanes() const;
 

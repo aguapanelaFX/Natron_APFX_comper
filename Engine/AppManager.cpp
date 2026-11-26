@@ -2059,9 +2059,101 @@ AppManager::loadPythonGroups()
     }
 } // AppManager::loadPythonGroups
 
+// SOLVFX: long categories are split into sub-menus by what the nodes do. Only nodes sitting directly in a
+// top category are moved; nodes that already have a sub-menu keep it. Plug-in IDs do not change.
+namespace {
+struct SolvfxSubRule
+{
+    const char* top;
+    const char* sub;
+    const char* patterns; // space separated, lower case: "=name" exact name, otherwise "name contains"
+};
+
+const SolvfxSubRule kSolvfxSubRules[] = {
+    // Filter
+    { "Filter", "Glow & Light", "glow bloom halation godrays lightwrap flare glint" },
+    { "Filter", "Blur", "=edgeblur =angleblur" },
+    { "Filter", "Edge & Matte", "erode dilate edge laplacian distance =fill inpaint extend shrink grow" },
+    { "Filter", "Blur", "blur defocus bokeh" },
+    { "Filter", "Sharpen & Denoise", "sharpen soften denoise smooth =median bilateral guided rolling patch anisotropic despeckle" },
+    { "Filter", "Distort & Lens", "chromatic aberration lens distort vignette warp" },
+    { "Filter", "Depth", "=zmask =zremap depth" },
+    { "Filter", "Convolve", "convolve matrix" },
+    { "Filter", "Stylize", "dropshadow emboss posterize" },
+    { "Filter", "Code", "shadertoy expression seexpr" },
+    // Color
+    { "Color", "Correct", "grade colorcorrect saturation hsv huecorrect whitebalance =look =toe colorlookup equalize histeq colorsuppress" },
+    { "Color", "Math", "=add =multiply =gamma =clamp =invert =colormatrix =cliptest =quantize =threshold" },
+    { "Color", "Convert", "log2lin ploglin vectortocolor lut cdl colorspace" },
+    // Draw
+    { "Draw", "Shapes", "=radial =ramp =rectangle =roto discblades" },
+    { "Draw", "Noise & Grain", "noise plasma grain =rand" },
+    { "Draw", "Text", "text" },
+    // Image
+    { "Image", "Generators", "checkerboard colorbars colorwheel =constant" },
+    // Keyer
+    { "Keyer", "Despill & Matte", "despill mattemonitor pmatte pikcolor =remove" },
+    { "Keyer", "Keyers", "chromakeyer =keyer =pik screenkey difscreen difference" },
+    // Time
+    { "Time", "Retime", "retime framehold framerange timeoffset appendclip" },
+    { "Time", "Blend & Blur", "timeblur frameblend vectorblend" },
+    // Transform
+    { "Transform", "Track", "tracker" },
+    { "Transform", "Format", "reformat resize =crop adjustrod spritesheet" },
+    // Merge
+    { "Merge", "Layout", "contactsheet" },
+};
+
+// examples from the plug-in SDK: out of the way
+bool
+solvfxIsTestPlugin(const QString& id)
+{
+    return ( id == QString::fromUtf8("net.sf.openfx.MaskableFilter") ) || ( id == QString::fromUtf8("net.sf.openfx.MixableFilter") ) ||
+           ( id == QString::fromUtf8("net.sf.openfx.SimpleFilter") );
+}
+
+QStringList
+solvfxRegroup(const QStringList& groups,
+              const QString& pluginID,
+              const QString& label)
+{
+    if (groups.size() != 1) {
+        return groups;
+    }
+    if ( solvfxIsTestPlugin(pluginID) ) {
+        return QStringList() << QString::fromUtf8("Other") << QString::fromUtf8("Test");
+    }
+    QString name = label.toLower();
+    const char* suffixes[] = { "ofx", "cimg", "oiio", "gpu" };
+    for (const char* sfx : suffixes) {
+        const QString s = QString::fromUtf8(sfx);
+        if ( name.endsWith(s) && (name.size() > s.size() + 1) ) {
+            name.chop( s.size() );
+            break;
+        }
+    }
+    name.remove( QLatin1Char(' ') );
+    for (const SolvfxSubRule& r : kSolvfxSubRules) {
+        if ( groups[0] != QString::fromUtf8(r.top) ) {
+            continue;
+        }
+        const QStringList pats = QString::fromUtf8(r.patterns).split( QLatin1Char(' '), Qt::SkipEmptyParts );
+        for (const QString& pat : pats) {
+            const bool exact = pat.startsWith( QLatin1Char('=') );
+            const QString pp = exact ? pat.mid(1) : pat;
+            if ( exact ? (name == pp) : name.contains(pp) ) {
+                return QStringList() << groups[0] << QString::fromUtf8(r.sub);
+            }
+        }
+    }
+
+    return groups;
+}
+} // anon
+
 Plugin*
 AppManager::registerPlugin(const QString& resourcesPath,
-                           const QStringList & groups,
+                           const QStringList & groupsIn,
                            const QString & pluginID,
                            const QString & pluginLabel,
                            const QString & pluginIconPath,
@@ -2075,6 +2167,15 @@ AppManager::registerPlugin(const QString& resourcesPath,
                            bool isDeprecated)
 {
     QRecursiveMutex* pluginMutex = nullptr;
+    const QStringList groups = solvfxRegroup(groupsIn, pluginID, pluginLabel);
+    // one icon per group level (sub-menus added above have none)
+    QStringList groupIcons = groupIconPath;
+    while ( !groupIcons.isEmpty() && (groupIcons.size() < groups.size()) ) {
+        groupIcons.append( QString() );
+    }
+    while ( groupIcons.size() > groups.size() ) {
+        groupIcons.removeLast();
+    }
 
     if (mustCreateMutex) {
         pluginMutex = new QRecursiveMutex();
@@ -2084,7 +2185,7 @@ AppManager::registerPlugin(const QString& resourcesPath,
          ( pluginID == QString::fromUtf8("net.sf.openfx.CropPlugin") ) || ( pluginID == QString::fromUtf8("net.sf.openfx.ContactSheetOFX") ) ) {
         isDeprecated = true;
     }
-    Plugin* plugin = new Plugin(binary, resourcesPath, pluginID, pluginLabel, pluginIconPath, groupIconPath, groups, pluginMutex, major, minor,
+    Plugin* plugin = new Plugin(binary, resourcesPath, pluginID, pluginLabel, pluginIconPath, groupIcons, groups, pluginMutex, major, minor,
                                 isReader, isWriter, isDeprecated);
     std::string stdID = pluginID.toStdString();
 

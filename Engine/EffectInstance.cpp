@@ -4505,7 +4505,7 @@ EffectInstance::getComponentsNeededAndProduced_public(U64 hash,
 
 
 void
-EffectInstance::getAvailableLayers(double time, ViewIdx view, int inputNb, std::list<ImagePlaneDesc>* availableLayers)
+EffectInstance::getAvailableLayers(double time, ViewIdx view, int inputNb, std::list<ImagePlaneDesc>* availableLayers, bool includeProjectLayers)
 {
 
     EffectInstancePtr effect;
@@ -4549,7 +4549,7 @@ EffectInstance::getAvailableLayers(double time, ViewIdx view, int inputNb, std::
     }
 
     // In output, also make available the default project layers and the user created components
-    if (inputNb == -1) {
+    if ( (inputNb == -1) && includeProjectLayers ) {
 
         std::list<ImagePlaneDesc> projectLayers = getApp()->getProject()->getProjectDefaultLayers();
         if (hasColorPlane) {

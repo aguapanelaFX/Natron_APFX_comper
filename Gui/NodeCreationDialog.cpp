@@ -32,6 +32,10 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QVBoxLayout>
 #include <QStringList>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QPolygonF>
+#include <cmath>
+#include <algorithm>
 #include <QAbstractItemView>
 #include <QTimer>
 #include <QApplication>
@@ -60,6 +64,8 @@ CLANG_DIAG_ON(uninitialized)
 NATRON_NAMESPACE_ENTER
 
 
+class SolvfxNodeSearchDelegate;
+
 struct CompleterLineEditPrivate
 {
     QDialog* dialog;
@@ -67,6 +73,7 @@ struct CompleterLineEditPrivate
     QStringListModel* model;
     CompleterLineEdit::PluginsNamesMap names;
     bool quickExitEnabled;
+    SolvfxNodeSearchDelegate* delegate = 0;
 
     CompleterLineEditPrivate(const CompleterLineEdit::PluginsNamesMap& plugins,
                              bool quickExit,
@@ -96,114 +103,250 @@ struct CompleterLineEditPrivate
     }
 };
 
-// SOLVFX: Tab node search rows: light gray highlight, thin category color line on
-// the left, typed letters in bold, category name on the right
+// SOLVFX: Tab node search, laid out like the node search of other compositors: the node name with the
+// typed letters in bold, its category in [brackets] after it, usage dots and a favourite star on the right
+// (click the star: favourites come first).
+static QStringList
+solvfxTabFavourites()
+{
+    QSettings settings( QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME) );
+
+    return settings.value( QString::fromUtf8("solvfx_tab_favourites") ).toStringList();
+}
+
+static void
+solvfxSetTabFavourites(const QStringList& l)
+{
+    QSettings settings( QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME) );
+    settings.setValue( QString::fromUtf8("solvfx_tab_favourites"), l );
+}
+
+// "Name  [Group/Sub]" -> name, top category
+static void
+solvfxSplitEntry(const QString& full, QString* name, QString* cat)
+{
+    *name = full;
+    cat->clear();
+    const int br = full.lastIndexOf( QString::fromUtf8("  [") );
+    if (br >= 0) {
+        *name = full.left(br);
+        *cat = full.mid(br + 3);
+        if ( cat->endsWith( QLatin1Char(']') ) ) {
+            cat->chop(1);
+        }
+        const int slash = cat->indexOf( QLatin1Char('/') );
+        if (slash >= 0) {
+            *cat = cat->left(slash);
+        }
+    }
+}
+
 class SolvfxNodeSearchDelegate
     : public QStyledItemDelegate
 {
     QLineEdit* _edit;
+    bool _stars;                       // node search (favourites, usage dots)
+    bool _starHit = false;
 
 public:
-    SolvfxNodeSearchDelegate(QLineEdit* edit)
+    QStringList favourites;
+    std::map<QString, int> weights;    // name -> times created
+
+    SolvfxNodeSearchDelegate(QLineEdit* edit, bool stars)
         : QStyledItemDelegate(edit)
         , _edit(edit)
+        , _stars(stars)
     {
+        if (_stars) {
+            favourites = solvfxTabFavourites();
+        }
     }
 
-    static QColor categoryColor(const QString& cat)
+    bool takeStarHit()
     {
-        const QString c = cat.toLower();
-        if ( c.startsWith( QString::fromUtf8("image") ) ) return QColor(0xa8, 0xa8, 0xa8);
-        if ( c.startsWith( QString::fromUtf8("color") ) ) return QColor(0x77, 0x92, 0xc6);
-        if ( c.startsWith( QString::fromUtf8("filter") ) ) return QColor(0xd4, 0x84, 0x4a);
-        if ( c.startsWith( QString::fromUtf8("merge") ) ) return QColor(0x4c, 0x62, 0xbc);
-        if ( c.startsWith( QString::fromUtf8("transform") ) ) return QColor(0xad, 0x80, 0xc8);
-        if ( c.startsWith( QString::fromUtf8("draw") ) || c.startsWith( QString::fromUtf8("paint") ) ) return QColor(0x62, 0xb8, 0x62);
-        if ( c.startsWith( QString::fromUtf8("keyer") ) ) return QColor(0x1c, 0xbf, 0x3a);
-        if ( c.startsWith( QString::fromUtf8("channel") ) ) return QColor(0x98, 0x40, 0x6d);
-        if ( c.startsWith( QString::fromUtf8("time") ) ) return QColor(0xa8, 0x9c, 0x7f);
-        if ( c.startsWith( QString::fromUtf8("3d") ) ) return QColor(0x53, 0x7f, 0x35);
+        const bool h = _starHit;
+        _starHit = false;
 
-        return QColor(0x96, 0x96, 0x96);
+        return h;
+    }
+
+    static QRect starRect(const QRect& row)
+    {
+        const int s = (int)TO_DPIX(14);
+
+        return QRect( row.right() - s - (int)TO_DPIX(8), row.center().y() - s / 2, s, s );
     }
 
     virtual QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE FINAL
     {
         QSize sz = QStyledItemDelegate::sizeHint(option, index);
-        sz.setHeight( std::max( sz.height(), (int)TO_DPIY(24) ) );
+        sz.setHeight( std::max( sz.height(), (int)TO_DPIY(22) ) );
 
         return sz;
     }
 
-    virtual void paint(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE FINAL
+    virtual bool editorEvent(QEvent* e, QAbstractItemModel* model, const QStyleOptionViewItem& option, const QModelIndex& index) OVERRIDE FINAL
     {
-        const QString full = index.data().toString();
-        QString name = full, cat;
-        int br = full.lastIndexOf( QString::fromUtf8("  [") );
-        if (br >= 0) {
-            name = full.left(br);
-            cat = full.mid(br + 3);
-            if ( cat.endsWith( QLatin1Char(']') ) ) {
-                cat.chop(1);
-            }
-            int slash = cat.indexOf( QLatin1Char('/') );
-            if (slash >= 0) {
-                cat = cat.left(slash);
+        if ( _stars && (e->type() == QEvent::MouseButtonPress) ) {
+            QMouseEvent* me = static_cast<QMouseEvent*>(e);
+            if ( starRect(option.rect).adjusted(-4, -4, 4, 4).contains( me->pos() ) ) {
+                QString name, cat;
+                solvfxSplitEntry(index.data().toString(), &name, &cat);
+                if ( favourites.contains(name) ) {
+                    favourites.removeAll(name);
+                } else {
+                    favourites.append(name);
+                }
+                solvfxSetTabFavourites(favourites);
+                _starHit = true;
+
+                return true;
             }
         }
-        const QRect r = option.rect.adjusted(2, 1, -2, -1);
+
+        return QStyledItemDelegate::editorEvent(e, model, option, index);
+    }
+
+    virtual void paint(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE FINAL
+    {
+        QString name, cat;
+        solvfxSplitEntry(index.data().toString(), &name, &cat);
+        const QRect r = option.rect;
         p->save();
         p->setRenderHint(QPainter::Antialiasing, true);
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         if (selected || hovered) {
             p->setPen(Qt::NoPen);
-            p->setBrush( selected ? QColor(0x55, 0x55, 0x55) : QColor(0x3a, 0x3a, 0x3a) );
-            p->drawRoundedRect(r, 2, 2);
+            p->setBrush( selected ? QColor(0x4d, 0x4d, 0x4d) : QColor(0x36, 0x36, 0x36) );
+            p->drawRect(r);
         }
-        // category line
-        p->setPen(Qt::NoPen);
-        p->setBrush( categoryColor(cat) );
-        p->drawRoundedRect( QRectF( r.left() + 6, r.center().y() - TO_DPIY(8), 2, TO_DPIY(16) ), 1, 1 );
-
-        // name with the typed letters (fuzzy, in order) in bold
+        // name: the typed letters (in order) bold and brighter
         QFont f = option.font;
         QFont fb = f;
         fb.setBold(true);
         const QString typed = _edit ? _edit->text().toLower() : QString();
         int ti = 0;
-        double x = r.left() + 16;
-        const QColor txt = selected ? QColor(0xf4, 0xf4, 0xf4) : QColor(0xdc, 0xdc, 0xdc);
-        p->setPen(txt);
+        double x = r.left() + TO_DPIX(8);
+        const QColor txt = selected ? QColor(0xf2, 0xf2, 0xf2) : QColor(0xc8, 0xc8, 0xc8);
+        const QColor hit = QColor(0xff, 0xff, 0xff);
+        const double base = r.center().y() + QFontMetrics(f).ascent() / 2. - 1;
         for (int i = 0; i < name.size(); ++i) {
             const bool match = ( ti < typed.size() ) && ( name[i].toLower() == typed[ti] );
             if (match) {
                 ++ti;
             }
             p->setFont(match ? fb : f);
+            p->setPen(match ? hit : txt);
             QFontMetrics fm( match ? fb : f );
-            p->drawText( QPointF( x, r.center().y() + fm.ascent() / 2. - 1 ), QString(name[i]) );
+            p->drawText( QPointF(x, base), QString(name[i]) );
             x += fm.horizontalAdvance(name[i]);
         }
-        // category on the right
+        // [category] right after the name
         if ( !cat.isEmpty() ) {
-            QFont fc = f;
-            fc.setPointSizeF( std::max(6., f.pointSizeF() * 0.85) );
-            p->setFont(fc);
-            p->setPen( selected ? QColor(0xb8, 0xb8, 0xb8) : QColor(0x8e, 0x8e, 0x8e) );
-            p->drawText( r.adjusted(0, 0, -8, 0), Qt::AlignRight | Qt::AlignVCenter, cat );
+            p->setFont(f);
+            p->setPen( selected ? QColor(0xa8, 0xa8, 0xa8) : QColor(0x86, 0x86, 0x86) );
+            p->drawText( QPointF( x + TO_DPIX(5), base ), QString::fromUtf8("[") + cat + QString::fromUtf8("]") );
+        }
+        if (_stars) {
+            // usage dots (how often the node is created) and the favourite star
+            int w = 0;
+            std::map<QString, int>::const_iterator wi = weights.find(name);
+            if ( wi != weights.end() ) {
+                w = wi->second;
+            }
+            const int dots = (w >= 25) ? 3 : (w >= 8) ? 2 : (w >= 1) ? 1 : 0;
+            const QRect sr = starRect(r);
+            p->setPen(Qt::NoPen);
+            p->setBrush( QColor(0x9a, 0x9a, 0x9a) );
+            for (int d = 0; d < dots; ++d) {
+                const double cx = sr.left() - TO_DPIX(10) - d * TO_DPIX(5), cy = r.center().y();
+                p->drawEllipse( QPointF(cx, cy), TO_DPIX(1.3), TO_DPIX(1.3) );
+            }
+            const bool fav = favourites.contains(name);
+            QPolygonF star;
+            const QPointF c = QRectF(sr).center();
+            const double ro = sr.width() * 0.5, ri = ro * 0.45;
+            for (int k = 0; k < 10; ++k) {
+                const double a = -1.5707963 + k * 3.14159265 / 5.;
+                const double rr = (k % 2) ? ri : ro;
+                star << QPointF( c.x() + rr * std::cos(a), c.y() + rr * std::sin(a) );
+            }
+            if (fav) {
+                p->setPen(Qt::NoPen);
+                p->setBrush( QColor(0xff, 0xd2, 0x57) );
+            } else {
+                p->setPen( QPen(QColor(0x6e, 0x6e, 0x6e), 1.) );
+                p->setBrush(Qt::NoBrush);
+            }
+            p->drawPolygon(star);
         }
         p->restore();
     }
 };
 
-static void
-solvfxStyleSearchList(QListView* view, QLineEdit* edit)
+static SolvfxNodeSearchDelegate*
+solvfxStyleSearchList(QListView* view, QLineEdit* edit, bool stars)
 {
-    view->setItemDelegate( new SolvfxNodeSearchDelegate(edit) );
+    SolvfxNodeSearchDelegate* d = new SolvfxNodeSearchDelegate(edit, stars);
+    view->setItemDelegate(d);
     view->setMouseTracking(true);
-    view->setStyleSheet( QString::fromUtf8("QListView { background-color: #2b2b2b; border: 1px solid #0f0f0f; outline: 0; padding: 4px; }") );
-    view->setMinimumWidth( TO_DPIX(300) );
+    view->setStyleSheet( QString::fromUtf8(
+        "QListView { background-color: #262626; border: 1px solid #111111; outline: 0; padding: 0px; }"
+        "QScrollBar:vertical { background: #262626; width: 8px; margin: 0px; }"
+        "QScrollBar::handle:vertical { background: #4a4a4a; min-height: 24px; border-radius: 3px; }"
+        "QScrollBar::handle:vertical:hover { background: #5c5c5c; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }") );
+    view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    view->setMinimumWidth( TO_DPIX(320) );
+
+    return d;
+}
+
+// how well a node name matches the typed text (-1: no match). Exact > starts with > initials (DM: DeepMerge)
+// > contains > letters in order.
+static int
+solvfxMatchScore(const QString& name, const QString& typed)
+{
+    const QString n = name.toLower(), t = typed.toLower();
+    if ( t.isEmpty() ) {
+        return 0;
+    }
+    if (n == t) {
+        return 1000;
+    }
+    if ( n.startsWith(t) ) {
+        return 800 - std::min( 100, (int)( n.size() - t.size() ) );
+    }
+    // initials: first letter, capitals, letters after a separator or a digit run
+    QString ini;
+    for (int i = 0; i < name.size(); ++i) {
+        const QChar c = name[i];
+        const bool start = (i == 0) || c.isUpper() || !name[i - 1].isLetterOrNumber() || ( c.isDigit() && !name[i - 1].isDigit() );
+        if ( start && c.isLetterOrNumber() ) {
+            ini += c.toLower();
+        }
+    }
+    if ( ini.startsWith(t) ) {
+        return 700 - std::min( 100, (int)( ini.size() - t.size() ) );
+    }
+    const int idx = (int)n.indexOf(t);
+    if (idx >= 0) {
+        return 500 - std::min( 100, (int)idx );
+    }
+    int j = 0, gaps = 0, last = -1;
+    for (int i = 0; i < n.size() && j < t.size(); ++i) {
+        if (n[i] == t[j]) {
+            if ( (last >= 0) && (i != last + 1) ) {
+                ++gaps;
+            }
+            last = i;
+            ++j;
+        }
+    }
+
+    return (j == t.size()) ? 200 - std::min(100, gaps * 10) : -1;
 }
 
 CompleterLineEdit::CompleterLineEdit(const PluginsNamesMap& plugins,
@@ -216,7 +359,12 @@ CompleterLineEdit::CompleterLineEdit(const PluginsNamesMap& plugins,
     _imp->model = new QStringListModel(this);
     _imp->listView->setWindowFlags(Qt::ToolTip);
     _imp->listView->setModel(_imp->model);
-    solvfxStyleSearchList(_imp->listView, this); // SOLVFX
+    _imp->delegate = solvfxStyleSearchList(_imp->listView, this, true); // SOLVFX
+    for (PluginsNamesMap::const_iterator it = _imp->names.begin(); it != _imp->names.end(); ++it) {
+        QString name, cat;
+        solvfxSplitEntry(it->second.second, &name, &cat);
+        _imp->delegate->weights[name] = it->first;
+    }
 
     connect( this, SIGNAL(textChanged(QString)), this, SLOT(filterText(QString)) );
     connect( _imp->listView, SIGNAL(clicked(QModelIndex)), this, SLOT(setTextFromIndex(QModelIndex)) );
@@ -233,7 +381,7 @@ CompleterLineEdit::CompleterLineEdit(const QStringList & displayWords,
     _imp->model = new QStringListModel(this);
     _imp->listView->setWindowFlags(Qt::ToolTip);
     _imp->listView->setModel(_imp->model);
-    solvfxStyleSearchList(_imp->listView, this); // SOLVFX
+    _imp->delegate = solvfxStyleSearchList(_imp->listView, this, false); // SOLVFX
 
     connect( this, SIGNAL(textChanged(QString)), this, SLOT(filterText(QString)) );
     connect( _imp->listView, SIGNAL(clicked(QModelIndex)), this, SLOT(setTextFromIndex(QModelIndex)) );
@@ -253,39 +401,34 @@ void
 CompleterLineEdit::filterText(const QString & txt)
 {
     QStringList sl;
-
-    if ( txt.isEmpty() ) {
-        for (PluginsNamesMap::iterator it = _imp->names.begin(); it != _imp->names.end(); ++it) {
-            sl.push_front(it->second.second);
+    // SOLVFX: ranked like other compositors: favourites, then how well the name matches, then how often the
+    // node is used
+    struct Hit { int score; QString name, display; };
+    std::vector<Hit> hits;
+    const QStringList favs = _imp->delegate ? _imp->delegate->favourites : QStringList();
+    for (PluginsNamesMap::iterator it = _imp->names.begin(); it != _imp->names.end(); ++it) {
+        QString name, cat;
+        solvfxSplitEntry(it->second.second, &name, &cat);
+        const QString key = it->second.first.isEmpty() ? name : it->second.first;
+        int sc = txt.isEmpty() ? 0 : solvfxMatchScore(key, txt);
+        if (sc < 0) {
+            continue;
         }
-    } else {
-        QString pattern;
-        for (int i = 0; i < txt.size(); ++i) {
-            pattern.push_back( QLatin1Char('*') );
-            pattern.push_back(txt[i]);
+        sc += std::min(50, it->first) * 2;
+        if ( favs.contains(name) ) {
+            sc += 2000;
         }
-        pattern.push_back( QLatin1Char('*') );
-        QRegExp expr(pattern, Qt::CaseInsensitive, QRegExp::WildcardUnix);
-
-#ifdef NODE_TAB_DIALOG_USE_MATCHED_LENGTH
-        std::map<int, QStringList> matchOrdered;
-        for (PluginsNamesMap::iterator it = _imp->names.begin(); it != _imp->names.end(); ++it) {
-            if ( expr.exactMatch(it->second.first) ) {
-                QStringList& matchedForLength =  matchOrdered[expr.matchedLength()];
-                matchedForLength.push_front(it->second.second);
-            }
-        }
-        for (std::map<int, QStringList>::iterator it = matchOrdered.begin(); it != matchOrdered.end(); ++it) {
-            sl.append(it->second);
-        }
-#else
-
-        for (PluginsNamesMap::iterator it = _imp->names.begin(); it != _imp->names.end(); ++it) {
-            if ( it->second.first.contains(expr) ) {
-                sl.push_front(it->second.second);
-            }
-        }
-#endif
+        Hit h;
+        h.score = sc;
+        h.name = name;
+        h.display = it->second.second;
+        hits.push_back(h);
+    }
+    std::stable_sort( hits.begin(), hits.end(), [](const Hit& x, const Hit& y) {
+        return (x.score != y.score) ? (x.score > y.score) : (x.name.compare(y.name, Qt::CaseInsensitive) < 0);
+    } );
+    for (const Hit& h : hits) {
+        sl.push_back(h.display);
     }
     _imp->model->setStringList(sl);
     _imp->listView->setModel(_imp->model);
@@ -312,6 +455,16 @@ CompleterLineEdit::filterText(const QString & txt)
 void
 CompleterLineEdit::setTextFromIndex(const QModelIndex & index)
 {
+    if ( _imp->delegate && _imp->delegate->takeStarHit() ) {
+        // SOLVFX: the click was on the favourite star: re-rank, keep the search open
+        const int row = index.row();
+        filterText( text() );
+        if ( _imp->model->rowCount() > 0 ) {
+            _imp->listView->setCurrentIndex( _imp->model->index( std::min(row, _imp->model->rowCount() - 1) ) );
+        }
+
+        return;
+    }
     QString text = index.data().toString();
 
     setText(text);
@@ -554,6 +707,12 @@ NodeCreationDialog::NodeCreationDialog(const QString& initialFilter,
     }
 
     _imp->textEdit = new CompleterLineEdit(pluginsMap, true, this);
+    // SOLVFX: slim dark search field with a light rounded frame
+    _imp->textEdit->setStyleSheet( QString::fromUtf8(
+        "QLineEdit { background-color: #1e1e1e; color: #e8e8e8; border: 1px solid #a0a0a0; border-radius: 4px; "
+        "padding: 3px 8px; selection-background-color: #5a5a5a; }") );
+    _imp->textEdit->setMinimumWidth( TO_DPIX(320) );
+    setStyleSheet( QString::fromUtf8("QDialog#nodeCreationDialog { background: transparent; }") );
     if ( !initialFilterName.isEmpty() ) {
         _imp->textEdit->setText(initialFilterName);
     }

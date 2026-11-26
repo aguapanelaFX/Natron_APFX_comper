@@ -277,7 +277,8 @@ struct ViewerTabPrivate
 
 #endif
 
-    void getComponentsAvailabel(std::set<ImagePlaneDesc>* comps) const;
+    // layers of the viewed node(s): rgba first, then the others (only the layers that exist)
+    void getComponentsAvailabel(std::vector<ImagePlaneDesc>* comps) const;
 
     std::list<PluginViewerContext>::iterator findActiveNodeContextForPlugin(const std::string& pluginID);
 
