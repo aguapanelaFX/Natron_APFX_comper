@@ -1050,6 +1050,56 @@ RearrangeNodesCommand::RearrangeNodesCommand(const std::list<NodeGuiPtr> & nodes
         }
     }
 
+    // SOLVFX: nodes not connected to each other (several Reads ...): one row (or column) in their order,
+    // evenly spread, never on top of each other
+    bool allSingle = true;
+    for (TreePtrList::iterator it = trees.begin(); it != trees.end(); ++it) {
+        if ( (*it)->getNodes().size() != 1 ) {
+            allSingle = false;
+            break;
+        }
+    }
+    if ( allSingle && (trees.size() > 1) ) {
+        struct Item { NodeGuiPtr node; QPointF center; QSize size; };
+        std::vector<Item> items;
+        double minX = 1e30, maxX = -1e30, minY = 1e30, maxY = -1e30, maxW = 0., maxH = 0.;
+        for (TreePtrList::iterator it = trees.begin(); it != trees.end(); ++it) {
+            Item i;
+            i.node = (*it)->getNodes().front().first;
+            i.size = i.node->getSize();
+            i.center = i.node->pos() + QPointF(i.size.width() / 2., i.size.height() / 2.);
+            items.push_back(i);
+            minX = std::min( minX, i.center.x() ); maxX = std::max( maxX, i.center.x() );
+            minY = std::min( minY, i.center.y() ); maxY = std::max( maxY, i.center.y() );
+            maxW = std::max( maxW, (double)i.size.width() ); maxH = std::max( maxH, (double)i.size.height() );
+        }
+        const bool row = (maxX - minX) >= (maxY - minY);
+        std::stable_sort( items.begin(), items.end(), [row](const Item& a, const Item& b) {
+            return row ? a.center.x() < b.center.x() : a.center.y() < b.center.y();
+        } );
+        const int n = (int)items.size();
+        const double minStep = row ? maxW * 1.5 : maxH * 2.5;
+        const double span = row ? (maxX - minX) : (maxY - minY);
+        const double step = std::max( minStep, span / (n - 1) );
+        double sumAcross = 0.;
+        for (int i = 0; i < n; ++i) {
+            sumAcross += row ? items[i].center.y() : items[i].center.x();
+        }
+        const double across = sumAcross / n;
+        const double start = row ? items[0].center.x() : items[0].center.y();
+        for (int i = 0; i < n; ++i) {
+            NodeToRearrange r;
+            r.node = items[i].node;
+            QPointF c = row ? QPointF(start + i * step, across) : QPointF(across, start + i * step);
+            r.newPos = c - QPointF(items[i].size.width() / 2., items[i].size.height() / 2.);
+            r.oldPos = r.node->pos();
+            _nodes.push_back(r);
+        }
+        setText( tr("Rearrange nodes") );
+
+        return;
+    }
+
     ///now offset all trees to be top aligned at the same level
     for (TreePtrList::iterator it = trees.begin(); it != trees.end(); ++it) {
         QPointF treeTop = (*it)->getTopLevelNodeCenter();
@@ -1061,6 +1111,40 @@ RearrangeNodesCommand::RearrangeNodesCommand(const std::list<NodeGuiPtr> & nodes
             (*it)->moveAllTree(delta);
         }
 
+    }
+
+    // SOLVFX: trees side by side, never overlapping (in their current left to right order)
+    {
+        struct Span { TreePtr tree; double x1, x2; };
+        std::vector<Span> spans;
+        for (TreePtrList::iterator it = trees.begin(); it != trees.end(); ++it) {
+            Span sp;
+            sp.tree = *it;
+            sp.x1 = 1e30; sp.x2 = -1e30;
+            const std::list<TreeNode> & tn = (*it)->getNodes();
+            for (std::list<TreeNode>::const_iterator it2 = tn.begin(); it2 != tn.end(); ++it2) {
+                const double hw = it2->first->getSize().width() / 2.;
+                sp.x1 = std::min(sp.x1, it2->second.x() - hw);
+                sp.x2 = std::max(sp.x2, it2->second.x() + hw);
+            }
+            if ( !tn.empty() ) {
+                spans.push_back(sp);
+            }
+        }
+        std::stable_sort( spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.x1 < b.x1; } );
+        const double gap = 40.;
+        for (std::size_t i = 1; i < spans.size(); ++i) {
+            const double minX1 = spans[i - 1].x2 + gap;
+            if (spans[i].x1 < minX1) {
+                const double d = minX1 - spans[i].x1;
+                spans[i].tree->moveAllTree( QPointF(d, 0) );
+                spans[i].x1 += d;
+                spans[i].x2 += d;
+            }
+        }
+    }
+
+    for (TreePtrList::iterator it = trees.begin(); it != trees.end(); ++it) {
         ///and insert the final result into the _nodes list
         const std::list<TreeNode> & treeNodes = (*it)->getNodes();
         for (std::list<TreeNode>::const_iterator it2 = treeNodes.begin(); it2 != treeNodes.end(); ++it2) {

@@ -53,6 +53,8 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 
 #include "Global/QtCompat.h"
 
+#include <QtCore/QLineF>
+
 NATRON_NAMESPACE_ENTER
 static NodeGui*
 isNodeGuiChild(QGraphicsItem* item)
@@ -416,11 +418,38 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
         _imp->_arrowSelected = nearbyEdge;
         // SOLVFX: Shift+drag on a pipe duplicates it: a new pipe from the same source is dragged to
         // another node's input, the original connection stays
-        if ( modCASIsShift(e) && !nearbyEdge->isOutputEdge() && nearbyEdge->getSource() ) {
-            Edge* out = nearbyEdge->getSource()->getOutputArrow();
-            if (out) {
-                _imp->_arrowSelected = out;
-                out->dragDest( out->mapFromScene(lastMousePosScene) );
+        // Near the source end (tail): the copy keeps the destination and takes its next free input, its tail
+        // follows the mouse to the node to connect (several inputs into a ContactSheet / Merge ...).
+        // Near the destination end (arrow head): the copy keeps the source and its head goes to another input.
+        if ( modCASIsShift(e) && !nearbyEdge->isOutputEdge() && nearbyEdge->getSource() && nearbyEdge->getDest() ) {
+            NodeGuiPtr src = nearbyEdge->getSource();
+            NodeGuiPtr dst = nearbyEdge->getDest();
+            const QPointF sc = src->mapToScene( src->boundingRect().center() );
+            const QPointF dc = dst->mapToScene( dst->boundingRect().center() );
+            const double ds = QLineF(lastMousePosScene, sc).length();
+            const double dd = QLineF(lastMousePosScene, dc).length();
+            Edge* copy = 0;
+            if (ds <= dd) {
+                NodePtr dn = dst->getNode();
+                const int n = dn ? dn->getNInputs() : 0;
+                for (int i = 0; i < n && !copy; ++i) {
+                    if ( dn->getInput(i) || dn->getEffectInstance()->isInputMask(i) || (i == nearbyEdge->getInputNumber()) ) {
+                        continue;
+                    }
+                    copy = dst->getInputArrow(i);
+                }
+                if (copy) {
+                    copy->setVisible(true);
+                    copy->dragSource( copy->mapFromScene(lastMousePosScene) );
+                }
+            } else {
+                copy = src->getOutputArrow();
+                if (copy) {
+                    copy->dragDest( copy->mapFromScene(lastMousePosScene) );
+                }
+            }
+            if (copy) {
+                _imp->_arrowSelected = copy;
             }
         }
         didSomething = true;

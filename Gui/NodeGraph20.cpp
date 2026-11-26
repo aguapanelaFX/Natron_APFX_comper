@@ -409,27 +409,37 @@ NodeGraph::solvfxChainHints(bool controlDown,
         for (NodesGuiList::const_iterator it = _imp->_selection.begin(); it != _imp->_selection.end(); ++it) {
             sel.insert( it->get() );
         }
-        QRectF bbox = drag->boundingRectWithEdges();
-        bbox.adjust(-10, -10, 10, 10);
+        // SOLVFX: the pipe can be under any node of the dragged chain (the grabbed one first)
+        std::vector<NodeGuiPtr> probes;
+        probes.push_back(drag);
+        for (NodesGuiList::const_iterator it = _imp->_selection.begin(); it != _imp->_selection.end(); ++it) {
+            if ( (*it != drag) && !dynamic_cast<BackdropGui*>( it->get() ) ) {
+                probes.push_back(*it);
+            }
+        }
         std::set<NodeGui*> within;
         getNodesWithinViewportRect(visibleWidgetRect(), &within);
-        for (std::set<NodeGui*>::iterator it = within.begin(); it != within.end(); ++it) {
-            if ( sel.count(*it) || !(*it)->isVisible() || dynamic_cast<BackdropGui*>(*it) ) {
-                continue;
+        for (std::size_t p = 0; p < probes.size() && !edge; ++p) {
+            QRectF bbox = probes[p]->mapToScene( probes[p]->boundingRect() ).boundingRect();
+            bbox.adjust(-10, -10, 10, 10);
+            for (std::set<NodeGui*>::iterator it = within.begin(); it != within.end(); ++it) {
+                if ( sel.count(*it) || !(*it)->isVisible() || dynamic_cast<BackdropGui*>(*it) ) {
+                    continue;
+                }
+                NodePtr n = (*it)->getNode();
+                if ( !n || (n->getNInputs() == 0) ) {
+                    continue;
+                }
+                Edge* e = (*it)->hasEdgeNearbyRect(bbox);
+                if ( !e || e->isOutputEdge() || !e->getSource() || sel.count( e->getSource().get() ) ) {
+                    continue;
+                }
+                if ( n->getEffectInstance() && n->getEffectInstance()->isInputRotoBrush( e->getInputNumber() ) ) {
+                    continue;
+                }
+                edge = e;
+                break;
             }
-            NodePtr n = (*it)->getNode();
-            if ( !n || (n->getNInputs() == 0) ) {
-                continue;
-            }
-            Edge* e = (*it)->hasEdgeNearbyRect(bbox);
-            if ( !e || e->isOutputEdge() || !e->getSource() || sel.count( e->getSource().get() ) ) {
-                continue;
-            }
-            if ( n->getEffectInstance() && n->getEffectInstance()->isInputRotoBrush( e->getInputNumber() ) ) {
-                continue;
-            }
-            edge = e;
-            break;
         }
     }
     if ( _imp->_highLightedEdge && (_imp->_highLightedEdge != edge) ) {

@@ -893,8 +893,8 @@ Project::initializeKnobs()
 
 
     _imp->frameRange = AppManager::createKnob<KnobInt>(this, tr("Frame Range"), 2);
-    _imp->frameRange->setDefaultValue(1001, 0); // SOLVFX: 1001-1200 by default
-    _imp->frameRange->setDefaultValue(1200, 1);
+    _imp->frameRange->setDefaultValue(1, 0); // SOLVFX: 1-120 by default
+    _imp->frameRange->setDefaultValue(120, 1);
     _imp->frameRange->setDimensionName(0, "first");
     _imp->frameRange->setDimensionName(1, "last");
     _imp->frameRange->setEvaluateOnChange(false);

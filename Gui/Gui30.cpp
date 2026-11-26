@@ -667,40 +667,172 @@ void
 Gui::registerNewUndoStack(QUndoStack* stack)
 {
     _imp->_undoStacksGroup->addStack(stack);
+    // SOLVFX: the per-stack actions have no shortcut, Ctrl+Z / Ctrl+Shift+Z go to the global history
     QAction* undo = stack->createUndoAction(stack);
-    undo->setShortcut(QKeySequence::Undo);
     QAction* redo = stack->createRedoAction(stack);
-    redo->setShortcut(QKeySequence::Redo);
     _imp->_undoStacksActions.insert( std::make_pair( stack, std::make_pair(undo, redo) ) );
+    _imp->_globalStackIndex[stack] = stack->index();
+    QObject::connect( stack, SIGNAL(indexChanged(int)), this, SLOT(onAnyUndoStackIndexChanged(int)) );
+    if (!_imp->_globalUndoAction) {
+        // application-wide (floating panes too) for the first window; other project windows use their own
+        static bool firstWindowTaken = false;
+        const Qt::ShortcutContext ctx = firstWindowTaken ? Qt::WindowShortcut : Qt::ApplicationShortcut;
+        firstWindowTaken = true;
+        _imp->_globalUndoAction = new QAction(tr("Undo"), this);
+        _imp->_globalUndoAction->setShortcut(QKeySequence::Undo);
+        _imp->_globalUndoAction->setShortcutContext(ctx);
+        QObject::connect( _imp->_globalUndoAction, SIGNAL(triggered()), this, SLOT(onGlobalUndo()) );
+        _imp->_globalRedoAction = new QAction(tr("Redo"), this);
+        _imp->_globalRedoAction->setShortcuts( QList<QKeySequence>() << QKeySequence::Redo << QKeySequence( Qt::CTRL | Qt::SHIFT | Qt::Key_Z ) );
+        _imp->_globalRedoAction->setShortcutContext(ctx);
+        QObject::connect( _imp->_globalRedoAction, SIGNAL(triggered()), this, SLOT(onGlobalRedo()) );
+        if (_imp->menuEdit) {
+            QList<QAction*> acts = _imp->menuEdit->actions();
+            QAction* before = acts.isEmpty() ? 0 : acts.front();
+            _imp->menuEdit->insertAction(before, _imp->_globalUndoAction);
+            _imp->menuEdit->insertAction(before, _imp->_globalRedoAction);
+        }
+        addAction(_imp->_globalUndoAction);
+        addAction(_imp->_globalRedoAction);
+    }
+}
+
+static void
+eraseLast(std::vector<QUndoStack*>& v, QUndoStack* s)
+{
+    for (std::size_t i = v.size(); i > 0; --i) {
+        if (v[i - 1] == s) {
+            v.erase( v.begin() + (i - 1) );
+
+            return;
+        }
+    }
+}
+
+static void
+eraseAll(std::vector<QUndoStack*>& v, QUndoStack* s)
+{
+    v.erase( std::remove(v.begin(), v.end(), s), v.end() );
 }
 
 void
 Gui::removeUndoStack(QUndoStack* stack)
 {
+    eraseAll(_imp->_globalUndo, stack);
+    eraseAll(_imp->_globalRedo, stack);
+    _imp->_globalStackIndex.erase(stack);
     std::map<QUndoStack*, std::pair<QAction*, QAction*> >::iterator it = _imp->_undoStacksActions.find(stack);
 
     if ( it == _imp->_undoStacksActions.end() ) {
         return;
     }
     if (_imp->_currentUndoAction == it->second.first) {
-        _imp->menuEdit->removeAction(_imp->_currentUndoAction);
+        _imp->_currentUndoAction = 0;
     }
     if (_imp->_currentRedoAction == it->second.second) {
-        _imp->menuEdit->removeAction(_imp->_currentRedoAction);
+        _imp->_currentRedoAction = 0;
     }
-    if ( it != _imp->_undoStacksActions.end() ) {
-        _imp->_undoStacksActions.erase(it);
-    }
+    _imp->_undoStacksActions.erase(it);
 }
 
 void
 Gui::onCurrentUndoStackChanged(QUndoStack* stack)
 {
+    // SOLVFX: the Edit menu keeps the global Undo / Redo
     std::map<QUndoStack*, std::pair<QAction*, QAction*> >::iterator it = _imp->_undoStacksActions.find(stack);
 
-    //the stack must have been registered first with registerNewUndoStack()
     if ( it != _imp->_undoStacksActions.end() ) {
-        _imp->setUndoRedoActions(it->second.first, it->second.second);
+        _imp->_currentUndoAction = it->second.first;
+        _imp->_currentRedoAction = it->second.second;
+    }
+}
+
+void
+Gui::onAnyUndoStackIndexChanged(int index)
+{
+    QUndoStack* stack = qobject_cast<QUndoStack*>( sender() );
+
+    if (!stack) {
+        return;
+    }
+    std::map<QUndoStack*, int>::iterator it = _imp->_globalStackIndex.find(stack);
+    const int prev = ( it == _imp->_globalStackIndex.end() ) ? index : it->second;
+    _imp->_globalStackIndex[stack] = index;
+    if (_imp->_globalUndoBusy) {
+        return;
+    }
+    if (stack->count() == 0) {
+        eraseAll(_imp->_globalUndo, stack);
+        eraseAll(_imp->_globalRedo, stack);
+
+        return;
+    }
+    if (index > prev) {
+        // new command (or redo from the stack's own button)
+        for (int i = prev; i < index; ++i) {
+            eraseLast(_imp->_globalRedo, stack);
+            _imp->_globalUndo.push_back(stack);
+        }
+        if ( !stack->canRedo() ) {
+            // a new action: what was undone elsewhere can no longer be redone in order
+            eraseAll(_imp->_globalRedo, stack);
+        }
+    } else if (index < prev) {
+        for (int i = index; i < prev; ++i) {
+            eraseLast(_imp->_globalUndo, stack);
+            _imp->_globalRedo.push_back(stack);
+        }
+    }
+    const std::size_t maxEntries = 2000;
+    if (_imp->_globalUndo.size() > maxEntries) {
+        _imp->_globalUndo.erase( _imp->_globalUndo.begin(), _imp->_globalUndo.begin() + (_imp->_globalUndo.size() - maxEntries) );
+    }
+}
+
+void
+Gui::onGlobalUndo()
+{
+    while ( !_imp->_globalUndo.empty() ) {
+        QUndoStack* stack = _imp->_globalUndo.back();
+        _imp->_globalUndo.pop_back();
+        if ( ( _imp->_globalStackIndex.find(stack) == _imp->_globalStackIndex.end() ) || !stack->canUndo() ) {
+            continue;
+        }
+        _imp->_globalUndoBusy = true;
+        stack->undo();
+        _imp->_globalUndoBusy = false;
+        _imp->_globalStackIndex[stack] = stack->index();
+        _imp->_globalRedo.push_back(stack);
+
+        return;
+    }
+    // nothing recorded: the stack under the mouse
+    QUndoStack* active = _imp->_undoStacksGroup->activeStack();
+    if ( active && active->canUndo() ) {
+        _imp->_globalUndoBusy = true;
+        active->undo();
+        _imp->_globalUndoBusy = false;
+        _imp->_globalStackIndex[active] = active->index();
+        _imp->_globalRedo.push_back(active);
+    }
+}
+
+void
+Gui::onGlobalRedo()
+{
+    while ( !_imp->_globalRedo.empty() ) {
+        QUndoStack* stack = _imp->_globalRedo.back();
+        _imp->_globalRedo.pop_back();
+        if ( ( _imp->_globalStackIndex.find(stack) == _imp->_globalStackIndex.end() ) || !stack->canRedo() ) {
+            continue;
+        }
+        _imp->_globalUndoBusy = true;
+        stack->redo();
+        _imp->_globalUndoBusy = false;
+        _imp->_globalStackIndex[stack] = stack->index();
+        _imp->_globalUndo.push_back(stack);
+
+        return;
     }
 }
 

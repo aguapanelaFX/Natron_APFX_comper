@@ -2720,13 +2720,40 @@ SequenceFileDialog::onSelectionLineEditing(const QString & text)
 void
 SequenceFileDialog::onLiveFilterEdited(const QString & text)
 {
-    // a path being typed (separators) keeps the normal behaviour
+    // the filter is the part after the last separator: "C:/Users/me/Desktop/pig" filters with "pig"
     QString t = text.trimmed();
-    if ( t.contains( QLatin1Char('/') ) || t.contains( QLatin1Char('\\') ) ) {
-        t.clear();
+    const int sep = std::max( t.lastIndexOf( QLatin1Char('/') ), t.lastIndexOf( QLatin1Char('\\') ) );
+    if (sep >= 0) {
+        t = t.mid(sep + 1);
     }
     _liveFilter = t;
     reapplyLiveFilter();
+}
+
+// SOLVFX: the typed characters in the same order, anything in between, any case ("pig" matches "p_rig_ug").
+// Score: 0 = no match, higher = better (letters next to each other, at the start of the name)
+static int
+solvfxFuzzyScore(const QString& name,
+                 const QString& pattern)
+{
+    if ( pattern.isEmpty() ) {
+        return 1;
+    }
+    const int contiguous = name.indexOf(pattern, 0, Qt::CaseInsensitive);
+    if (contiguous == 0) {
+        return 4;
+    }
+    if (contiguous > 0) {
+        return 3;
+    }
+    int j = 0;
+    for (int i = 0; i < name.size() && j < pattern.size(); ++i) {
+        if ( name.at(i).toLower() == pattern.at(j).toLower() ) {
+            ++j;
+        }
+    }
+
+    return (j == pattern.size()) ? 2 : 0;
 }
 
 void
@@ -2738,15 +2765,24 @@ SequenceFileDialog::reapplyLiveFilter()
     }
     const QModelIndex root = _view->rootIndex();
     const int n = m->rowCount(root);
+    int bestRow = -1, bestScore = 0;
     for (int r = 0; r < n; ++r) {
         bool show = true;
         if ( !_liveFilter.isEmpty() ) {
             const QString name = m->index(r, 0, root).data(Qt::DisplayRole).toString();
-            show = name.contains(_liveFilter, Qt::CaseInsensitive);
+            const int sc = solvfxFuzzyScore(name, _liveFilter);
+            show = sc > 0;
+            if (sc > bestScore) {
+                bestScore = sc;
+                bestRow = r;
+            }
         }
         if ( _view->isRowHidden(r, root) == show ) {
             _view->setRowHidden(r, root, !show);
         }
+    }
+    if (bestRow >= 0) {
+        _view->scrollTo( m->index(bestRow, 0, root) );
     }
 }
 

@@ -20,6 +20,9 @@
 
 #include "Global/GLIncludes.h"
 
+#include <QtCore/QFileInfo>
+#include <QtCore/QDateTime>
+
 #include "Engine/AppInstance.h"
 #include "Engine/AppManager.h"
 #include "Engine/CreateNodeArgs.h"
@@ -797,6 +800,72 @@ makeHoldKnobs(EffectInstance* fx, const KnobPagePtr& page, KnobBoolWPtr* on, Kno
                                    "Set to the current frame when frame hold is turned on.") );
     page->addKnob(f);
     *frame = f;
+}
+
+namespace {
+struct FileAnimEntry
+{
+    long long stamp = -1;
+    bool animated = false;
+};
+std::mutex gFileAnimMutex;
+std::map<std::string, FileAnimEntry> gFileAnim;
+
+long long
+fileStamp(const std::string& file)
+{
+    QFileInfo fi( QString::fromUtf8( file.c_str() ) );
+    if ( !fi.exists() ) {
+        return -1;
+    }
+
+    return (long long)fi.lastModified().toMSecsSinceEpoch() ^ ( (long long)fi.size() << 20 );
+}
+} // anon
+
+bool
+Solv3DNode::fileIsAnimated(const std::string& file)
+{
+    if ( file.empty() ) {
+        return false;
+    }
+    std::string lower = file;
+    std::transform( lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); } );
+    const bool isUsd = lower.find(".usd") != std::string::npos;
+    const bool isAbc = (lower.size() > 4) && (lower.compare(lower.size() - 4, 4, ".abc") == 0);
+    if ( !isUsd && !isAbc ) {
+        return false;
+    }
+    const long long stamp = fileStamp(file);
+    {
+        std::lock_guard<std::mutex> l(gFileAnimMutex);
+        std::map<std::string, FileAnimEntry>::const_iterator it = gFileAnim.find(file);
+        if ( (it != gFileAnim.end()) && (it->second.stamp == stamp) ) {
+            return it->second.animated;
+        }
+    }
+    double s0 = 0., s1 = 0., fps = 24.;
+    bool ok = false;
+    if (isUsd) {
+        ok = usdTimeRange(file, &s0, &s1, &fps);
+    } else {
+        ok = alembicTimeRange(file, &s0, &s1);
+    }
+    FileAnimEntry e;
+    e.stamp = stamp;
+    // unknown range: treat as animated, a wrong 'static' would freeze the render
+    e.animated = !ok || (s1 > s0);
+    std::lock_guard<std::mutex> l(gFileAnimMutex);
+    gFileAnim[file] = e;
+
+    return e.animated;
+}
+
+void
+Solv3DNode::forgetFileAnimation(const std::string& file)
+{
+    std::lock_guard<std::mutex> l(gFileAnimMutex);
+    gFileAnim.erase(file);
 }
 
 static double
@@ -3913,6 +3982,33 @@ Solv3DScanline::render(const RenderActionArgs& args)
     }
 
     return eStatusOK;
+}
+
+
+bool
+Solv3DCamera::isContentTimeVarying() const
+{
+    KnobBoolPtr imp = _importFile.lock();
+    KnobBoolPtr live = _liveRead.lock();
+    KnobBoolPtr hold = _holdOn.lock();
+    KnobFilePtr f = _file.lock();
+    if ( !imp || !live || !f || !imp->getValue() || !live->getValue() || (hold && hold->getValue()) ) {
+        return false;
+    }
+
+    return fileIsAnimated( f->getValue() );
+}
+
+bool
+Solv3DReadGeo::isContentTimeVarying() const
+{
+    KnobBoolPtr hold = _holdOn.lock();
+    KnobFilePtr f = _file.lock();
+    if ( !f || (hold && hold->getValue()) ) {
+        return false;
+    }
+
+    return fileIsAnimated( f->getValue() );
 }
 
 NATRON_NAMESPACE_EXIT

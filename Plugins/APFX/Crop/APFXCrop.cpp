@@ -483,6 +483,7 @@ APFXCropFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
             p->setLayoutHint(eLayoutHintNoNewLine, 16);
         }
         page->addChild(*p);
+        desc.addClipPreferencesSlaveParam(*p);   // reformat: the box is the output format
     }
     {
         PushButtonParamDescriptor* p = desc.definePushButtonParam("matchInput");
@@ -492,8 +493,12 @@ APFXCropFactory::describeInContext(ImageEffectDescriptor& desc, ContextEnum)
         page->addChild(*p);
     }
     APFXOfx::defineDouble(desc, page, "softness", "softness", "Fades the edges inwards (pixels).", 0., 0., 100., 0., 10000.);
-    APFXOfx::defineBool(desc, page, "reformat", "reformat", "The box becomes the output format (moved to the origin).", false)
-        ->setLayoutHint(eLayoutHintNoNewLine, 16);
+    {
+        BooleanParamDescriptor* p = APFXOfx::defineBool(desc, page, "reformat", "reformat",
+                                                        "The box becomes the output format (moved to the origin).", false);
+        p->setLayoutHint(eLayoutHintNoNewLine, 16);
+        desc.addClipPreferencesSlaveParam(*p);
+    }
     APFXOfx::defineBool(desc, page, "intersect", "intersect", "Only what the input covers inside the box.", false)
         ->setLayoutHint(eLayoutHintNoNewLine, 16);
     APFXOfx::defineBool(desc, page, "blackOutside", "black outside",

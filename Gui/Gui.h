@@ -626,6 +626,9 @@ public Q_SLOTS:
     void addToolButttonsToToolBar();
 
     void onCurrentUndoStackChanged(QUndoStack* stack);
+    void onAnyUndoStackIndexChanged(int index);
+    void onGlobalUndo();
+    void onGlobalRedo();
 
     void showSettings();
 

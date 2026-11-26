@@ -5266,9 +5266,18 @@ void
 isFrameVaryingOrAnimated_impl(const EffectInstance* node,
                               bool *ret)
 {
-    if ( node->isFrameVarying() || node->getHasAnimation() || node->getNode()->getRotoContext() ) {
+    if ( node->isFrameVarying() || node->getHasAnimation() || node->getNode()->getRotoContext() || node->isContentTimeVarying() ) {
         *ret = true;
     } else {
+        // SOLVFX: an enabled FrameHold without increment outputs the same frame at every time:
+        // nothing upstream of it makes the tree vary
+        if ( (node->getPluginID() == "net.sf.openfx.FrameHold") && !node->getNode()->isNodeDisabled() ) {
+            KnobIPtr inc = node->getKnobByName("increment");
+            KnobInt* incI = inc ? dynamic_cast<KnobInt*>( inc.get() ) : 0;
+            if ( incI && (incI->getValue() == 0) ) {
+                return;
+            }
+        }
         int maxInputs = node->getNInputs();
         for (int i = 0; i < maxInputs; ++i) {
             EffectInstancePtr input = node->getInput(i);

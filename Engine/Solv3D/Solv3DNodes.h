@@ -128,6 +128,9 @@ public:
     static bool frameHoldTime(EffectInstance* e, double* time);
     // first 3D node upstream of 'in' through Dots / Stamps / FrameHolds; *time follows the FrameHolds met on the way
     static Solv3DNode* upstream3D(const EffectInstancePtr& in, double* time);
+    // true when the USD / Alembic file has more than one time sample (cached per file and modification time)
+    static bool fileIsAnimated(const std::string& file);
+    static void forgetFileAnimation(const std::string& file);
 
     // prim path of this node: the 'path' parameter ({nodename} = the script name), else "/<script name>"
     std::string primPath() const;
@@ -268,6 +271,7 @@ public:
     virtual void initializeKnobs() OVERRIDE FINAL;
     virtual void buildScene(double time, Solv3D::Scene* scene) OVERRIDE FINAL;
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
+    virtual bool isContentTimeVarying() const OVERRIDE FINAL; // animated camera read from the file
 
 private:
     // camera of the import file at 'time' (world matrix + values); false when not importing / not found
@@ -452,6 +456,7 @@ public:
     virtual bool knobChanged(KnobI* k, ValueChangedReasonEnum reason, ViewSpec view, double time, bool originatedFromMainThread) OVERRIDE FINAL;
     virtual void getFrameRange(double* first, double* last) OVERRIDE FINAL;
     virtual void onKnobsLoaded() OVERRIDE FINAL;
+    virtual bool isContentTimeVarying() const OVERRIDE FINAL; // animated USD / Alembic
 
 private:
     void refreshStatus();

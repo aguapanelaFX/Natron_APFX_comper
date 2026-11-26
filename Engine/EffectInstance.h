@@ -809,6 +809,12 @@ public:
     bool isFrameVarying() const;
 
     /**
+     * @brief SOLVFX: true when the output changes over time for a reason other than animated parameters
+     * (animated geometry / camera read from a file ...). Must be fast: called for every render.
+     **/
+    virtual bool isContentTimeVarying() const { return false; }
+
+    /**
      * @brief Returns whether the current node and/or the tree upstream is frame varying or animated.
      * It is frame varying/animated if at least one of the node is animated/varying
      **/

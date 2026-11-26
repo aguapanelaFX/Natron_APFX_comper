@@ -81,6 +81,13 @@ public:
     ///all the undo stacks of Natron are gathered here
     QUndoGroup* _undoStacksGroup;
     std::map<QUndoStack*, std::pair<QAction*, QAction*> > _undoStacksActions;
+    // SOLVFX: one undo history for the whole app (node graph, properties, keyframes, curve editor ...):
+    // Ctrl+Z undoes the last action wherever it was made, wherever the mouse is
+    std::vector<QUndoStack*> _globalUndo, _globalRedo;
+    std::map<QUndoStack*, int> _globalStackIndex;
+    bool _globalUndoBusy = false;
+    QAction* _globalUndoAction = 0;
+    QAction* _globalRedoAction = 0;
 
     ///all the splitters used to separate the "panes" of the application
     mutable QMutex _splittersMutex;
